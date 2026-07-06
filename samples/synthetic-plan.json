@@ -1,0 +1,41 @@
+{
+  "patient": {
+    "id": "SYN-0001",
+    "displayName": "Synthetic Patient"
+  },
+  "plan": {
+    "id": "HN-SYN-001",
+    "courseId": "C1",
+    "diseaseSite": "Head and Neck",
+    "prescription": {
+      "totalDoseGy": 70,
+      "fractionCount": 35,
+      "targetStructureId": "PTV_7000",
+      "isSigned": true,
+      "intent": "Definitive"
+    },
+    "structures": [
+      { "id": "BODY", "name": "Body", "type": "External", "volumeCc": 31500, "hasContours": true },
+      { "id": "PTV_7000", "name": "PTV_7000", "type": "Target", "volumeCc": 164.2, "hasContours": true },
+      { "id": "CORD", "name": "SpinalCord", "type": "OrganAtRisk", "volumeCc": 42.1, "hasContours": true },
+      { "id": "HEART", "name": "Heart", "type": "OrganAtRisk", "volumeCc": 611.4, "hasContours": true },
+      { "id": "LUNG_R", "name": "Lung_R", "type": "OrganAtRisk", "volumeCc": 1820.5, "hasContours": true },
+      { "id": "LUNG_L", "name": "Lung_L", "type": "OrganAtRisk", "volumeCc": 1655.3, "hasContours": true }
+    ],
+    "dose": {
+      "id": "DOSE-001",
+      "grid": {
+        "spacingXMm": 2.5,
+        "spacingYMm": 2.5,
+        "spacingZMm": 2.5
+      },
+      "statistics": [
+        { "structureId": "PTV_7000", "metrics": { "MaxDoseGy": 74.1, "MeanDoseGy": 70.2, "D95PercentDoseGy": 67.4 } },
+        { "structureId": "CORD", "metrics": { "MaxDoseGy": 42.3, "MeanDoseGy": 18.2 } },
+        { "structureId": "HEART", "metrics": { "MaxDoseGy": 19.8, "MeanDoseGy": 8.4 } },
+        { "structureId": "LUNG_R", "metrics": { "MeanDoseGy": 9.1, "V20GyPercent": 18.6 } },
+        { "structureId": "LUNG_L", "metrics": { "MeanDoseGy": 8.7, "V20GyPercent": 17.2 } }
+      ]
+    }
+  }
+}

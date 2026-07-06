@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Combined BeamKit QA pipeline and report generation.</Description>
+    <PackageId>BeamKit.Qa</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
+    <ProjectReference Include="..\BeamKit.Naming\BeamKit.Naming.csproj" />
+    <ProjectReference Include="..\BeamKit.Reporting\BeamKit.Reporting.csproj" />
+    <ProjectReference Include="..\BeamKit.Rules\BeamKit.Rules.csproj" />
+    <ProjectReference Include="..\BeamKit.Workflow\BeamKit.Workflow.csproj" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,35 @@
+{
+  "name": "Synthetic head and neck baseline",
+  "diseaseSite": "Head and Neck",
+  "institution": "Synthetic",
+  "version": "2026.1",
+  "goals": [
+    {
+      "id": "goal.ptv.d95",
+      "structureName": "PTV_7000",
+      "metricKey": "D95PercentDoseGy",
+      "comparison": "GreaterThanOrEqual",
+      "threshold": 66.5,
+      "unit": "Gy",
+      "severity": "Required"
+    },
+    {
+      "id": "goal.cord.max",
+      "structureName": "SpinalCord",
+      "metricKey": "MaxDoseGy",
+      "comparison": "LessThanOrEqual",
+      "threshold": 45,
+      "unit": "Gy",
+      "severity": "Required"
+    },
+    {
+      "id": "goal.heart.mean",
+      "structureName": "Heart",
+      "metricKey": "MeanDoseGy",
+      "comparison": "LessThanOrEqual",
+      "threshold": 10,
+      "unit": "Gy",
+      "severity": "Warning"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+bin/
+obj/
+.vs/
+.vscode/
+TestResults/
+coverage/
+*.user
+*.suo
+*.nupkg
+*.snupkg
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>DICOM RT import adapters for BeamKit.</Description>
+    <PackageId>BeamKit.Dicom</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="fo-dicom" />
+    <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
+    <ProjectReference Include="..\BeamKit.Dvh\BeamKit.Dvh.csproj" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

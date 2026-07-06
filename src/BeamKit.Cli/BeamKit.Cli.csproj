@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Command line tools for BeamKit.</Description>
+    <PackageId>BeamKit.Cli</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
+    <ProjectReference Include="..\BeamKit.Naming\BeamKit.Naming.csproj" />
+    <ProjectReference Include="..\BeamKit.Qa\BeamKit.Qa.csproj" />
+    <ProjectReference Include="..\BeamKit.Reporting\BeamKit.Reporting.csproj" />
+    <ProjectReference Include="..\BeamKit.Rules\BeamKit.Rules.csproj" />
+    <ProjectReference Include="..\BeamKit.Samples\BeamKit.Samples.csproj" />
+    <ProjectReference Include="..\BeamKit.Templates\BeamKit.Templates.csproj" />
+    <ProjectReference Include="..\BeamKit.Workflow\BeamKit.Workflow.csproj" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>
