@@ -9,4 +9,10 @@ public sealed record EsapiBeamSnapshot(
     string Modality,
     string Energy,
     decimal? GantryAngleDegrees = null,
-    decimal? MonitorUnits = null);
+    decimal? MonitorUnits = null,
+    string? TreatmentUnitId = null,
+    string? TechniqueId = null,
+    bool IsSetupField = false,
+    IReadOnlyList<EsapiBeamControlPointSnapshot>? ControlPoints = null,
+    string? BeamModelId = null,
+    bool? JawTrackingEnabled = null);

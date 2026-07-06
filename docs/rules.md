@@ -34,6 +34,20 @@ DoseMetricKeys.VolumeAtDoseGy(20m)
 
 `ClinicalGoal` values can be converted into dose-metric rules. Required goals produce `Fail` when violated; advisory and warning goals produce `Warning`.
 
+## Changing Rule Libraries
+
+Rules that change by institution, disease site, or physician should live in JSON templates or rule catalogs rather than application code.
+
+Use `BeamKit.Templates` for:
+
+- Versioned template sets.
+- Rule descriptions, references, rationales, and tags.
+- Owner and approval metadata.
+- Active/inactive rules for retirement without loss of traceability.
+- Conversion to executable `PlanRuleSet` values.
+
+See [clinical-goal-templates.md](clinical-goal-templates.md) and [rule-catalog.md](rule-catalog.md).
+
 ## Design Rules
 
 - A rule must be deterministic and side-effect-free.

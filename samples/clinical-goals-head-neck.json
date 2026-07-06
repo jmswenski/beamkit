@@ -3,6 +3,11 @@
   "diseaseSite": "Head and Neck",
   "institution": "Synthetic",
   "version": "2026.1",
+  "description": "Synthetic disease-site baseline for head-and-neck plan QA.",
+  "owner": "Radiation Oncology",
+  "approvedBy": "Synthetic Physics",
+  "approvedOn": "2026-07-06",
+  "tags": [ "head-neck", "baseline" ],
   "goals": [
     {
       "id": "goal.ptv.d95",
@@ -11,7 +16,11 @@
       "comparison": "GreaterThanOrEqual",
       "threshold": 66.5,
       "unit": "Gy",
-      "severity": "Required"
+      "severity": "Required",
+      "description": "PTV D95 coverage objective.",
+      "reference": "Synthetic institutional head-and-neck baseline",
+      "rationale": "Documents target coverage expectations in a machine-readable rule template.",
+      "tags": [ "target", "coverage", "head-neck" ]
     },
     {
       "id": "goal.cord.max",
@@ -20,7 +29,11 @@
       "comparison": "LessThanOrEqual",
       "threshold": 45,
       "unit": "Gy",
-      "severity": "Required"
+      "severity": "Required",
+      "description": "Spinal cord maximum dose limit.",
+      "reference": "Synthetic institutional head-and-neck baseline",
+      "rationale": "Captures a required serial-organ constraint for automated QA.",
+      "tags": [ "oar", "cord", "head-neck" ]
     },
     {
       "id": "goal.heart.mean",
@@ -29,7 +42,11 @@
       "comparison": "LessThanOrEqual",
       "threshold": 10,
       "unit": "Gy",
-      "severity": "Warning"
+      "severity": "Warning",
+      "description": "Heart mean dose review goal.",
+      "reference": "Synthetic institutional head-and-neck baseline",
+      "rationale": "Shows how lower-priority review goals can be represented as warnings.",
+      "tags": [ "oar", "heart" ]
     }
   ]
 }

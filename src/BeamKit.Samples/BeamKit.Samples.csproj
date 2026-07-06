@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
+    <ProjectReference Include="..\BeamKit.Metrics\BeamKit.Metrics.csproj" />
     <ProjectReference Include="..\BeamKit.Naming\BeamKit.Naming.csproj" />
     <ProjectReference Include="..\BeamKit.Rules\BeamKit.Rules.csproj" />
     <ProjectReference Include="..\BeamKit.Templates\BeamKit.Templates.csproj" />

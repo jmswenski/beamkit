@@ -1,4 +1,5 @@
 using BeamKit.Core.Domain;
+using BeamKit.Metrics;
 
 namespace BeamKit.Samples;
 
@@ -18,7 +19,9 @@ public static class SyntheticPlanFactory
             fractionCount: 35,
             targetStructureId: "PTV_7000",
             isSigned: true,
-            intent: "Definitive");
+            intent: "Definitive",
+            requestedEnergy: "6X",
+            requestedTechniqueId: "VMAT");
 
         var structures = new[]
         {
@@ -41,7 +44,21 @@ public static class SyntheticPlanFactory
                     {
                         [DoseMetricKeys.MaximumDoseGy] = 74.1m,
                         [DoseMetricKeys.MeanDoseGy] = 70.2m,
-                        [DoseMetricKeys.DoseAtVolumePercent(95m)] = 67.4m
+                        [DoseMetricKeys.DoseAtVolumePercent(95m)] = 67.4m,
+                        [DoseMetricKeys.DoseAtVolumePercent(98m)] = 66.2m,
+                        [DoseMetricKeys.DoseAtVolumePercent(2m)] = 72.78m,
+                        [DoseMetricKeys.VolumeAtDoseGy(66.5m)] = 97.8m,
+                        [DoseMetricKeys.VolumeAtDoseGy(70m)] = 91.2m,
+                        [PlanMetricKeys.VolumeAtPrescriptionPercent(95m)] = 97.8m,
+                        [PlanMetricKeys.VolumeAtPrescriptionPercent(100m)] = 91.2m,
+                        [PlanMetricKeys.VolumeAtPrescriptionPercentCc(100m)] = 149.75m
+                    }),
+                new DoseStatistics(
+                    "BODY",
+                    new Dictionary<string, decimal>
+                    {
+                        [PlanMetricKeys.VolumeAtPrescriptionPercentCc(100m)] = 165.6m,
+                        [PlanMetricKeys.VolumeAtPrescriptionPercentCc(50m)] = 453.9m
                     }),
                 new DoseStatistics(
                     "CORD",
@@ -71,12 +88,34 @@ public static class SyntheticPlanFactory
                         [DoseMetricKeys.MeanDoseGy] = 8.7m,
                         [DoseMetricKeys.VolumeAtDoseGy(20m)] = 17.2m
                     })
-            });
+            },
+            calculationModel: "SyntheticAAA",
+            calculationModelVersion: "16.1");
 
         var beams = new[]
         {
-            new Beam("B1", "Arc 1", "Photon VMAT", "6X", monitorUnits: 431.2m),
-            new Beam("B2", "Arc 2", "Photon VMAT", "6X", monitorUnits: 417.9m)
+            new Beam(
+                "B1",
+                "Arc 1",
+                "Photon VMAT",
+                "6X",
+                monitorUnits: 431.2m,
+                treatmentUnitId: "SYN-LINAC",
+                techniqueId: "VMAT",
+                controlPoints: CreateSyntheticArcControlPoints(0m, 180m),
+                beamModelId: "SYN-AAA-6X",
+                jawTrackingEnabled: true),
+            new Beam(
+                "B2",
+                "Arc 2",
+                "Photon VMAT",
+                "6X",
+                monitorUnits: 417.9m,
+                treatmentUnitId: "SYN-LINAC",
+                techniqueId: "VMAT",
+                controlPoints: CreateSyntheticArcControlPoints(180m, 0m),
+                beamModelId: "SYN-AAA-6X",
+                jawTrackingEnabled: true)
         };
 
         var clinicalGoals = new[]
@@ -114,5 +153,22 @@ public static class SyntheticPlanFactory
             beams,
             clinicalGoals,
             "Head and Neck");
+    }
+
+    private static IReadOnlyList<BeamControlPoint> CreateSyntheticArcControlPoints(decimal startGantryDegrees, decimal stopGantryDegrees)
+    {
+        return new[]
+        {
+            new BeamControlPoint(0, startGantryDegrees, 0m, new BeamJawPositions(-5m, 5m, -6m, 6m)),
+            new BeamControlPoint(1, MidAngle(startGantryDegrees, stopGantryDegrees), 0.5m, new BeamJawPositions(-5m, 5m, -6m, 6m)),
+            new BeamControlPoint(2, stopGantryDegrees, 1m, new BeamJawPositions(-5m, 5m, -6m, 6m))
+        };
+    }
+
+    private static decimal MidAngle(decimal startGantryDegrees, decimal stopGantryDegrees)
+    {
+        return startGantryDegrees <= stopGantryDegrees
+            ? (startGantryDegrees + stopGantryDegrees) / 2m
+            : ((startGantryDegrees + stopGantryDegrees + 360m) / 2m) % 360m;
     }
 }

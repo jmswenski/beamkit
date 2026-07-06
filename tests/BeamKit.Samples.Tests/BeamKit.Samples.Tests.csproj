@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BeamKit.Naming\BeamKit.Naming.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Rules\BeamKit.Rules.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Samples\BeamKit.Samples.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Templates\BeamKit.Templates.csproj" />
+  </ItemGroup>
+</Project>

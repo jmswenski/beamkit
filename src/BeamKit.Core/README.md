@@ -9,9 +9,10 @@ It has no dependency on ESAPI, RayStation, DICOM libraries, Epic, Mosaiq, Aria, 
 - `Patient`: synthetic or external patient identity metadata.
 - `Course`: a patient course containing one or more plans.
 - `Plan`: the central aggregate for prescription, structures, dose, beams, and clinical goals.
-- `Prescription`: dose, fractionation, target, intent, and signature status.
+- `Prescription`: dose, fractionation, target, intent, signature status, and optional requested energy/technique.
 - `Structure`: structure identity, type, volume, and contour state.
-- `Dose`: dose grid and per-structure dose statistics.
+- `Dose`: dose grid, optional calculation model/version, and per-structure dose statistics.
+- `Beam`, `BeamControlPoint`, and `BeamJawPositions`: treatment beam metadata, beam model identifiers, jaw-tracking metadata, and control-point geometry for adapter mapping and deliverability checks.
 - `DoseMetricKeys`: stable keys for dose and DVH metrics.
 - `ClinicalGoal`: a metric threshold that can be converted into a rule.
 

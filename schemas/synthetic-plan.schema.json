@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beamkit.dev/schemas/synthetic-plan.schema.json",
+  "title": "BeamKit synthetic plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [ "patient", "plan" ],
+  "properties": {
+    "patient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "id", "displayName" ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string", "minLength": 1 }
+      }
+    },
+    "plan": { "$ref": "#/$defs/plan" }
+  },
+  "$defs": {
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "id", "courseId", "prescription" ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "courseId": { "type": "string", "minLength": 1 },
+        "diseaseSite": { "type": "string", "minLength": 1 },
+        "prescription": { "$ref": "#/$defs/prescription" },
+        "structures": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/structure" },
+          "default": []
+        },
+        "dose": { "$ref": "#/$defs/dose" },
+        "beams": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/beam" },
+          "default": []
+        },
+        "clinicalGoals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/clinicalGoal" },
+          "default": []
+        }
+      }
+    },
+    "prescription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "totalDoseGy", "fractionCount", "targetStructureId" ],
+      "properties": {
+        "totalDoseGy": { "type": "number", "exclusiveMinimum": 0 },
+        "fractionCount": { "type": "integer", "minimum": 1 },
+        "targetStructureId": { "type": "string", "minLength": 1 },
+        "isSigned": { "type": "boolean", "default": false },
+        "intent": { "type": "string", "minLength": 1 },
+        "requestedEnergy": { "type": "string", "minLength": 1 },
+        "requestedTechniqueId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "id", "name", "type", "volumeCc" ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "enum": [ "Unknown", "External", "Target", "OrganAtRisk", "Avoidance", "Support" ]
+        },
+        "volumeCc": { "type": "number", "minimum": 0 },
+        "hasContours": { "type": "boolean", "default": true }
+      }
+    },
+    "dose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "id", "grid" ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "grid": { "$ref": "#/$defs/doseGrid" },
+        "calculationModel": { "type": "string", "minLength": 1 },
+        "calculationModelVersion": { "type": "string", "minLength": 1 },
+        "statistics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/doseStatistics" },
+          "default": []
+        }
+      }
+    },
+    "doseGrid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "spacingXMm", "spacingYMm", "spacingZMm" ],
+      "properties": {
+        "spacingXMm": { "type": "number", "exclusiveMinimum": 0 },
+        "spacingYMm": { "type": "number", "exclusiveMinimum": 0 },
+        "spacingZMm": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "doseStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "structureId", "metrics" ],
+      "properties": {
+        "structureId": { "type": "string", "minLength": 1 },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        }
+      }
+    },
+    "beam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "id", "name", "modality", "energy" ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "modality": { "type": "string", "minLength": 1 },
+        "energy": { "type": "string", "minLength": 1 },
+        "gantryAngleDegrees": { "type": "number" },
+        "monitorUnits": { "type": "number" },
+        "treatmentUnitId": { "type": "string", "minLength": 1 },
+        "techniqueId": { "type": "string", "minLength": 1 },
+        "beamModelId": { "type": "string", "minLength": 1 },
+        "jawTrackingEnabled": { "type": "boolean" },
+        "isSetupField": { "type": "boolean", "default": false },
+        "controlPoints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/controlPoint" },
+          "default": []
+        }
+      }
+    },
+    "controlPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "index" ],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "gantryAngleDegrees": { "type": "number" },
+        "cumulativeMetersetWeight": { "type": "number", "minimum": 0, "maximum": 1 },
+        "jawPositions": { "$ref": "#/$defs/jawPositions" }
+      }
+    },
+    "jawPositions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "x1Cm", "x2Cm", "y1Cm", "y2Cm" ],
+      "properties": {
+        "x1Cm": { "type": "number" },
+        "x2Cm": { "type": "number" },
+        "y1Cm": { "type": "number" },
+        "y2Cm": { "type": "number" }
+      }
+    },
+    "clinicalGoal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "id", "structureName", "metricKey", "comparison", "threshold", "unit" ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "structureName": { "type": "string", "minLength": 1 },
+        "metricKey": { "type": "string", "minLength": 1 },
+        "comparison": {
+          "type": "string",
+          "enum": [ "LessThan", "LessThanOrEqual", "GreaterThan", "GreaterThanOrEqual", "Equal" ]
+        },
+        "threshold": { "type": "number" },
+        "unit": { "type": "string", "minLength": 1 },
+        "severity": {
+          "type": "string",
+          "enum": [ "Advisory", "Warning", "Required" ],
+          "default": "Required"
+        }
+      }
+    }
+  }
+}

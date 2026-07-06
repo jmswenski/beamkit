@@ -1,0 +1,182 @@
+{
+  "name": "Synthetic plan-check baseline",
+  "version": "2026.1",
+  "owner": "BeamKit",
+  "description": "Synthetic baseline showing how clinic reminders can become plan checks.",
+  "checks": [
+    {
+      "id": "plan.dose.exists",
+      "title": "Dose exists",
+      "type": "dose-exists",
+      "severity": "Failure"
+    },
+    {
+      "id": "plan.beams.present",
+      "title": "Treatment beams exist",
+      "type": "beams-present",
+      "severity": "Failure"
+    },
+    {
+      "id": "structure.body.exists",
+      "title": "Body exists",
+      "type": "structure-exists",
+      "severity": "Failure",
+      "parameters": { "structureName": "BODY" }
+    },
+    {
+      "id": "structure.body.not-empty",
+      "title": "Body has contours",
+      "type": "structure-not-empty",
+      "severity": "Failure",
+      "parameters": { "structureName": "BODY" }
+    },
+    {
+      "id": "target.exists",
+      "title": "Prescription target exists",
+      "type": "structure-exists",
+      "severity": "Failure",
+      "parameters": { "structureName": "$target" }
+    },
+    {
+      "id": "target.not-empty",
+      "title": "Prescription target has contours",
+      "type": "structure-not-empty",
+      "severity": "Failure",
+      "parameters": { "structureName": "$target" }
+    },
+    {
+      "id": "dose.grid.spacing",
+      "title": "Dose grid spacing",
+      "type": "dose-grid-max-spacing",
+      "severity": "Failure",
+      "parameters": { "maxSpacingMm": "2.5" }
+    },
+    {
+      "id": "prescription.energy",
+      "title": "Prescription requested energy",
+      "type": "prescription-energy",
+      "severity": "Failure"
+    },
+    {
+      "id": "prescription.technique",
+      "title": "Prescription requested technique",
+      "type": "prescription-technique",
+      "severity": "Failure"
+    },
+    {
+      "id": "prescription.fractionation",
+      "title": "Prescription fractionation",
+      "type": "prescription-fractionation",
+      "severity": "Failure",
+      "parameters": {
+        "totalDoseGy": "70",
+        "fractionCount": "35",
+        "dosePerFractionGy": "2"
+      }
+    },
+    {
+      "id": "dose.calculation-model",
+      "title": "Dose calculation model",
+      "type": "calculation-model",
+      "severity": "Failure"
+    },
+    {
+      "id": "beam.model",
+      "title": "Beam model",
+      "type": "beam-model",
+      "severity": "Failure"
+    },
+    {
+      "id": "target.d95",
+      "title": "Target D95 coverage",
+      "type": "target-coverage",
+      "severity": "Failure",
+      "parameters": { "metric": "D95%", "minPercentPrescription": "95" }
+    },
+    {
+      "id": "target.v95",
+      "title": "Target V95 coverage",
+      "type": "dose-metric",
+      "severity": "Failure",
+      "parameters": {
+        "structureName": "$target",
+        "metric": "V66.5Gy",
+        "comparison": "GreaterThanOrEqual",
+        "threshold": "95",
+        "unit": "%"
+      }
+    },
+    {
+      "id": "target.hi",
+      "title": "Target homogeneity index",
+      "type": "plan-quality-metric",
+      "severity": "Failure",
+      "parameters": { "metric": "HI", "comparison": "LessThanOrEqual", "threshold": "0.15" }
+    },
+    {
+      "id": "target.ci",
+      "title": "Target conformity index",
+      "type": "plan-quality-metric",
+      "severity": "Failure",
+      "parameters": { "metric": "CI", "comparison": "GreaterThanOrEqual", "threshold": "0.7" }
+    },
+    {
+      "id": "cord.max",
+      "title": "Cord maximum dose",
+      "type": "dose-metric",
+      "severity": "Failure",
+      "parameters": {
+        "structureName": "SpinalCord",
+        "metric": "Max",
+        "comparison": "LessThanOrEqual",
+        "threshold": "45",
+        "unit": "Gy"
+      }
+    },
+    {
+      "id": "heart.mean",
+      "title": "Heart mean dose",
+      "type": "dose-metric",
+      "severity": "Warning",
+      "parameters": {
+        "structureName": "Heart",
+        "metric": "Mean",
+        "comparison": "LessThanOrEqual",
+        "threshold": "10",
+        "unit": "Gy"
+      }
+    },
+    {
+      "id": "lung.r.v20",
+      "title": "Right lung V20",
+      "type": "dose-metric",
+      "severity": "Failure",
+      "parameters": {
+        "structureName": "Lung_R",
+        "metric": "V20Gy",
+        "comparison": "LessThanOrEqual",
+        "threshold": "30",
+        "unit": "%"
+      }
+    },
+    {
+      "id": "lung.l.v20",
+      "title": "Left lung V20",
+      "type": "dose-metric",
+      "severity": "Failure",
+      "parameters": {
+        "structureName": "Lung_L",
+        "metric": "V20Gy",
+        "comparison": "LessThanOrEqual",
+        "threshold": "30",
+        "unit": "%"
+      }
+    },
+    {
+      "id": "deliverability.profile",
+      "title": "Beam deliverability profile",
+      "type": "deliverability",
+      "severity": "Failure"
+    }
+  ]
+}

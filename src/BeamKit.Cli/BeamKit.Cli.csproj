@@ -7,12 +7,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\BeamKit.Calculations\BeamKit.Calculations.csproj" />
+    <ProjectReference Include="..\BeamKit.ChangeDetection\BeamKit.ChangeDetection.csproj" />
     <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
+    <ProjectReference Include="..\BeamKit.Deliverability\BeamKit.Deliverability.csproj" />
+    <ProjectReference Include="..\BeamKit.Metrics\BeamKit.Metrics.csproj" />
     <ProjectReference Include="..\BeamKit.Naming\BeamKit.Naming.csproj" />
+    <ProjectReference Include="..\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
     <ProjectReference Include="..\BeamKit.Qa\BeamKit.Qa.csproj" />
     <ProjectReference Include="..\BeamKit.Reporting\BeamKit.Reporting.csproj" />
     <ProjectReference Include="..\BeamKit.Rules\BeamKit.Rules.csproj" />
     <ProjectReference Include="..\BeamKit.Samples\BeamKit.Samples.csproj" />
+    <ProjectReference Include="..\BeamKit.Structures\BeamKit.Structures.csproj" />
     <ProjectReference Include="..\BeamKit.Templates\BeamKit.Templates.csproj" />
     <ProjectReference Include="..\BeamKit.Workflow\BeamKit.Workflow.csproj" />
     <None Include="README.md" Pack="true" PackagePath="\" />

@@ -1,0 +1,46 @@
+{
+  "name": "Synthetic TG-263 subset",
+  "canonicalNames": [
+    "Body",
+    "PTV_7000",
+    "SpinalCord",
+    "Cord_PRV",
+    "Heart",
+    "Lung_R",
+    "Lung_L",
+    "Lungs",
+    "Esophagus",
+    "Brainstem"
+  ],
+  "aliases": [
+    { "alias": "External", "canonicalName": "Body", "source": "TG-263 subset" },
+    { "alias": "BODY", "canonicalName": "Body", "source": "Institution alias" },
+    { "alias": "Cord", "canonicalName": "SpinalCord", "source": "Institution alias" },
+    { "alias": "Spinal Cord", "canonicalName": "SpinalCord", "source": "Institution alias" },
+    { "alias": "Rt Lung", "canonicalName": "Lung_R", "source": "Institution alias" },
+    { "alias": "Right Lung", "canonicalName": "Lung_R", "source": "Institution alias" },
+    { "alias": "R Lung", "canonicalName": "Lung_R", "source": "Institution alias" },
+    { "alias": "Lung_Right", "canonicalName": "Lung_R", "source": "Institution alias" },
+    { "alias": "LungR", "canonicalName": "Lung_R", "source": "Institution alias" },
+    { "alias": "Lt Lung", "canonicalName": "Lung_L", "source": "Institution alias" },
+    { "alias": "Left Lung", "canonicalName": "Lung_L", "source": "Institution alias" },
+    { "alias": "L Lung", "canonicalName": "Lung_L", "source": "Institution alias" },
+    { "alias": "Lung_Left", "canonicalName": "Lung_L", "source": "Institution alias" },
+    { "alias": "LungL", "canonicalName": "Lung_L", "source": "Institution alias" },
+    { "alias": "Total Lung", "canonicalName": "Lungs", "source": "Institution alias" },
+    { "alias": "Esoph", "canonicalName": "Esophagus", "source": "Institution alias" },
+    { "alias": "Brain Stem", "canonicalName": "Brainstem", "source": "Institution alias" }
+  ],
+  "regexMappings": [
+    { "pattern": "^ptv[_ -]?70(00)?$", "canonicalName": "PTV_7000", "source": "Institution regex" },
+    { "pattern": "^brain[_ -]?stem$", "canonicalName": "Brainstem", "source": "Institution regex" }
+  ],
+  "requiredStructureNames": [
+    "Body",
+    "PTV_7000",
+    "SpinalCord",
+    "Heart",
+    "Lung_R",
+    "Lung_L"
+  ]
+}

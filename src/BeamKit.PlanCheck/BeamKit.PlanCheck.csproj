@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Configurable plan-check engine for BeamKit.</Description>
+    <PackageId>BeamKit.PlanCheck</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
+    <ProjectReference Include="..\BeamKit.Deliverability\BeamKit.Deliverability.csproj" />
+    <ProjectReference Include="..\BeamKit.Metrics\BeamKit.Metrics.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

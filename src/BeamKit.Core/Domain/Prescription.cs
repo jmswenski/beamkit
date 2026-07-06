@@ -13,7 +13,9 @@ public sealed record Prescription
         int fractionCount,
         string targetStructureId,
         bool isSigned = false,
-        string? intent = null)
+        string? intent = null,
+        string? requestedEnergy = null,
+        string? requestedTechniqueId = null)
     {
         if (totalDoseGy <= 0)
         {
@@ -30,6 +32,8 @@ public sealed record Prescription
         TargetStructureId = Guard.Required(targetStructureId, nameof(targetStructureId));
         IsSigned = isSigned;
         Intent = string.IsNullOrWhiteSpace(intent) ? null : intent.Trim();
+        RequestedEnergy = string.IsNullOrWhiteSpace(requestedEnergy) ? null : requestedEnergy.Trim();
+        RequestedTechniqueId = string.IsNullOrWhiteSpace(requestedTechniqueId) ? null : requestedTechniqueId.Trim();
     }
 
     /// <summary>
@@ -61,4 +65,14 @@ public sealed record Prescription
     /// Optional treatment intent label.
     /// </summary>
     public string? Intent { get; init; }
+
+    /// <summary>
+    /// Requested treatment energy label, when available from the prescription or planning directive.
+    /// </summary>
+    public string? RequestedEnergy { get; init; }
+
+    /// <summary>
+    /// Requested treatment technique identifier, when available from the prescription or planning directive.
+    /// </summary>
+    public string? RequestedTechniqueId { get; init; }
 }

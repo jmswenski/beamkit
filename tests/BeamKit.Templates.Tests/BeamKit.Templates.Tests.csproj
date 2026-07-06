@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\BeamKit.Samples\BeamKit.Samples.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Templates\BeamKit.Templates.csproj" />
   </ItemGroup>
 </Project>

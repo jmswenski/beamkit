@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beamkit.dev/schemas/machine-profile.schema.json",
+  "title": "BeamKit machine constraint profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [ "name", "version" ],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "minLength": 1 },
+    "machineId": { "type": "string", "minLength": 1 },
+    "beamModelId": { "type": "string", "minLength": 1 },
+    "calculationModel": { "type": "string", "minLength": 1 },
+    "calculationModelVersion": { "type": "string", "minLength": 1 },
+    "energy": { "type": "string", "minLength": 1 },
+    "allowedEnergies": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "allowedTechniques": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "allowedBeamModelIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "minMonitorUnitsPerDegree": { "type": "number", "exclusiveMinimum": 0 },
+    "monitorUnitsPerDegreeConstraints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/muPerDegreeConstraint" }
+    },
+    "minMonitorUnitsPerSegment": { "type": "number", "exclusiveMinimum": 0 },
+    "minMonitorUnitsPerBeam": { "type": "number", "exclusiveMinimum": 0 },
+    "minJawOpeningCm": { "type": "number", "exclusiveMinimum": 0 },
+    "maxOpenFieldSizeCm": { "type": "number", "exclusiveMinimum": 0 },
+    "maxMlcFieldSizeCm": { "type": "number", "exclusiveMinimum": 0 },
+    "maxFffFieldSizeCm": { "type": "number", "exclusiveMinimum": 0 },
+    "maxDcaStepSizeDegrees": { "type": "number", "exclusiveMinimum": 0 },
+    "requireJawTracking": { "type": "boolean" }
+  },
+  "$defs": {
+    "muPerDegreeConstraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "minMonitorUnitsPerDegree" ],
+      "properties": {
+        "minMonitorUnitsPerDegree": { "type": "number", "exclusiveMinimum": 0 },
+        "machineId": { "type": "string", "minLength": 1 },
+        "energy": { "type": "string", "minLength": 1 },
+        "techniqueId": { "type": "string", "minLength": 1 },
+        "diseaseSite": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

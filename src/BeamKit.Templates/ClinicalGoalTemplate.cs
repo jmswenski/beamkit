@@ -17,7 +17,12 @@ public sealed record ClinicalGoalTemplate
         GoalComparison comparison,
         decimal threshold,
         string unit,
-        GoalSeverity severity = GoalSeverity.Required)
+        GoalSeverity severity = GoalSeverity.Required,
+        string? description = null,
+        string? reference = null,
+        string? rationale = null,
+        IEnumerable<string>? tags = null,
+        bool isActive = true)
     {
         Id = TemplateText.Required(id, nameof(id));
         StructureName = TemplateText.Required(structureName, nameof(structureName));
@@ -26,6 +31,11 @@ public sealed record ClinicalGoalTemplate
         Threshold = threshold;
         Unit = TemplateText.Required(unit, nameof(unit));
         Severity = severity;
+        Description = TemplateText.Optional(description);
+        Reference = TemplateText.Optional(reference);
+        Rationale = TemplateText.Optional(rationale);
+        Tags = TemplateText.CleanTags(tags);
+        IsActive = isActive;
     }
 
     /// <summary>
@@ -62,6 +72,31 @@ public sealed record ClinicalGoalTemplate
     /// Severity used when the goal is not satisfied.
     /// </summary>
     public GoalSeverity Severity { get; init; }
+
+    /// <summary>
+    /// Human-readable description of the clinical rule.
+    /// </summary>
+    public string? Description { get; init; }
+
+    /// <summary>
+    /// Source guideline, protocol, physician preference, or institutional policy reference.
+    /// </summary>
+    public string? Reference { get; init; }
+
+    /// <summary>
+    /// Short rationale explaining why the rule exists.
+    /// </summary>
+    public string? Rationale { get; init; }
+
+    /// <summary>
+    /// Searchable tags used for catalog filtering.
+    /// </summary>
+    public IReadOnlyList<string> Tags { get; init; }
+
+    /// <summary>
+    /// Indicates whether this template should produce executable clinical goals.
+    /// </summary>
+    public bool IsActive { get; init; }
 
     /// <summary>
     /// Converts the template to a core clinical goal.

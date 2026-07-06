@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beamkit.dev/schemas/plan-evaluation-report.schema.json",
+  "title": "BeamKit plan evaluation report",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [ "planId", "patientId", "ruleSetName", "generatedAtUtc", "results", "summary" ],
+  "properties": {
+    "planId": { "type": "string", "minLength": 1 },
+    "patientId": { "type": "string", "minLength": 1 },
+    "ruleSetName": { "type": "string", "minLength": 1 },
+    "generatedAtUtc": { "type": "string", "format": "date-time" },
+    "results": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evaluationResult" }
+    },
+    "summary": { "$ref": "#/$defs/summary" }
+  },
+  "$defs": {
+    "evaluationResult": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [ "ruleId", "description", "status", "message" ],
+      "properties": {
+        "ruleId": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "status": {
+          "type": "string",
+          "enum": [ "Pass", "Warning", "Fail", "NotEvaluable", "Error" ]
+        },
+        "structureName": { "type": "string" },
+        "observedValue": { "type": [ "number", "null" ] },
+        "expectedValue": { "type": [ "number", "null" ] },
+        "unit": { "type": [ "string", "null" ] },
+        "message": { "type": "string" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "passCount", "warningCount", "failCount", "notEvaluableCount", "errorCount" ],
+      "properties": {
+        "passCount": { "type": "integer", "minimum": 0 },
+        "warningCount": { "type": "integer", "minimum": 0 },
+        "failCount": { "type": "integer", "minimum": 0 },
+        "notEvaluableCount": { "type": "integer", "minimum": 0 },
+        "errorCount": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

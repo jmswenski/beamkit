@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="coverlet.collector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BeamKit.Calculations\BeamKit.Calculations.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.ChangeDetection\BeamKit.ChangeDetection.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Core\BeamKit.Core.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Deliverability\BeamKit.Deliverability.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Dicom\BeamKit.Dicom.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Esapi\BeamKit.Esapi.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Metrics\BeamKit.Metrics.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Naming\BeamKit.Naming.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Qa\BeamKit.Qa.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Reporting\BeamKit.Reporting.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Rules\BeamKit.Rules.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Structures\BeamKit.Structures.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Templates\BeamKit.Templates.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Workflow\BeamKit.Workflow.csproj" />
+  </ItemGroup>
+</Project>

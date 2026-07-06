@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beamkit.dev/schemas/naming-dictionary.schema.json",
+  "title": "BeamKit structure-name dictionary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [ "name", "canonicalNames" ],
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "canonicalNames": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "aliases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/alias" },
+      "default": []
+    },
+    "regexMappings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/regexMapping" },
+      "default": []
+    },
+    "requiredStructureNames": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
+    }
+  },
+  "$defs": {
+    "alias": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "alias", "canonicalName" ],
+      "properties": {
+        "alias": { "type": "string", "minLength": 1 },
+        "canonicalName": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 }
+      }
+    },
+    "regexMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "pattern", "canonicalName" ],
+      "properties": {
+        "pattern": { "type": "string", "minLength": 1 },
+        "canonicalName": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "name": "Synthetic clinical rule catalog",
+  "institution": "Synthetic",
+  "version": "2026.1",
+  "description": "Synthetic catalog showing how changing clinical rules can be stored outside application code.",
+  "owner": "Radiation Oncology",
+  "tags": [ "synthetic", "head-neck" ],
+  "templateSets": [
+    {
+      "name": "Synthetic head and neck baseline",
+      "diseaseSite": "Head and Neck",
+      "institution": "Synthetic",
+      "version": "2026.1",
+      "description": "Synthetic disease-site baseline for head-and-neck plan QA.",
+      "owner": "Radiation Oncology",
+      "approvedBy": "Synthetic Physics",
+      "approvedOn": "2026-07-06",
+      "tags": [ "head-neck", "baseline" ],
+      "goals": [
+        {
+          "id": "goal.ptv.d95",
+          "structureName": "PTV_7000",
+          "metricKey": "D95PercentDoseGy",
+          "comparison": "GreaterThanOrEqual",
+          "threshold": 66.5,
+          "unit": "Gy",
+          "severity": "Required",
+          "description": "PTV D95 coverage objective.",
+          "reference": "Synthetic institutional head-and-neck baseline",
+          "rationale": "Documents target coverage expectations in a machine-readable rule template.",
+          "tags": [ "target", "coverage", "head-neck" ]
+        },
+        {
+          "id": "goal.cord.max",
+          "structureName": "SpinalCord",
+          "metricKey": "MaxDoseGy",
+          "comparison": "LessThanOrEqual",
+          "threshold": 45,
+          "unit": "Gy",
+          "severity": "Required",
+          "description": "Spinal cord maximum dose limit.",
+          "reference": "Synthetic institutional head-and-neck baseline",
+          "rationale": "Captures a required serial-organ constraint for automated QA.",
+          "tags": [ "oar", "cord", "head-neck" ]
+        },
+        {
+          "id": "goal.heart.mean",
+          "structureName": "Heart",
+          "metricKey": "MeanDoseGy",
+          "comparison": "LessThanOrEqual",
+          "threshold": 10,
+          "unit": "Gy",
+          "severity": "Warning",
+          "description": "Heart mean dose review goal.",
+          "reference": "Synthetic institutional head-and-neck baseline",
+          "rationale": "Shows how lower-priority review goals can be represented as warnings.",
+          "tags": [ "oar", "heart" ]
+        }
+      ]
+    },
+    {
+      "name": "Synthetic head and neck physician addendum",
+      "diseaseSite": "Head and Neck",
+      "institution": "Synthetic",
+      "physician": "Synthetic Physician",
+      "version": "2026.1",
+      "description": "Synthetic physician-specific head-and-neck addendum.",
+      "owner": "Radiation Oncology",
+      "approvedBy": "Synthetic Physics",
+      "approvedOn": "2026-07-06",
+      "tags": [ "head-neck", "physician-addendum" ],
+      "goals": [
+        {
+          "id": "goal.parotid.mean",
+          "structureName": "Parotid_L",
+          "metricKey": "MeanDoseGy",
+          "comparison": "LessThanOrEqual",
+          "threshold": 26,
+          "unit": "Gy",
+          "severity": "Warning",
+          "description": "Left parotid mean dose review goal.",
+          "reference": "Synthetic physician preference",
+          "rationale": "Documents physician-specific planning preference without changing code.",
+          "tags": [ "head-neck", "parotid", "physician-addendum" ]
+        }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,9 @@
 Current support:
 
 - RTSTRUCT structure names, interpreted types, and contour presence.
+- RTPLAN prescription, beam metadata, treatment machine id, technique id, gantry angles, meterset, control-point weights, and jaw positions.
 - RTDOSE grid spacing metadata.
+- RTDOSE uncompressed pixel-grid value extraction.
 - RTDOSE DVH sequence import when DVH data is present.
 - DVH-derived dose statistics for maximum dose, mean dose, D95%, and V20 Gy.
 

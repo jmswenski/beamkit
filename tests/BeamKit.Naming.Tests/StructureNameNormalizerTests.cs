@@ -81,4 +81,29 @@ public sealed class StructureNameNormalizerTests
         Assert.Equal(4, report.NormalizedCount);
         Assert.Equal(1, report.AlreadyCanonicalCount);
     }
+
+    [Fact]
+    public void LoaderReadsConfigurableDictionaryJson()
+    {
+        var json = """
+            {
+              "name": "Institution head and neck",
+              "canonicalNames": [ "Body", "Lung_R" ],
+              "aliases": [
+                { "alias": "Rt Lung", "canonicalName": "Lung_R", "source": "Institution" }
+              ],
+              "regexMappings": [
+                { "pattern": "^external$", "canonicalName": "Body", "source": "Institution" }
+              ],
+              "requiredStructureNames": [ "Body" ]
+            }
+            """;
+        var dictionary = StructureNameDictionaryLoader.FromJson(json);
+
+        var result = new StructureNameNormalizer(dictionary).Normalize("Rt Lung");
+
+        Assert.Equal("Institution head and neck", dictionary.Name);
+        Assert.Equal("Lung_R", result.CanonicalName);
+        Assert.Single(dictionary.RequiredStructureNames);
+    }
 }

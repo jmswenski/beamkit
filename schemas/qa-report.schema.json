@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beamkit.dev/schemas/qa-report.schema.json",
+  "title": "BeamKit QA report",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [ "planId", "patientId", "generatedAtUtc", "ruleReport", "hasBlockingIssues" ],
+  "properties": {
+    "planId": { "type": "string", "minLength": 1 },
+    "patientId": { "type": "string", "minLength": 1 },
+    "generatedAtUtc": { "type": "string", "format": "date-time" },
+    "ruleReport": { "$ref": "plan-evaluation-report.schema.json" },
+    "namingReport": { "type": [ "object", "null" ] },
+    "readinessState": { "type": [ "object", "null" ] },
+    "hasBlockingIssues": { "type": "boolean" }
+  }
+}

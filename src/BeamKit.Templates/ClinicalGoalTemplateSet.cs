@@ -17,14 +17,24 @@ public sealed record ClinicalGoalTemplateSet
         string? diseaseSite = null,
         string? institution = null,
         string? physician = null,
-        string? version = null)
+        string? version = null,
+        string? description = null,
+        string? owner = null,
+        string? approvedBy = null,
+        string? approvedOn = null,
+        IEnumerable<string>? tags = null)
     {
         Name = TemplateText.Required(name, nameof(name));
         Goals = goals?.ToArray() ?? throw new ArgumentNullException(nameof(goals));
-        DiseaseSite = string.IsNullOrWhiteSpace(diseaseSite) ? null : diseaseSite.Trim();
-        Institution = string.IsNullOrWhiteSpace(institution) ? null : institution.Trim();
-        Physician = string.IsNullOrWhiteSpace(physician) ? null : physician.Trim();
-        Version = string.IsNullOrWhiteSpace(version) ? null : version.Trim();
+        DiseaseSite = TemplateText.Optional(diseaseSite);
+        Institution = TemplateText.Optional(institution);
+        Physician = TemplateText.Optional(physician);
+        Version = TemplateText.Optional(version);
+        Description = TemplateText.Optional(description);
+        Owner = TemplateText.Optional(owner);
+        ApprovedBy = TemplateText.Optional(approvedBy);
+        ApprovedOn = TemplateText.Optional(approvedOn);
+        Tags = TemplateText.CleanTags(tags);
     }
 
     /// <summary>
@@ -53,16 +63,46 @@ public sealed record ClinicalGoalTemplateSet
     public string? Version { get; init; }
 
     /// <summary>
+    /// Human-readable summary of the rule set.
+    /// </summary>
+    public string? Description { get; init; }
+
+    /// <summary>
+    /// Owning group responsible for maintaining this rule set.
+    /// </summary>
+    public string? Owner { get; init; }
+
+    /// <summary>
+    /// Person or group that approved the current rule-set version.
+    /// </summary>
+    public string? ApprovedBy { get; init; }
+
+    /// <summary>
+    /// Free-form approval or review date, typically ISO 8601.
+    /// </summary>
+    public string? ApprovedOn { get; init; }
+
+    /// <summary>
+    /// Searchable tags used for catalog filtering.
+    /// </summary>
+    public IReadOnlyList<string> Tags { get; init; }
+
+    /// <summary>
     /// Goal templates in the set.
     /// </summary>
     public IReadOnlyList<ClinicalGoalTemplate> Goals { get; init; }
 
     /// <summary>
-    /// Converts all templates to core clinical goals.
+    /// Active goal templates in the set.
+    /// </summary>
+    public IReadOnlyList<ClinicalGoalTemplate> ActiveGoals => Goals.Where(goal => goal.IsActive).ToArray();
+
+    /// <summary>
+    /// Converts active templates to core clinical goals.
     /// </summary>
     public IReadOnlyList<ClinicalGoal> ToClinicalGoals()
     {
-        return Goals.Select(goal => goal.ToClinicalGoal()).ToArray();
+        return ActiveGoals.Select(goal => goal.ToClinicalGoal()).ToArray();
     }
 
     /// <summary>

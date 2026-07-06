@@ -1,6 +1,9 @@
+using System.Buffers.Binary;
 using BeamKit.Core.Domain;
 using BeamKit.Dvh;
 using FellowOakDicom;
+using FellowOakDicom.Imaging;
+using FellowOakDicom.IO;
 
 namespace BeamKit.Dicom;
 
@@ -34,9 +37,10 @@ public sealed class DicomRtDoseImporter
 
         var doseId = dataset.GetSingleValueOrDefault(DicomTag.SOPInstanceUID, "RTDOSE");
         var grid = ReadDoseGrid(dataset);
+        var pixelGrid = ReadPixelGrid(dataset);
         var curves = ReadDvhCurves(dataset);
         var statistics = curves.Select(curve => metricCalculator.ToDoseStatistics(curve, new[] { 95m }, new[] { 20m })).ToArray();
-        return new DicomRtDoseImportResult(new Dose(doseId, grid, statistics), curves);
+        return new DicomRtDoseImportResult(new Dose(doseId, grid, statistics), curves, pixelGrid);
     }
 
     private static DoseGrid ReadDoseGrid(DicomDataset dataset)
@@ -49,6 +53,97 @@ public sealed class DicomRtDoseImporter
             : dataset.GetSingleValueOrDefault(DicomTag.SliceThickness, 1d);
 
         return new DoseGrid((decimal)pixelSpacing[1], (decimal)pixelSpacing[0], (decimal)zSpacing);
+    }
+
+    private static DicomDoseGrid? ReadPixelGrid(DicomDataset dataset)
+    {
+        if (!dataset.Contains(DicomTag.PixelData)
+            || !dataset.TryGetSingleValue<ushort>(DicomTag.Rows, out var rows)
+            || !dataset.TryGetSingleValue<ushort>(DicomTag.Columns, out var columns))
+        {
+            return null;
+        }
+
+        if (dataset.InternalTransferSyntax.IsEncapsulated)
+        {
+            throw new DicomImportException($"Unsupported compressed RTDOSE transfer syntax '{dataset.InternalTransferSyntax.UID.Name}'.");
+        }
+
+        if (dataset.InternalTransferSyntax.Endian != Endian.Little)
+        {
+            throw new DicomImportException($"Unsupported RTDOSE transfer syntax endian '{dataset.InternalTransferSyntax.UID.Name}'.");
+        }
+
+        var frames = dataset.TryGetSingleValue<int>(DicomTag.NumberOfFrames, out var numberOfFrames)
+            ? Math.Max(1, numberOfFrames)
+            : 1;
+        var scaling = dataset.TryGetSingleValue<double>(DicomTag.DoseGridScaling, out var doseGridScaling)
+            ? (decimal)doseGridScaling
+            : 1m;
+        var pixelSpacing = dataset.TryGetValues<double>(DicomTag.PixelSpacing, out var spacingValues) && spacingValues.Length >= 2
+            ? spacingValues
+            : new[] { 1d, 1d };
+        var frameOffsets = dataset.TryGetValues<double>(DicomTag.GridFrameOffsetVector, out var offsets)
+            ? offsets.Select(offset => (decimal)offset).ToArray()
+            : Array.Empty<decimal>();
+        var bitsAllocated = dataset.GetSingleValueOrDefault<ushort>(DicomTag.BitsAllocated, 16);
+        var pixelRepresentation = dataset.GetSingleValueOrDefault<ushort>(DicomTag.PixelRepresentation, 0);
+
+        if (pixelRepresentation != 0)
+        {
+            throw new DicomImportException("Signed RTDOSE pixel data is not supported.");
+        }
+
+        if (bitsAllocated is not (16 or 32))
+        {
+            throw new DicomImportException($"Unsupported RTDOSE pixel depth '{bitsAllocated}'.");
+        }
+
+        var pixelData = DicomPixelData.Create(dataset);
+        var values = new List<decimal>(rows * columns * frames);
+        for (var frame = 0; frame < frames; frame++)
+        {
+            var frameBytes = pixelData.GetFrame(frame).Data;
+            ValidateFrameLength(frameBytes.Length, rows, columns, bitsAllocated);
+            ReadFrameValues(frameBytes, bitsAllocated, scaling, values);
+        }
+
+        return new DicomDoseGrid(
+            rows,
+            columns,
+            frames,
+            scaling,
+            (decimal)pixelSpacing[0],
+            (decimal)pixelSpacing[1],
+            frameOffsets,
+            values);
+    }
+
+    private static void ValidateFrameLength(int frameByteLength, int rows, int columns, ushort bitsAllocated)
+    {
+        var expectedLength = rows * columns * (bitsAllocated / 8);
+        if (frameByteLength != expectedLength)
+        {
+            throw new DicomImportException($"RTDOSE pixel frame length {frameByteLength} does not match expected length {expectedLength}.");
+        }
+    }
+
+    private static void ReadFrameValues(byte[] frameBytes, ushort bitsAllocated, decimal scaling, ICollection<decimal> values)
+    {
+        if (bitsAllocated == 16)
+        {
+            for (var index = 0; index + sizeof(ushort) <= frameBytes.Length; index += sizeof(ushort))
+            {
+                values.Add(BinaryPrimitives.ReadUInt16LittleEndian(frameBytes.AsSpan(index, sizeof(ushort))) * scaling);
+            }
+
+            return;
+        }
+
+        for (var index = 0; index + sizeof(uint) <= frameBytes.Length; index += sizeof(uint))
+        {
+            values.Add(BinaryPrimitives.ReadUInt32LittleEndian(frameBytes.AsSpan(index, sizeof(uint))) * scaling);
+        }
     }
 
     private static IReadOnlyList<DvhCurve> ReadDvhCurves(DicomDataset dataset)
