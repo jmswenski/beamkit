@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Rule-pack authoring, governance, diff, and changelog utilities for BeamKit.</Description>
+    <PackageId>BeamKit.RulePacks</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.Check\BeamKit.Check.csproj" />
+    <ProjectReference Include="..\BeamKit.Deliverability\BeamKit.Deliverability.csproj" />
+    <ProjectReference Include="..\BeamKit.Naming\BeamKit.Naming.csproj" />
+    <ProjectReference Include="..\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
+    <ProjectReference Include="..\BeamKit.Rules\BeamKit.Rules.csproj" />
+    <ProjectReference Include="..\BeamKit.Templates\BeamKit.Templates.csproj" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

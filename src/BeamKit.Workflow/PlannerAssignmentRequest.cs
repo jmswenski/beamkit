@@ -17,7 +17,9 @@ public sealed record PlannerAssignmentRequest
         int complexityScore = 3,
         int priority = 3,
         string? physician = null,
-        DateOnly? assignmentDate = null)
+        DateOnly? assignmentDate = null,
+        PlanningStaffRole requiredRole = PlanningStaffRole.Dosimetrist,
+        IEnumerable<PlanningStaffRole>? requiredRoles = null)
     {
         CaseId = WorkflowText.Required(caseId, nameof(caseId));
         DiseaseSite = WorkflowText.Required(diseaseSite, nameof(diseaseSite));
@@ -28,10 +30,20 @@ public sealed record PlannerAssignmentRequest
         Priority = ValidateScore(priority, nameof(priority));
         Physician = WorkflowText.Optional(physician);
         AssignmentDate = assignmentDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        RequiredRole = requiredRole;
+        RequiredRoles = (requiredRoles ?? new[] { requiredRole })
+            .Distinct()
+            .Order()
+            .ToArray();
 
         if (Planners.Count == 0)
         {
             throw new ArgumentException("At least one planner is required.", nameof(planners));
+        }
+
+        if (RequiredRoles.Count == 0)
+        {
+            throw new ArgumentException("At least one required role is required.", nameof(requiredRoles));
         }
     }
 
@@ -59,6 +71,16 @@ public sealed record PlannerAssignmentRequest
     /// Required skills.
     /// </summary>
     public IReadOnlyList<string> RequiredSkills { get; init; }
+
+    /// <summary>
+    /// Staff role used by single-role recommendations.
+    /// </summary>
+    public PlanningStaffRole RequiredRole { get; init; }
+
+    /// <summary>
+    /// Staff roles required for a team assignment recommendation.
+    /// </summary>
+    public IReadOnlyList<PlanningStaffRole> RequiredRoles { get; init; }
 
     /// <summary>
     /// Complexity score from 1 to 5.

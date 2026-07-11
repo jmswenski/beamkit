@@ -1,0 +1,39 @@
+{
+  "$schema": "https://beamkit.dev/schemas/beamkit-rule-pack.schema.json",
+  "name": "Lung SBRT clinical rule pack",
+  "version": "2026.1",
+  "owner": "BeamKit",
+  "description": "Starter BeamKit rule pack for Lung SBRT plan review.",
+  "diseaseSite": "Lung SBRT",
+  "tags": [
+    "lung-sbrt",
+    "production-template",
+    "starter"
+  ],
+  "clinicalRuleCatalog": "clinical-rules.json",
+  "planCheckCatalog": "plan-checks.json",
+  "namingDictionary": "naming-dictionary.json",
+  "machineProfile": "machine-profile.json",
+  "clinicalRuleQuery": {
+    "diseaseSite": "Lung SBRT",
+    "institution": "Synthetic",
+    "tags": [
+      "baseline"
+    ]
+  },
+  "readinessDefaults": {
+    "ctImported": true,
+    "optimizationFinished": true,
+    "physicsQaComplete": false,
+    "physicianApprovalComplete": false,
+    "treatmentReady": false
+  },
+  "approval": {
+    "status": "Draft",
+    "institution": "Synthetic",
+    "physicianGroup": "Lung SBRT",
+    "reference": "Initial starter scaffold",
+    "rationale": "Starter policy that must be reviewed and approved before clinical use.",
+    "changeTicket": "local-draft"
+  }
+}

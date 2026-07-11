@@ -185,9 +185,16 @@ internal static class DashboardHtml
                   <label>Required skill
                     <input id="requiredSkill" value="VMAT">
                   </label>
+                  <label>Physician
+                    <input id="assignmentPhysician" placeholder="Dr Smith">
+                  </label>
+                  <label>Roster path
+                    <input id="assignmentRosterPath" value="samples/staff-roster-synthetic.json">
+                  </label>
                 </div>
                 <div class="actions">
                   <button onclick="recommendAssignment()">Recommend</button>
+                  <button class="secondary" onclick="recommendTeam()">Recommend team</button>
                 </div>
               </section>
             </aside>
@@ -280,7 +287,21 @@ internal static class DashboardHtml
                 method: "POST",
                 body: JSON.stringify({
                   diseaseSite: document.getElementById("diseaseSite").value,
-                  requiredSkills: [document.getElementById("requiredSkill").value]
+                  requiredSkills: [document.getElementById("requiredSkill").value],
+                  physician: document.getElementById("assignmentPhysician").value || null,
+                  rosterPath: document.getElementById("assignmentRosterPath").value || null
+                })
+              });
+            }
+
+            async function recommendTeam() {
+              await api("/api/assignments/recommend-team", {
+                method: "POST",
+                body: JSON.stringify({
+                  diseaseSite: document.getElementById("diseaseSite").value,
+                  requiredSkills: [document.getElementById("requiredSkill").value],
+                  physician: document.getElementById("assignmentPhysician").value || null,
+                  rosterPath: document.getElementById("assignmentRosterPath").value || null
                 })
               });
             }

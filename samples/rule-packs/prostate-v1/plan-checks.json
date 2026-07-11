@@ -1,0 +1,137 @@
+{
+  "name": "Prostate plan-check catalog",
+  "version": "2026.1",
+  "owner": "BeamKit",
+  "description": "Starter checklist for Prostate plan review.",
+  "checks": [
+    {
+      "id": "plan.dose.exists",
+      "title": "Dose exists",
+      "type": "dose-exists",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {},
+      "isActive": true
+    },
+    {
+      "id": "plan.beams.present",
+      "title": "Treatment beams exist",
+      "type": "beams-present",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {},
+      "isActive": true
+    },
+    {
+      "id": "structure.body.exists",
+      "title": "Body exists",
+      "type": "structure-exists",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {
+        "structureName": "BODY"
+      },
+      "isActive": true
+    },
+    {
+      "id": "target.exists",
+      "title": "Prescription target exists",
+      "type": "structure-exists",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {
+        "structureName": "$target"
+      },
+      "isActive": true
+    },
+    {
+      "id": "target.not-empty",
+      "title": "Prescription target has contours",
+      "type": "structure-not-empty",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {
+        "structureName": "$target"
+      },
+      "isActive": true
+    },
+    {
+      "id": "dose.grid.spacing",
+      "title": "Dose grid spacing",
+      "type": "dose-grid-max-spacing",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {
+        "maxSpacingMm": "2.5"
+      },
+      "isActive": true
+    },
+    {
+      "id": "prescription.fractionation",
+      "title": "Prescription fractionation",
+      "type": "prescription-fractionation",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {
+        "totalDoseGy": "70",
+        "fractionCount": "28",
+        "dosePerFractionGy": "2.5"
+      },
+      "isActive": true
+    },
+    {
+      "id": "dose.calculation-model",
+      "title": "Dose calculation model",
+      "type": "calculation-model",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {},
+      "isActive": true
+    },
+    {
+      "id": "beam.model",
+      "title": "Beam model",
+      "type": "beam-model",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {},
+      "isActive": true
+    },
+    {
+      "id": "target.d95",
+      "title": "Target D95 coverage",
+      "type": "target-coverage",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {
+        "metric": "D95%",
+        "minPercentPrescription": "95"
+      },
+      "isActive": true
+    },
+    {
+      "id": "starter.oar1.max",
+      "title": "Starter OAR maximum dose review",
+      "type": "dose-metric",
+      "severity": "Warning",
+      "reference": "Starter institutional baseline",
+      "parameters": {
+        "structureName": "OAR_1",
+        "metric": "Max",
+        "comparison": "LessThanOrEqual",
+        "threshold": "56",
+        "unit": "Gy"
+      },
+      "isActive": true
+    },
+    {
+      "id": "deliverability.profile",
+      "title": "Beam deliverability profile",
+      "type": "deliverability",
+      "severity": "Failure",
+      "reference": "Starter institutional baseline",
+      "parameters": {},
+      "isActive": true
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BeamKit.Check;
 
 /// <summary>
@@ -9,6 +11,15 @@ public sealed record RulePackValidationReport
     /// Creates a validation report.
     /// </summary>
     public RulePackValidationReport(string rulePackName, string rulePackVersion, string fingerprint, IEnumerable<RulePackPolicyIssue> issues)
+        : this(rulePackName, rulePackVersion, fingerprint, issues?.ToArray() ?? throw new ArgumentNullException(nameof(issues)))
+    {
+    }
+
+    /// <summary>
+    /// Creates a validation report from JSON.
+    /// </summary>
+    [JsonConstructor]
+    public RulePackValidationReport(string rulePackName, string rulePackVersion, string fingerprint, IReadOnlyList<RulePackPolicyIssue> issues)
     {
         RulePackName = CheckText.Required(rulePackName, nameof(rulePackName));
         RulePackVersion = CheckText.Required(rulePackVersion, nameof(rulePackVersion));

@@ -456,6 +456,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     source,
                     base_directory,
                     manifest_json,
+                    bundle_json,
                     name,
                     version,
                     owner,
@@ -479,6 +480,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     $source,
                     $base_directory,
                     $manifest_json,
+                    $bundle_json,
                     $name,
                     $version,
                     $owner,
@@ -500,6 +502,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     source = excluded.source,
                     base_directory = excluded.base_directory,
                     manifest_json = excluded.manifest_json,
+                    bundle_json = excluded.bundle_json,
                     name = excluded.name,
                     version = excluded.version,
                     owner = excluded.owner,
@@ -872,6 +875,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     source TEXT NOT NULL,
                     base_directory TEXT NOT NULL,
                     manifest_json TEXT NOT NULL,
+                    bundle_json TEXT NULL,
                     name TEXT NOT NULL,
                     version TEXT NOT NULL,
                     owner TEXT NULL,
@@ -915,6 +919,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
             command.ExecuteNonQuery();
             EnsureInputKindColumn(connection);
             EnsurePlanSnapshotColumn(connection);
+            EnsureRulePackBundleColumn(connection);
             using var index = connection.CreateCommand();
             index.CommandText = "CREATE INDEX IF NOT EXISTS ix_ci_runs_input_kind ON ci_runs(input_kind);";
             index.ExecuteNonQuery();
@@ -997,6 +1002,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$source", version.Source);
         command.Parameters.AddWithValue("$base_directory", version.BaseDirectory);
         command.Parameters.AddWithValue("$manifest_json", version.ManifestJson);
+        command.Parameters.AddWithValue("$bundle_json", ToDbValue(version.BundleJson));
         command.Parameters.AddWithValue("$name", version.Name);
         command.Parameters.AddWithValue("$version", version.Version);
         command.Parameters.AddWithValue("$owner", ToDbValue(version.Owner));
@@ -1110,6 +1116,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 source,
                 base_directory,
                 manifest_json,
+                bundle_json,
                 name,
                 version,
                 owner,
@@ -1129,12 +1136,12 @@ public sealed class SqliteCiRunStore : ICiRunStore
 
     private static CiServerManagedRulePackVersion ReadRulePackVersion(SqliteDataReader reader)
     {
-        var validation = ReadRulePackValidationReport(reader.GetString(15));
-        var testReportJson = GetNullableString(reader, 16);
+        var validation = ReadRulePackValidationReport(reader.GetString(16));
+        var testReportJson = GetNullableString(reader, 17);
         var testReport = string.IsNullOrWhiteSpace(testReportJson)
             ? null
             : ReadRulePackTestReport(testReportJson);
-        var tags = JsonSerializer.Deserialize<string[]>(reader.GetString(13), CiServerJson.Options)
+        var tags = JsonSerializer.Deserialize<string[]>(reader.GetString(14), CiServerJson.Options)
             ?? Array.Empty<string>();
 
         return new CiServerManagedRulePackVersion(
@@ -1146,19 +1153,20 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.GetString(5),
             reader.GetString(6),
             reader.GetString(7),
-            reader.GetString(8),
             reader.GetString(9),
-            GetNullableString(reader, 10),
+            reader.GetString(10),
             GetNullableString(reader, 11),
             GetNullableString(reader, 12),
+            GetNullableString(reader, 13),
             tags,
-            reader.GetString(14),
+            reader.GetString(15),
             validation,
             testReport,
-            reader.GetInt32(17) != 0,
-            reader.IsDBNull(18) ? null : DateTimeOffset.Parse(reader.GetString(18), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-            GetNullableString(reader, 19),
-            GetNullableString(reader, 20));
+            reader.GetInt32(18) != 0,
+            reader.IsDBNull(19) ? null : DateTimeOffset.Parse(reader.GetString(19), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            GetNullableString(reader, 20),
+            GetNullableString(reader, 21),
+            GetNullableString(reader, 8));
     }
 
     private static RulePackValidationReport ReadRulePackValidationReport(string json)
@@ -1293,6 +1301,33 @@ public sealed class SqliteCiRunStore : ICiRunStore
 
         using var alter = connection.CreateCommand();
         alter.CommandText = "ALTER TABLE ci_runs ADD COLUMN plan_snapshot_json TEXT NULL;";
+        alter.ExecuteNonQuery();
+    }
+
+    private static void EnsureRulePackBundleColumn(SqliteConnection connection)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = "PRAGMA table_info(ci_rule_pack_versions);";
+        var hasColumn = false;
+        using (var reader = check.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), "bundle_json", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasColumn = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasColumn)
+        {
+            return;
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE ci_rule_pack_versions ADD COLUMN bundle_json TEXT NULL;";
         alter.ExecuteNonQuery();
     }
 }

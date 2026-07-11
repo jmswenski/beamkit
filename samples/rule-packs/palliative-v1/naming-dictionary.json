@@ -1,0 +1,41 @@
+{
+  "name": "Palliative starter naming dictionary",
+  "canonicalNames": [
+    "Body",
+    "PTV_3000",
+    "OAR_1"
+  ],
+  "aliases": [
+    {
+      "alias": "External",
+      "canonicalName": "Body",
+      "source": "Starter alias"
+    },
+    {
+      "alias": "BODY",
+      "canonicalName": "Body",
+      "source": "Starter alias"
+    },
+    {
+      "alias": "PTV 3000",
+      "canonicalName": "PTV_3000",
+      "source": "Starter alias"
+    },
+    {
+      "alias": "OAR1",
+      "canonicalName": "OAR_1",
+      "source": "Starter alias"
+    }
+  ],
+  "regexMappings": [
+    {
+      "pattern": "^body$|^external$",
+      "canonicalName": "Body",
+      "source": "Starter regex"
+    }
+  ],
+  "requiredStructureNames": [
+    "Body",
+    "PTV_3000"
+  ]
+}

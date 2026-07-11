@@ -28,6 +28,8 @@ A BeamKit rule pack is a small manifest that points at the clinical catalogs mai
 
 The manifest is intentionally path-based so institutions can version policy files independently and review rule changes in normal source-control workflows.
 
+Authoring workflows such as starter scaffolds, doctor checks, diffs, changelogs, and reminder imports live in `BeamKit.RulePacks` so runtime evaluation stays focused on already-loaded policy.
+
 ## Examples
 
 ```csharp

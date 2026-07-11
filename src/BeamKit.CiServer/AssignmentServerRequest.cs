@@ -1,3 +1,5 @@
+using BeamKit.Workflow;
+
 namespace BeamKit.CiServer;
 
 /// <summary>
@@ -21,6 +23,11 @@ public sealed record AssignmentServerRequest
     public IReadOnlyList<string>? RequiredSkills { get; init; }
 
     /// <summary>
+    /// Required assignment roles. Defaults to dosimetrist for single recommendations and dosimetrist plus physicist for team recommendations.
+    /// </summary>
+    public IReadOnlyList<string>? RequiredRoles { get; init; }
+
+    /// <summary>
     /// Due date in <c>yyyy-MM-dd</c> format.
     /// </summary>
     public string? DueDate { get; init; }
@@ -39,4 +46,19 @@ public sealed record AssignmentServerRequest
     /// Optional physician label.
     /// </summary>
     public string? Physician { get; init; }
+
+    /// <summary>
+    /// Optional embedded staff roster. When omitted, the server uses synthetic PHI-free defaults.
+    /// </summary>
+    public StaffRoster? Roster { get; init; }
+
+    /// <summary>
+    /// Optional raw staff roster JSON.
+    /// </summary>
+    public string? RosterJson { get; init; }
+
+    /// <summary>
+    /// Optional local staff roster path on the server host.
+    /// </summary>
+    public string? RosterPath { get; init; }
 }

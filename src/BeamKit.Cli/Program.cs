@@ -9,12 +9,14 @@ using BeamKit.Check;
 using BeamKit.Cli;
 using BeamKit.Deliverability;
 using BeamKit.Esapi;
+using BeamKit.Intelligence;
 using BeamKit.Metrics;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.Qa;
 using BeamKit.Release;
 using BeamKit.Reporting;
+using BeamKit.RulePacks;
 using BeamKit.Rules;
 using BeamKit.Samples;
 using BeamKit.Structures;
@@ -40,16 +42,27 @@ internal static class Program
             {
                 "sample-report" => RunSampleReport(options),
                 "check" => RunCheck(options),
+                "rule-pack-new" => RunRulePackNew(options),
+                "rule-pack-add-check" => RunRulePackAddCheck(options),
+                "rule-pack-explain" => RunRulePackExplain(options),
+                "rule-pack-doctor" => RunRulePackDoctor(options),
+                "rule-pack-diff" => RunRulePackDiff(options),
+                "rule-pack-changelog" => RunRulePackChangelog(options),
+                "rule-pack-bundle" => RunRulePackBundle(options),
+                "rule-pack-verify-bundle" => RunRulePackVerifyBundle(options),
+                "rule-pack-import-reminders" => RunRulePackImportReminders(options),
                 "rule-pack-validate" => RunRulePackValidate(options),
                 "rule-pack-test" => RunRulePackTest(options),
                 "ci-run" => RunCiRun(options),
                 "assignment-recommend" => RunAssignmentRecommend(options),
+                "assignment-recommend-team" => RunAssignmentRecommendTeam(options),
                 "cases" => RunCases(options),
                 "dose-calc" => RunDoseCalculation(options),
                 "structure-rings" => RunStructureRings(options),
                 "rule-catalog" => RunRuleCatalog(options),
                 "plan-check" => RunPlanCheck(options),
                 "metrics" => RunMetrics(options),
+                "intelligence-case" => RunCaseIntelligence(options),
                 "deliverability" => RunDeliverability(options),
                 "plan-integrity" => RunPlanIntegrity(options),
                 "writeup-capture" => RunWriteUpCapture(options),
@@ -104,6 +117,143 @@ internal static class Program
         return report.HasBlockingIssues ? 2 : 0;
     }
 
+    private static int RunRulePackNew(CliOptions options)
+    {
+        var outputDirectory = options.OutputPath
+            ?? throw new ArgumentException("Rule-pack scaffold generation requires --output directory.");
+        var scaffold = new RulePackStarterScaffoldFactory().Create(
+            options.DiseaseSite ?? "Head and Neck",
+            options.Name,
+            options.Owner,
+            options.Version,
+            options.Institution);
+        scaffold.WriteToDirectory(outputDirectory, options.Overwrite);
+        var report = new RulePackScaffoldCliReport(
+            Path.GetFullPath(outputDirectory),
+            scaffold.DiseaseSite,
+            Path.Combine(Path.GetFullPath(outputDirectory), scaffold.ManifestPath),
+            scaffold.Files.Select(file => file.RelativePath).ToArray());
+        WriteOutput(WriteRulePackScaffoldReport(report, options.Format), null);
+        return 0;
+    }
+
+    private static int RunRulePackAddCheck(CliOptions options)
+    {
+        var manifestPath = RequireRulePackPath(options, "Rule-pack add-check requires --rule-pack.");
+        var manifest = RulePackManifestStore.FromFile(manifestPath);
+        var catalogPath = ResolveManifestReference(manifestPath, manifest.PlanCheckCatalog);
+        var catalog = PlanCheckCatalogLoader.FromFile(catalogPath);
+        var check = CreatePlanCheckDefinition(options);
+        var updated = PlanCheckCatalogStore.AddCheck(catalog, check);
+        var outputPath = options.OutputPath ?? catalogPath;
+        PlanCheckCatalogStore.Save(outputPath, updated);
+        var report = new RulePackAddCheckCliReport(Path.GetFullPath(outputPath), updated.Name, updated.Version, check);
+        WriteOutput(WriteRulePackAddCheckReport(report, options.Format), null);
+        return 0;
+    }
+
+    private static int RunRulePackExplain(CliOptions options)
+    {
+        var manifestPath = RequireRulePackPath(options, "Rule-pack explain requires --rule-pack.");
+        var manifest = RulePackManifestStore.FromFile(manifestPath);
+        var rulePack = BeamKitRulePackLoader.FromFile(manifestPath);
+        var validation = new RulePackPolicyValidator().Validate(rulePack);
+        var report = new RulePackExplainCliReport(
+            Path.GetFullPath(manifestPath),
+            manifest,
+            validation.Fingerprint,
+            rulePack.ClinicalRuleSet.Rules.Count,
+            rulePack.PlanCheckCatalog.Checks.Count,
+            rulePack.NamingDictionary?.RequiredStructureNames.Count ?? 0,
+            rulePack.MachineProfile is not null,
+            validation);
+        WriteOutput(WriteRulePackExplainReport(report, options.Format), options.OutputPath);
+        return validation.IsValid ? 0 : 2;
+    }
+
+    private static int RunRulePackDoctor(CliOptions options)
+    {
+        var manifestPath = RequireRulePackPath(options, "Rule-pack doctor requires --rule-pack.");
+        var report = new RulePackDoctor().InspectFile(manifestPath);
+        WriteOutput(WriteRulePackDoctorReport(report, options.Format), options.OutputPath);
+        return report.IsHealthy ? 0 : 2;
+    }
+
+    private static int RunRulePackDiff(CliOptions options)
+    {
+        var report = CreateRulePackDiffReport(options);
+        WriteOutput(WriteRulePackDiffReport(report, options.Format), options.OutputPath);
+        return report.HasPolicyRelevantChanges ? 2 : 0;
+    }
+
+    private static int RunRulePackChangelog(CliOptions options)
+    {
+        var report = CreateRulePackDiffReport(options);
+        var output = options.Format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => RulePackChangelogWriter.WriteMarkdown(report),
+            ReportFormat.Html => RulePackChangelogWriter.WriteHtml(report),
+            _ => throw new ArgumentOutOfRangeException(nameof(options), options.Format, "Unsupported report format.")
+        };
+
+        WriteOutput(output, options.OutputPath);
+        return report.HasPolicyRelevantChanges ? 2 : 0;
+    }
+
+    private static int RunRulePackBundle(CliOptions options)
+    {
+        var manifestPath = RequireRulePackPath(options, "Rule-pack bundle requires --rule-pack.");
+        var outputPath = options.OutputPath
+            ?? throw new ArgumentException("Rule-pack bundle requires --output bundle.json.");
+        RulePackTestReport? testReport = null;
+        if (!string.IsNullOrWhiteSpace(options.SyntheticCaseId))
+        {
+            testReport = new RulePackTestRunner().Run(
+                BeamKitRulePackLoader.FromFile(manifestPath),
+                LoadRulePackTestCases(options));
+        }
+
+        var bundle = new RulePackBundleBuilder().FromFile(manifestPath, options.CreatedBy, testReport);
+        RulePackBundleStore.Save(outputPath, bundle);
+        var report = new RulePackBundleCliReport(Path.GetFullPath(outputPath), bundle);
+        WriteOutput(WriteRulePackBundleReport(report, options.Format), null);
+        return bundle.ValidationReport.IsValid && (testReport is null || testReport.Passed) ? 0 : 2;
+    }
+
+    private static int RunRulePackVerifyBundle(CliOptions options)
+    {
+        var bundlePath = RequireRulePackBundlePath(options);
+        var report = new RulePackBundleVerifier().VerifyFile(bundlePath);
+        WriteOutput(WriteRulePackBundleVerificationReport(report, options.Format), options.OutputPath);
+        return report.IsValid ? 0 : 2;
+    }
+
+    private static int RunRulePackImportReminders(CliOptions options)
+    {
+        var manifestPath = RequireRulePackPath(options, "Reminder import requires --rule-pack.");
+        var reminderPath = options.ReminderPath
+            ?? throw new ArgumentException("Reminder import requires --reminders.");
+        var manifest = RulePackManifestStore.FromFile(manifestPath);
+        var catalogPath = ResolveManifestReference(manifestPath, manifest.PlanCheckCatalog);
+        var catalog = PlanCheckCatalogLoader.FromFile(catalogPath);
+        var checks = new RulePackReminderParser().ParseFile(reminderPath);
+        foreach (var check in checks)
+        {
+            catalog = PlanCheckCatalogStore.AddCheck(catalog, check);
+        }
+
+        var outputPath = options.OutputPath ?? catalogPath;
+        PlanCheckCatalogStore.Save(outputPath, catalog);
+        var report = new RulePackReminderImportCliReport(
+            Path.GetFullPath(reminderPath),
+            Path.GetFullPath(outputPath),
+            catalog.Name,
+            checks.Select(check => check.Id).ToArray());
+        WriteOutput(WriteRulePackReminderImportReport(report, options.Format), null);
+        return 0;
+    }
+
     private static int RunRulePackValidate(CliOptions options)
     {
         var rulePack = LoadRulePack(options);
@@ -145,12 +295,22 @@ internal static class Program
 
     private static int RunAssignmentRecommend(CliOptions options)
     {
-        var request = CreateAssignmentRequest(options);
+        var request = CreateAssignmentRequest(options, includeTeamRoles: false);
         var recommendation = new PlannerAssignmentEngine().Recommend(request);
         var output = WriteAssignmentRecommendation(recommendation, options.Format);
 
         WriteOutput(output, options.OutputPath);
         return recommendation.RecommendedPlanner is null ? 2 : 0;
+    }
+
+    private static int RunAssignmentRecommendTeam(CliOptions options)
+    {
+        var request = CreateAssignmentRequest(options, includeTeamRoles: true);
+        var recommendation = new PlannerAssignmentEngine().RecommendTeam(request);
+        var output = WritePlanStaffingRecommendation(recommendation, options.Format);
+
+        WriteOutput(output, options.OutputPath);
+        return recommendation.IsFullyStaffed ? 0 : 2;
     }
 
     private static int RunCases(CliOptions options)
@@ -318,6 +478,19 @@ internal static class Program
         return metric is { IsEvaluable: false } ? 2 : 0;
     }
 
+    private static int RunCaseIntelligence(CliOptions options)
+    {
+        var plan = LoadPlan(options);
+        var report = new CasePlanIntelligenceService().Analyze(new CasePlanIntelligenceRequest(
+            plan,
+            options.DueDate,
+            priority: options.Priority));
+        var output = WriteCaseIntelligenceReport(report, options.Format);
+
+        WriteOutput(output, options.OutputPath);
+        return report.QaRiskLevel == PlanRiskLevel.Critical ? 2 : 0;
+    }
+
     private static int RunDeliverability(CliOptions options)
     {
         var plan = LoadPlan(options);
@@ -476,7 +649,84 @@ internal static class Program
         };
     }
 
-    private static PlannerAssignmentRequest CreateAssignmentRequest(CliOptions options)
+    private static RulePackDiffReport CreateRulePackDiffReport(CliOptions options)
+    {
+        var oldManifestPath = RequireRulePackPath(options, "Rule-pack diff requires --old-rule-pack.");
+        var newManifestPath = options.ComparisonRulePackPath
+            ?? throw new ArgumentException("Rule-pack diff requires --new-rule-pack.");
+        return new RulePackDiffer().CompareFiles(oldManifestPath, newManifestPath);
+    }
+
+    private static string RequireRulePackPath(CliOptions options, string message)
+    {
+        return string.IsNullOrWhiteSpace(options.RulePackPath)
+            ? throw new ArgumentException(message)
+            : options.RulePackPath;
+    }
+
+    private static string RequireRulePackBundlePath(CliOptions options)
+    {
+        return string.IsNullOrWhiteSpace(options.RulePackBundlePath)
+            ? throw new ArgumentException("Rule-pack bundle verification requires --bundle.")
+            : options.RulePackBundlePath;
+    }
+
+    private static string ResolveManifestReference(string manifestPath, string relativePath)
+    {
+        var baseDirectory = Path.GetDirectoryName(Path.GetFullPath(manifestPath)) ?? Directory.GetCurrentDirectory();
+        return Path.GetFullPath(Path.Combine(baseDirectory, relativePath));
+    }
+
+    private static PlanCheckDefinition CreatePlanCheckDefinition(CliOptions options)
+    {
+        var id = options.CheckId
+            ?? throw new ArgumentException("Adding a plan check requires --id.");
+        var title = options.CheckTitle
+            ?? throw new ArgumentException("Adding a plan check requires --title.");
+        var type = options.CheckType
+            ?? throw new ArgumentException("Adding a plan check requires --type.");
+
+        return new PlanCheckDefinition(
+            id,
+            title,
+            type,
+            ParsePlanCheckSeverity(options.CheckSeverity),
+            options.Description,
+            options.CheckReference,
+            ParseCheckParameters(options.CheckParameters),
+            isActive: true);
+    }
+
+    private static PlanCheckSeverity ParsePlanCheckSeverity(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return PlanCheckSeverity.Warning;
+        }
+
+        return Enum.TryParse<PlanCheckSeverity>(value, ignoreCase: true, out var severity)
+            ? severity
+            : throw new ArgumentException($"Unsupported plan-check severity '{value}'.");
+    }
+
+    private static IReadOnlyDictionary<string, string> ParseCheckParameters(IReadOnlyList<string> values)
+    {
+        var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var value in values)
+        {
+            var parts = value.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]))
+            {
+                throw new ArgumentException("Plan-check parameters must use key=value.");
+            }
+
+            parameters[parts[0]] = parts[1];
+        }
+
+        return parameters;
+    }
+
+    private static PlannerAssignmentRequest CreateAssignmentRequest(CliOptions options, bool includeTeamRoles)
     {
         var assignmentDate = DateOnly.FromDateTime(DateTime.UtcNow);
         var syntheticCase = string.IsNullOrWhiteSpace(options.SyntheticCaseId)
@@ -486,17 +736,31 @@ internal static class Program
         var requiredSkills = options.RequiredSkills.Count == 0
             ? new[] { "VMAT" }
             : options.RequiredSkills;
+        var requiredRoles = ResolveAssignmentRoles(options, includeTeamRoles);
+        var dueDate = options.DueDate ?? assignmentDate.AddDays(3);
 
         return new PlannerAssignmentRequest(
             syntheticCase?.Id ?? "synthetic-assignment",
             diseaseSite,
-            options.DueDate ?? assignmentDate.AddDays(3),
-            CreateSyntheticPlannerProfiles(assignmentDate),
+            dueDate,
+            LoadPlannerProfiles(options, assignmentDate, dueDate),
             requiredSkills,
             options.ComplexityScore ?? 3,
             options.Priority ?? 3,
             options.Physician,
-            assignmentDate);
+            assignmentDate,
+            requiredRoles[0],
+            requiredRoles);
+    }
+
+    private static IReadOnlyList<PlannerProfile> LoadPlannerProfiles(CliOptions options, DateOnly assignmentDate, DateOnly dueDate)
+    {
+        if (!string.IsNullOrWhiteSpace(options.StaffRosterPath))
+        {
+            return StaffRosterLoader.FromFile(options.StaffRosterPath).ToPlannerProfiles(assignmentDate, dueDate);
+        }
+
+        return CreateSyntheticPlannerProfiles(assignmentDate);
     }
 
     private static IReadOnlyList<PlannerProfile> CreateSyntheticPlannerProfiles(DateOnly assignmentDate)
@@ -509,14 +773,21 @@ internal static class Program
                 new[] { "VMAT", "SBRT", "Head and Neck" },
                 new[] { "Head and Neck", "Lung" },
                 activeCaseCount: 2,
-                maxActiveCaseCount: 8),
+                maxActiveCaseCount: 8,
+                role: PlanningStaffRole.Dosimetrist,
+                preferredPhysicians: new[] { "Dr Smith" },
+                blockedPhysicians: new[] { "Dr Gray" },
+                schedule: CreateSyntheticSchedule(assignmentDate, 0, 1, 1, 2)),
             new PlannerProfile(
                 "planner-alex",
                 "Alex Kim",
                 new[] { "VMAT", "Prostate" },
                 new[] { "Prostate" },
                 activeCaseCount: 6,
-                maxActiveCaseCount: 8),
+                maxActiveCaseCount: 8,
+                role: PlanningStaffRole.Dosimetrist,
+                maxComplexityScore: 4,
+                schedule: CreateSyntheticSchedule(assignmentDate, 1, 1, 1, 1)),
             new PlannerProfile(
                 "planner-priya",
                 "Priya Shah",
@@ -524,15 +795,73 @@ internal static class Program
                 new[] { "Head and Neck", "Brain" },
                 activeCaseCount: 4,
                 maxActiveCaseCount: 8,
-                ptoUntil: assignmentDate.AddDays(1)),
+                ptoUntil: assignmentDate.AddDays(1),
+                role: PlanningStaffRole.Dosimetrist,
+                maxComplexityScore: 5,
+                preferredPhysicians: new[] { "Dr Gray" },
+                schedule: CreateSyntheticSchedule(assignmentDate, 0, 0, 1, 1)),
             new PlannerProfile(
                 "planner-sam",
                 "Sam Rivera",
                 new[] { "3D", "Breast" },
                 new[] { "Breast" },
                 activeCaseCount: 1,
-                maxActiveCaseCount: 8)
+                maxActiveCaseCount: 8,
+                role: PlanningStaffRole.Dosimetrist,
+                maxComplexityScore: 3,
+                schedule: CreateSyntheticSchedule(assignmentDate, 1, 1, 0, 1)),
+            new PlannerProfile(
+                "physicist-morgan",
+                "Morgan Lee",
+                new[] { "VMAT", "SBRT", "SRS", "Machine QA" },
+                new[] { "Head and Neck", "Lung", "Brain" },
+                activeCaseCount: 5,
+                maxActiveCaseCount: 10,
+                role: PlanningStaffRole.Physicist,
+                maxComplexityScore: 5,
+                preferredPhysicians: new[] { "Dr Smith", "Dr Gray" },
+                schedule: CreateSyntheticSchedule(assignmentDate, 1, 1, 2, 1)),
+            new PlannerProfile(
+                "physicist-taylor",
+                "Taylor Chen",
+                new[] { "VMAT", "Prostate", "Breast" },
+                new[] { "Prostate", "Breast" },
+                activeCaseCount: 3,
+                maxActiveCaseCount: 10,
+                role: PlanningStaffRole.Physicist,
+                maxComplexityScore: 4,
+                blockedPhysicians: new[] { "Dr Gray" },
+                schedule: CreateSyntheticSchedule(assignmentDate, 0, 0, 1, 1))
         };
+    }
+
+    private static IReadOnlyList<PlannerScheduleDay> CreateSyntheticSchedule(DateOnly startDate, params int[] assignedCases)
+    {
+        return assignedCases
+            .Select((assigned, index) => new PlannerScheduleDay(startDate.AddDays(index), assigned, capacity: 2))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<PlanningStaffRole> ResolveAssignmentRoles(CliOptions options, bool includeTeamRoles)
+    {
+        if (options.AssignmentRoles.Count > 0)
+        {
+            return options.AssignmentRoles.Select(ParsePlanningStaffRole).Distinct().ToArray();
+        }
+
+        return includeTeamRoles
+            ? new[] { PlanningStaffRole.Dosimetrist, PlanningStaffRole.Physicist }
+            : new[] { PlanningStaffRole.Dosimetrist };
+    }
+
+    private static PlanningStaffRole ParsePlanningStaffRole(string value)
+    {
+        if (Enum.TryParse<PlanningStaffRole>(value, ignoreCase: true, out var role))
+        {
+            return role;
+        }
+
+        throw new ArgumentException($"Unsupported assignment role '{value}'. Use Dosimetrist or Physicist.");
     }
 
     private static BeamKitRulePack LoadRulePack(CliOptions options)
@@ -899,10 +1228,21 @@ internal static class Program
         Console.Error.WriteLine("Usage:");
         Console.Error.WriteLine("  beamkit sample-report [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit check [--plan path | --esapi-snapshot path | --case id] [--rule-pack path] [--capture-writeup] [--export kind:destination[:externalPlanId[:externalVersionId[:performedBy]]]]... [--document name[:format[:fingerprint]]]... [--attest key=value]... [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rule-pack new --disease-site site --output directory [--name name] [--owner owner] [--version version] [--institution name] [--overwrite] [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit rule-pack add-check --rule-pack manifest.json --id id --title title --type type [--severity Info|Warning|Failure] [--reference text] [--parameter key=value]... [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit rule-pack explain --rule-pack manifest.json [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rule-pack doctor --rule-pack manifest.json [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rule-pack diff --old-rule-pack old.json --new-rule-pack new.json [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rule-pack changelog --old-rule-pack old.json --new-rule-pack new.json [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rule-pack bundle --rule-pack manifest.json --output bundle.json [--created-by actor] [--case id] [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit rule-pack verify-bundle --bundle bundle.json [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rule-pack import-reminders --rule-pack manifest.json --reminders reminders.md [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit rule-pack validate [--rule-pack path] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit rule-pack test [--rule-pack path] [--case id] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit ci run [--plan path | --esapi-snapshot path | --case id] [--rule-pack path] [--branch name] [--commit sha] [--build-id id] [--format json|markdown|html] [--output path]");
-        Console.Error.WriteLine("  beamkit assignment recommend [--case id] [--disease-site name] [--required-skill skill]... [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit assignment recommend [--roster staff.json] [--case id] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist] [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit assignment recommend-team [--roster staff.json] [--case id] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist]... [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit intelligence case [--plan path | --esapi-snapshot path | --case id] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit cases [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit dose-calc --total-dose-gy value --fractions n [--alpha-beta value] [--equivalent-fractions n] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit structure-rings --ptv name [--ring index:innerCm:thicknessCm]... [--format json|markdown|html] [--output path]");
@@ -1328,6 +1668,59 @@ internal static class Program
         return builder.ToString();
     }
 
+    private static string WriteCaseIntelligenceReport(CasePlanIntelligenceReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteCaseIntelligenceMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit Case Intelligence", WriteCaseIntelligenceMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteCaseIntelligenceMarkdown(CasePlanIntelligenceReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Case Intelligence");
+        builder.AppendLine();
+        builder.AppendLine($"- Plan: `{report.PlanId}`");
+        builder.AppendLine($"- Disease site: {report.DiseaseSite ?? "n/a"}");
+        builder.AppendLine($"- Prescription: {FormatNumber(report.PrescriptionDoseGy)} Gy in {report.FractionCount} fractions ({FormatNumber(report.DosePerFractionGy)} Gy/fx)");
+        builder.AppendLine($"- Target: `{report.TargetStructureName}` ({FormatNullable(report.TargetVolumeCc)} cc)");
+        builder.AppendLine($"- Complexity: {FormatNumber(report.ComplexityScore)} ({report.ComplexityLevel})");
+        builder.AppendLine($"- QA risk: {FormatNumber(report.QaRiskScore)} ({report.QaRiskLevel})");
+        builder.AppendLine($"- Estimated planning time: {FormatNumber(report.EstimatedPlanningHours)} hours");
+        builder.AppendLine($"- Estimated physics review: {FormatNumber(report.EstimatedPhysicsReviewMinutes)} minutes");
+        builder.AppendLine();
+        builder.AppendLine("## Signals");
+        builder.AppendLine();
+        builder.AppendLine("| Severity | Category | Signal | Complexity | Risk | Message |");
+        builder.AppendLine("| --- | --- | --- | ---: | ---: | --- |");
+        foreach (var signal in report.Signals)
+        {
+            builder.AppendLine($"| {signal.Severity} | {EscapeMarkdownTable(signal.Category)} | {EscapeMarkdownTable(signal.Name)} | {FormatNumber(signal.ComplexityImpact)} | {FormatNumber(signal.RiskImpact)} | {EscapeMarkdownTable(signal.Message)} |");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("## Recommendations");
+        builder.AppendLine();
+        foreach (var recommendation in report.Recommendations)
+        {
+            builder.AppendLine($"- {recommendation}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("## Limitations");
+        builder.AppendLine();
+        foreach (var limitation in report.Limitations)
+        {
+            builder.AppendLine($"- {limitation}");
+        }
+
+        return builder.ToString();
+    }
+
     private static string WriteDeliverabilityHtml(DeliverabilityCliReport report)
     {
         var builder = new StringBuilder();
@@ -1353,6 +1746,295 @@ internal static class Program
         }
 
         builder.AppendLine("</tbody></table>");
+        builder.AppendLine("</body></html>");
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackScaffoldReport(RulePackScaffoldCliReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteRulePackScaffoldMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit Rule-Pack Scaffold", WriteRulePackScaffoldMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackScaffoldMarkdown(RulePackScaffoldCliReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Rule-Pack Scaffold");
+        builder.AppendLine();
+        builder.AppendLine($"- Disease site: {report.DiseaseSite}");
+        builder.AppendLine($"- Output directory: `{report.OutputDirectory}`");
+        builder.AppendLine($"- Manifest: `{report.ManifestPath}`");
+        builder.AppendLine();
+        builder.AppendLine("| File |");
+        builder.AppendLine("| --- |");
+        foreach (var file in report.Files)
+        {
+            builder.AppendLine($"| `{file}` |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackAddCheckReport(RulePackAddCheckCliReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteRulePackAddCheckMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit Rule-Pack Add Check", WriteRulePackAddCheckMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackAddCheckMarkdown(RulePackAddCheckCliReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Rule-Pack Add Check");
+        builder.AppendLine();
+        builder.AppendLine($"- Catalog: {report.CatalogName} ({report.CatalogVersion})");
+        builder.AppendLine($"- Catalog path: `{report.CatalogPath}`");
+        builder.AppendLine($"- Added check: `{report.Check.Id}`");
+        builder.AppendLine($"- Type: `{report.Check.Type}`");
+        builder.AppendLine($"- Severity: {report.Check.Severity}");
+        builder.AppendLine($"- Parameters: {FormatEvidence(report.Check.Parameters)}");
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackExplainReport(RulePackExplainCliReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteRulePackExplainMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit Rule-Pack Explain", WriteRulePackExplainMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackExplainMarkdown(RulePackExplainCliReport report)
+    {
+        var approval = report.Manifest.Approval;
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Rule-Pack Explain");
+        builder.AppendLine();
+        builder.AppendLine($"- Manifest: `{report.ManifestPath}`");
+        builder.AppendLine($"- Name: {report.Manifest.Name}");
+        builder.AppendLine($"- Version: {report.Manifest.Version}");
+        AppendOptionalMarkdown(builder, "Owner", report.Manifest.Owner);
+        AppendOptionalMarkdown(builder, "Disease site", report.Manifest.DiseaseSite);
+        builder.AppendLine($"- Tags: {FormatTags(report.Manifest.Tags)}");
+        builder.AppendLine($"- Fingerprint: `{report.Fingerprint}`");
+        builder.AppendLine($"- Clinical rules: {report.ClinicalRuleCount}");
+        builder.AppendLine($"- Plan checks: {report.PlanCheckCount}");
+        builder.AppendLine($"- Required structures: {report.RequiredStructureCount}");
+        builder.AppendLine($"- Machine profile: {(report.HasMachineProfile ? "Yes" : "No")}");
+        builder.AppendLine($"- Policy valid: {(report.Validation.IsValid ? "Yes" : "No")}");
+        if (approval is not null)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## Approval");
+            AppendOptionalMarkdown(builder, "Status", approval.Status);
+            AppendOptionalMarkdown(builder, "Institution", approval.Institution);
+            AppendOptionalMarkdown(builder, "Physician group", approval.PhysicianGroup);
+            AppendOptionalMarkdown(builder, "Reviewed by", approval.ReviewedBy);
+            AppendOptionalMarkdown(builder, "Approved by", approval.ApprovedBy);
+            AppendOptionalMarkdown(builder, "Effective date", approval.EffectiveDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            AppendOptionalMarkdown(builder, "Review due", approval.ReviewDueDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            AppendOptionalMarkdown(builder, "Reference", approval.Reference);
+            AppendOptionalMarkdown(builder, "Rationale", approval.Rationale);
+            AppendOptionalMarkdown(builder, "Change ticket", approval.ChangeTicket);
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackDoctorReport(RulePackDoctorReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteRulePackDoctorMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit Rule-Pack Doctor", WriteRulePackDoctorMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackDoctorMarkdown(RulePackDoctorReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Rule-Pack Doctor");
+        builder.AppendLine();
+        builder.AppendLine($"- Manifest: `{report.ManifestPath}`");
+        builder.AppendLine($"- Rule pack: {report.Name} ({report.Version})");
+        builder.AppendLine($"- Fingerprint: `{report.Fingerprint}`");
+        builder.AppendLine($"- Healthy: {(report.IsHealthy ? "Yes" : "No")}");
+        builder.AppendLine($"- Errors: {report.ErrorCount}");
+        builder.AppendLine($"- Warnings: {report.WarningCount}");
+        builder.AppendLine();
+
+        if (report.Issues.Count == 0 && report.Validation.Issues.Count == 0)
+        {
+            builder.AppendLine("No doctor or policy validation issues were detected.");
+            return builder.ToString();
+        }
+
+        builder.AppendLine("| Source | Severity | Code | Subject | Message |");
+        builder.AppendLine("| --- | --- | --- | --- | --- |");
+        foreach (var issue in report.Issues)
+        {
+            builder.AppendLine($"| Doctor | {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {issue.Message} |");
+        }
+
+        foreach (var issue in report.Validation.Issues)
+        {
+            builder.AppendLine($"| Policy | {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {issue.Message} |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackDiffReport(RulePackDiffReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => RulePackChangelogWriter.WriteMarkdown(report, "BeamKit Rule-Pack Diff"),
+            ReportFormat.Html => RulePackChangelogWriter.WriteHtml(report, "BeamKit Rule-Pack Diff"),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackBundleReport(RulePackBundleCliReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteRulePackBundleMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit Rule-Pack Bundle", WriteRulePackBundleMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackBundleMarkdown(RulePackBundleCliReport report)
+    {
+        var bundle = report.Bundle;
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Rule-Pack Bundle");
+        builder.AppendLine();
+        builder.AppendLine($"- Output: `{report.OutputPath}`");
+        builder.AppendLine($"- Rule pack: {bundle.RulePackName} ({bundle.RulePackVersion})");
+        builder.AppendLine($"- Rule-pack fingerprint: `{bundle.RulePackFingerprint}`");
+        builder.AppendLine($"- Bundle fingerprint: `{bundle.BundleFingerprint}`");
+        builder.AppendLine($"- Files: {bundle.Files.Count}");
+        builder.AppendLine($"- Validation: {(bundle.ValidationReport.IsValid ? "Valid" : "Invalid")} ({bundle.ValidationReport.ErrorCount} errors, {bundle.ValidationReport.WarningCount} warnings)");
+        builder.AppendLine($"- Regression evidence: {(bundle.TestReport is null ? "Not included" : bundle.TestReport.Passed ? "Passed" : "Failed")}");
+        if (bundle.TestReport is not null)
+        {
+            builder.AppendLine($"- Regression cases: {bundle.TestReport.PassedCount}/{bundle.TestReport.Results.Count} passed");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackBundleVerificationReport(RulePackBundleVerificationReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteRulePackBundleVerificationMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit Rule-Pack Bundle Verification", WriteRulePackBundleVerificationMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackBundleVerificationMarkdown(RulePackBundleVerificationReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Rule-Pack Bundle Verification");
+        builder.AppendLine();
+        builder.AppendLine($"- Rule pack: {report.RulePackName} ({report.RulePackVersion})");
+        builder.AppendLine($"- Rule-pack fingerprint: `{report.RulePackFingerprint}`");
+        builder.AppendLine($"- Bundle fingerprint: `{report.BundleFingerprint}`");
+        builder.AppendLine($"- Computed bundle fingerprint: `{report.ComputedBundleFingerprint}`");
+        builder.AppendLine($"- Valid: {(report.IsValid ? "Yes" : "No")}");
+        builder.AppendLine($"- Errors: {report.ErrorCount}");
+        builder.AppendLine($"- Warnings: {report.WarningCount}");
+        builder.AppendLine();
+        if (report.Issues.Count == 0)
+        {
+            builder.AppendLine("No bundle integrity issues were detected.");
+            return builder.ToString();
+        }
+
+        builder.AppendLine("| Severity | Code | Subject | Message |");
+        builder.AppendLine("| --- | --- | --- | --- |");
+        foreach (var issue in report.Issues)
+        {
+            builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {issue.Message} |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackReminderImportReport(RulePackReminderImportCliReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteRulePackReminderImportMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit Reminder Import", WriteRulePackReminderImportMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackReminderImportMarkdown(RulePackReminderImportCliReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Reminder Import");
+        builder.AppendLine();
+        builder.AppendLine($"- Reminder file: `{report.ReminderPath}`");
+        builder.AppendLine($"- Catalog: {report.CatalogName}");
+        builder.AppendLine($"- Catalog path: `{report.CatalogPath}`");
+        builder.AppendLine($"- Imported checks: {report.ImportedCheckIds.Count}");
+        builder.AppendLine();
+        foreach (var id in report.ImportedCheckIds)
+        {
+            builder.AppendLine($"- `{id}`");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteSimpleHtml(string title, string markdown)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("<!doctype html>");
+        builder.AppendLine($"<html lang=\"en\"><head><meta charset=\"utf-8\"><title>{WebUtility.HtmlEncode(title)}</title></head><body>");
+        foreach (var line in markdown.Split(Environment.NewLine))
+        {
+            if (line.StartsWith("# ", StringComparison.Ordinal))
+            {
+                builder.AppendLine($"<h1>{WebUtility.HtmlEncode(line[2..])}</h1>");
+            }
+            else if (line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                builder.AppendLine($"<h2>{WebUtility.HtmlEncode(line[3..])}</h2>");
+            }
+            else if (line.StartsWith("- ", StringComparison.Ordinal))
+            {
+                builder.AppendLine($"<p>{WebUtility.HtmlEncode(line[2..])}</p>");
+            }
+            else if (line.StartsWith("|", StringComparison.Ordinal))
+            {
+                builder.AppendLine($"<pre>{WebUtility.HtmlEncode(line)}</pre>");
+            }
+        }
+
         builder.AppendLine("</body></html>");
         return builder.ToString();
     }
@@ -1598,13 +2280,13 @@ internal static class Program
         }
 
         builder.AppendLine();
-        builder.AppendLine("| Rank | Planner | Available | Score | Reasons |");
-        builder.AppendLine("| ---: | --- | --- | ---: | --- |");
+        builder.AppendLine("| Rank | Planner | Role | Available | Score | Reasons |");
+        builder.AppendLine("| ---: | --- | --- | --- | ---: | --- |");
         var rank = 1;
         foreach (var candidate in recommendation.Candidates)
         {
             builder.AppendLine(
-                $"| {rank++} | {candidate.Planner.DisplayName} | {(candidate.IsAvailable ? "Yes" : "No")} | {candidate.Score} | {FormatTags(candidate.Reasons)} |");
+                $"| {rank++} | {candidate.Planner.DisplayName} | {candidate.Planner.Role} | {(candidate.IsAvailable ? "Yes" : "No")} | {candidate.Score} | {FormatTags(candidate.Reasons)} |");
         }
 
         return builder.ToString();
@@ -1623,13 +2305,14 @@ internal static class Program
             builder.AppendLine($"<p>Recommended planner: {WebUtility.HtmlEncode(recommended.Planner.DisplayName)}; Score: {recommended.Score}</p>");
         }
 
-        builder.AppendLine("<table><thead><tr><th>Rank</th><th>Planner</th><th>Available</th><th>Score</th><th>Reasons</th></tr></thead><tbody>");
+        builder.AppendLine("<table><thead><tr><th>Rank</th><th>Planner</th><th>Role</th><th>Available</th><th>Score</th><th>Reasons</th></tr></thead><tbody>");
         var rank = 1;
         foreach (var candidate in recommendation.Candidates)
         {
             builder.AppendLine("<tr>"
                 + $"<td>{rank++}</td>"
                 + $"<td>{WebUtility.HtmlEncode(candidate.Planner.DisplayName)}</td>"
+                + $"<td>{candidate.Planner.Role}</td>"
                 + $"<td>{(candidate.IsAvailable ? "Yes" : "No")}</td>"
                 + $"<td>{candidate.Score}</td>"
                 + $"<td>{WebUtility.HtmlEncode(FormatTags(candidate.Reasons))}</td>"
@@ -1637,6 +2320,90 @@ internal static class Program
         }
 
         builder.AppendLine("</tbody></table>");
+        builder.AppendLine("</body></html>");
+        return builder.ToString();
+    }
+
+    private static string WritePlanStaffingRecommendation(PlanStaffingRecommendation recommendation, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(recommendation, CliJsonOptions),
+            ReportFormat.Markdown => WritePlanStaffingRecommendationMarkdown(recommendation),
+            ReportFormat.Html => WritePlanStaffingRecommendationHtml(recommendation),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WritePlanStaffingRecommendationMarkdown(PlanStaffingRecommendation recommendation)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Plan Staffing Recommendation");
+        builder.AppendLine();
+        builder.AppendLine($"- Case: `{recommendation.CaseId}`");
+        builder.AppendLine($"- Fully staffed: {(recommendation.IsFullyStaffed ? "Yes" : "No")}");
+
+        foreach (var roleRecommendation in recommendation.RoleRecommendations)
+        {
+            var recommended = roleRecommendation.RecommendedCandidate;
+            builder.AppendLine();
+            builder.AppendLine($"## {roleRecommendation.Role}");
+            builder.AppendLine();
+            if (recommended is not null)
+            {
+                builder.AppendLine($"- Recommended: {recommended.Planner.DisplayName}");
+                builder.AppendLine($"- Score: {recommended.Score}");
+                builder.AppendLine($"- Reason: {FormatTags(recommended.Reasons)}");
+            }
+
+            builder.AppendLine();
+            builder.AppendLine("| Rank | Staff | Available | Score | Reasons |");
+            builder.AppendLine("| ---: | --- | --- | ---: | --- |");
+            var rank = 1;
+            foreach (var candidate in roleRecommendation.Recommendation.Candidates)
+            {
+                builder.AppendLine(
+                    $"| {rank++} | {candidate.Planner.DisplayName} | {(candidate.IsAvailable ? "Yes" : "No")} | {candidate.Score} | {FormatTags(candidate.Reasons)} |");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WritePlanStaffingRecommendationHtml(PlanStaffingRecommendation recommendation)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("<!doctype html>");
+        builder.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\"><title>BeamKit Plan Staffing Recommendation</title></head><body>");
+        builder.AppendLine("<h1>BeamKit Plan Staffing Recommendation</h1>");
+        builder.AppendLine($"<p>Case: <code>{WebUtility.HtmlEncode(recommendation.CaseId)}</code></p>");
+        builder.AppendLine($"<p>Fully staffed: {(recommendation.IsFullyStaffed ? "Yes" : "No")}</p>");
+
+        foreach (var roleRecommendation in recommendation.RoleRecommendations)
+        {
+            var recommended = roleRecommendation.RecommendedCandidate;
+            builder.AppendLine($"<h2>{roleRecommendation.Role}</h2>");
+            if (recommended is not null)
+            {
+                builder.AppendLine($"<p>Recommended: {WebUtility.HtmlEncode(recommended.Planner.DisplayName)}; Score: {recommended.Score}</p>");
+            }
+
+            builder.AppendLine("<table><thead><tr><th>Rank</th><th>Staff</th><th>Available</th><th>Score</th><th>Reasons</th></tr></thead><tbody>");
+            var rank = 1;
+            foreach (var candidate in roleRecommendation.Recommendation.Candidates)
+            {
+                builder.AppendLine("<tr>"
+                    + $"<td>{rank++}</td>"
+                    + $"<td>{WebUtility.HtmlEncode(candidate.Planner.DisplayName)}</td>"
+                    + $"<td>{(candidate.IsAvailable ? "Yes" : "No")}</td>"
+                    + $"<td>{candidate.Score}</td>"
+                    + $"<td>{WebUtility.HtmlEncode(FormatTags(candidate.Reasons))}</td>"
+                    + "</tr>");
+            }
+
+            builder.AppendLine("</tbody></table>");
+        }
+
         builder.AppendLine("</body></html>");
         return builder.ToString();
     }
@@ -1863,6 +2630,11 @@ internal static class Program
         return value.HasValue ? FormatNumber(value.Value) : "n/a";
     }
 
+    private static string EscapeMarkdownTable(string value)
+    {
+        return value.Replace("|", "\\|", StringComparison.Ordinal);
+    }
+
     private static string FormatEvidence(IReadOnlyDictionary<string, string> evidence)
     {
         return evidence.Count == 0
@@ -1912,6 +2684,36 @@ internal static class Program
             new JsonStringEnumConverter()
         }
     };
+
+    private sealed record RulePackScaffoldCliReport(
+        string OutputDirectory,
+        string DiseaseSite,
+        string ManifestPath,
+        IReadOnlyList<string> Files);
+
+    private sealed record RulePackAddCheckCliReport(
+        string CatalogPath,
+        string CatalogName,
+        string CatalogVersion,
+        PlanCheckDefinition Check);
+
+    private sealed record RulePackExplainCliReport(
+        string ManifestPath,
+        RulePackManifest Manifest,
+        string Fingerprint,
+        int ClinicalRuleCount,
+        int PlanCheckCount,
+        int RequiredStructureCount,
+        bool HasMachineProfile,
+        RulePackValidationReport Validation);
+
+    private sealed record RulePackReminderImportCliReport(
+        string ReminderPath,
+        string CatalogPath,
+        string CatalogName,
+        IReadOnlyList<string> ImportedCheckIds);
+
+    private sealed record RulePackBundleCliReport(string OutputPath, RulePackBundle Bundle);
 
     private sealed record DoseCalculationCliReport(BiologicalDoseResult BiologicalDose, EquivalentFractionationResult? EquivalentFractionation);
 

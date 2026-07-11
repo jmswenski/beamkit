@@ -29,7 +29,9 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Limit uploaded plan-snapshot request size before model binding.
 - Store searchable audit events for protected API actions.
 - Register named rule packs and run CI gates by `rulePackId`.
-- Import managed rule-pack versions, capture validation/test evidence, and promote one passing version active.
+- Import managed rule-pack versions from manifests or immutable bundles, capture validation/test evidence, and promote one passing version active.
+- Review draft rule packs before import or promotion, including validation, optional synthetic regression evidence, and a diff against the active baseline.
+- Compare two managed rule-pack versions with a field-level diff report.
 - Persist run metadata and full CI artifacts in SQLite.
 - Persist vendor-neutral plan snapshots internally for field-level baseline comparison.
 - Promote stored runs as case baselines and compare later runs against baseline fingerprints and plan changes.
@@ -37,7 +39,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Filter run history by status, case id, branch, and creation time.
 - Download exact stored artifact JSON for audit and handoff workflows.
 - Label run sources as synthetic cases, BeamKit plan JSON uploads, or ESAPI snapshot uploads.
-- Recommend planner assignments from disease site, skills, workload, PTO, complexity, priority, and due-date context.
+- Recommend single-role and dosimetrist/physicist team assignments from disease site, skills, workload, schedule, PTO, physician compatibility rules, complexity, priority, and due-date context.
 
 ## Endpoints
 
@@ -57,11 +59,12 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `GET` | `/api/rule-packs/{id}` | Get validation detail for one registered rule pack. |
 | `GET` | `/api/rule-packs/{id}/versions` | List managed versions for one rule-pack id. |
 | `GET` | `/api/rule-packs/{id}/versions/{versionId}` | Get one managed rule-pack version with validation and test evidence. |
+| `GET` | `/api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}` | Compare two managed rule-pack versions. |
 | `GET` | `/api/audit-events` | List audit events. Supports `limit`, `action`, `runId`, and `caseId`. |
 | `POST` | `/api/runs` | Create a run from a synthetic case. |
 | `POST` | `/api/runs/{id}/baseline` | Promote a run as the baseline for its case id. |
 | `POST` | `/api/runs/from-plan-snapshot` | Create a run from uploaded BeamKit plan JSON or ESAPI snapshot JSON. |
-| `POST` | `/api/rule-packs/import` | Import a managed rule-pack version from manifest JSON or a server-local manifest path. |
+| `POST` | `/api/rule-packs/import` | Import a managed rule-pack version from manifest JSON, a server-local manifest path, bundle JSON, or a server-local bundle path. |
 | `POST` | `/api/rule-packs/validate` | Validate a rule pack. |
 | `POST` | `/api/rule-packs/test` | Run rule-pack regression tests. |
 | `POST` | `/api/rule-packs/{id}/validate` | Validate a registered rule pack by id. |
@@ -69,7 +72,9 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `POST` | `/api/rule-packs/{id}/versions/{versionId}/validate` | Revalidate a managed rule-pack version. |
 | `POST` | `/api/rule-packs/{id}/versions/{versionId}/test` | Run regression tests for a managed rule-pack version. |
 | `POST` | `/api/rule-packs/{id}/versions/{versionId}/promote` | Promote a valid, passing managed rule-pack version active. |
+| `POST` | `/api/rule-packs/{id}/review-draft` | Review a draft rule pack without importing it. |
 | `POST` | `/api/assignments/recommend` | Recommend a planner assignment. |
+| `POST` | `/api/assignments/recommend-team` | Recommend dosimetrist and physicist staffing for one case. |
 
 All `/api/*` routes require the configured API-key header when `RequireApiKey` is `true`, which is the default. Examples below assume:
 
@@ -192,7 +197,16 @@ Recommend assignment:
 curl -s "$API/api/assignments/recommend" \
   -H 'content-type: application/json' \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
-  -d '{"diseaseSite":"Head and Neck","requiredSkills":["VMAT"],"complexityScore":4,"priority":4}'
+  -d '{"diseaseSite":"Head and Neck","requiredSkills":["VMAT"],"complexityScore":4,"priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
+```
+
+Recommend a dosimetrist and physicist team:
+
+```bash
+curl -s "$API/api/assignments/recommend-team" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"diseaseSite":"Lung","requiredSkills":["VMAT","SBRT"],"physician":"Dr Smith","complexityScore":4,"priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
 ```
 
 Review audit events:
@@ -286,6 +300,25 @@ curl -s "$API/api/rule-packs/import" \
   }'
 ```
 
+Managed imports can also use an immutable bundle created by the CLI:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack bundle \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json \
+  --case head-neck-pass \
+  --created-by physics \
+  --output artifacts/head-neck-v1.beamkit-rulepack.json
+
+curl -s "$API/api/rule-packs/import" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "rulePackId": "institution-head-neck",
+    "bundlePath": "artifacts/head-neck-v1.beamkit-rulepack.json",
+    "importedBy": "physics"
+  }'
+```
+
 The import response includes `version.versionId`, validation evidence, regression-test evidence, and `activated=false`. Promote a passing version before production runs use it:
 
 ```bash
@@ -304,7 +337,27 @@ curl -s "$API/api/runs" \
   -d '{"syntheticCaseId":"head-neck-pass","rulePackId":"institution-head-neck"}'
 ```
 
-Managed imports store the manifest JSON, metadata, validation report, latest test report, active-version marker, and import-time policy fingerprint. Referenced catalog files are resolved from the import base directory and reloaded when the version is used; BeamKit recomputes the fingerprint and blocks use if those dependencies drift from the imported version.
+Managed imports store an immutable rule-pack bundle, manifest JSON, metadata, validation report, latest test report, active-version marker, and import-time policy fingerprint. Promoted versions load from embedded bundle files, not from mutable source paths, so later edits to source catalogs do not change the policy that a managed version runs. BeamKit verifies bundle hashes and fingerprints before accepting bundle imports.
+
+Review a draft before import or promotion:
+
+```bash
+curl -s "$API/api/rule-packs/institution-head-neck/review-draft" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "manifestPath": "samples/rule-packs/head-neck-v1/beamkit-rule-pack.json",
+    "syntheticCaseId": "head-neck-pass",
+    "importedBy": "physics"
+  }'
+```
+
+Compare two managed versions:
+
+```bash
+curl -s "$API/api/rule-packs/institution-head-neck/versions/{oldVersionId}/diff/{newVersionId}" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+```
 
 ## Storage
 
@@ -334,7 +387,7 @@ The `ci_runs` table stores searchable metadata separately from the full artifact
 
 The `ci_audit_events` table stores protected API activity with actor label, action, endpoint, method, optional run/case ids, source IP, status, and compact details.
 
-The `ci_rule_pack_versions` table stores managed rule-pack version history, validation evidence, latest regression-test evidence, and the active version marker.
+The `ci_rule_pack_versions` table stores managed rule-pack version history, immutable bundle JSON, validation evidence, latest regression-test evidence, and the active version marker.
 
 ## Current Boundaries
 
@@ -346,7 +399,6 @@ Production hardening still needs:
 - Formal audit-retention policy.
 - Role-based access control.
 - Integration with an identity provider or clinic SSO.
-- Fully bundled immutable rule-pack dependency snapshots.
 - TLS and deployment hardening.
 - PHI handling guidance.
 - Integration adapters for real TPS, OIS, EHR, and task-system workflows.

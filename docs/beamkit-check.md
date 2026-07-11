@@ -69,6 +69,23 @@ dotnet run --project src/BeamKit.Cli -- rule-pack validate \
   --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
 ```
 
+Inspect rule-pack authoring health:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack doctor \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+```
+
+Generate a starter pack:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack new \
+  --disease-site lung-sbrt \
+  --institution Synthetic \
+  --owner BeamKit \
+  --output artifacts/rule-packs/lung-sbrt-v1
+```
+
 Run the default synthetic regression suite for a rule pack:
 
 ```bash
@@ -124,12 +141,16 @@ The lower-level catalogs stay independent so teams can review clinical goal chan
 A healthy rule-pack workflow should look like a software delivery workflow:
 
 1. Edit the clinical rule catalog, plan-check catalog, naming dictionary, or machine profile.
-2. Run `rule-pack validate` to catch missing ownership metadata, duplicate IDs, or missing supporting catalogs.
-3. Run `rule-pack test` against PHI-free synthetic cases and any clinic-owned curated non-PHI test cases.
-4. Run `ci run` on representative plans or snapshots to generate a provenance artifact.
-5. Review the JSON, Markdown, or HTML output before promoting the rule pack.
+2. Run `rule-pack doctor` to catch missing file references, stale approvals, and incomplete governance metadata.
+3. Run `rule-pack validate` to catch missing ownership metadata, duplicate IDs, or missing supporting catalogs.
+4. Run `rule-pack test` against PHI-free synthetic cases and any clinic-owned curated non-PHI test cases.
+5. Run `rule-pack diff` or `rule-pack changelog` against the previous version.
+6. Run `ci run` on representative plans or snapshots to generate a provenance artifact.
+7. Review the JSON, Markdown, or HTML output before promoting the rule pack.
 
 BeamKit does not decide clinical policy. It makes policy files explicit, testable, reviewable, and traceable.
+
+See [rule-pack authoring](rule-pack-authoring.md) for starter packs, reminder imports, approval metadata, diffs, changelogs, and CI-server draft review.
 
 ## Safety Boundary
 

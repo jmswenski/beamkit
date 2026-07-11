@@ -2,8 +2,11 @@ using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
 using BeamKit.Esapi;
+using BeamKit.PlanCheck;
+using BeamKit.RulePacks;
 using BeamKit.Samples;
 using BeamKit.Sdk;
+using BeamKit.Workflow;
 using Xunit;
 
 namespace BeamKit.CiServer.Tests;
@@ -354,6 +357,105 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void ImportRulePackStoresImmutableBundleAndIgnoresSourceDrift()
+    {
+        var root = CreateTemporarySampleRulePackCopy();
+        try
+        {
+            var manifestPath = Path.Combine(root, "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+            var catalogPath = Path.Combine(root, "samples", "plan-check-baseline.json");
+            var store = new CiRunStore();
+            var service = CreateService(store);
+            var imported = service.ImportRulePack(new RulePackImportServerRequest
+            {
+                RulePackId = "institution-head-neck",
+                ManifestPath = manifestPath
+            });
+            var promoted = service.PromoteManagedRulePackVersion(
+                imported.Version.RulePackId,
+                imported.Version.VersionId,
+                new RulePackPromotionServerRequest { PromotedBy = "physics" });
+            var storedVersion = store.FindRulePackVersion(promoted.RulePackId, promoted.VersionId)
+                ?? throw new InvalidOperationException("Managed version was not found.");
+            MutateCordMaxThreshold(catalogPath, "1");
+
+            var run = service.CreateRun(new HostedCiRunRequest
+            {
+                SyntheticCaseId = "head-neck-pass",
+                RulePackId = "institution-head-neck"
+            });
+
+            Assert.False(string.IsNullOrWhiteSpace(storedVersion.VersionId));
+            Assert.NotNull(storedVersion.BundleJson);
+            Assert.Equal(promoted.Fingerprint, run.Artifact.Provenance.RulePackFingerprint);
+            Assert.Equal(BeamKitCheckStatus.Pass, run.Status);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ImportRulePackAcceptsVerifiedBundle()
+    {
+        var root = CreateTemporarySampleRulePackCopy();
+        try
+        {
+            var manifestPath = Path.Combine(root, "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+            var bundle = new RulePackBundleBuilder(new FixedTimeProvider()).FromFile(manifestPath);
+            var service = CreateService();
+
+            var imported = service.ImportRulePack(new RulePackImportServerRequest
+            {
+                RulePackId = "institution-head-neck",
+                BundleJson = RulePackBundleStore.ToJson(bundle)
+            });
+
+            Assert.True(imported.Validation.IsValid);
+            Assert.Equal(bundle.RulePackFingerprint, imported.Version.Fingerprint);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PromoteManagedRulePackVersionCanRollbackToPreviousBundle()
+    {
+        var root = CreateTemporarySampleRulePackCopy();
+        try
+        {
+            var manifestPath = Path.Combine(root, "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+            var catalogPath = Path.Combine(root, "samples", "plan-check-baseline.json");
+            var service = CreateService();
+            var first = service.ImportRulePack(new RulePackImportServerRequest
+            {
+                RulePackId = "institution-head-neck",
+                ManifestPath = manifestPath
+            });
+            MutateCordMaxThreshold(catalogPath, "44");
+            var second = service.ImportRulePack(new RulePackImportServerRequest
+            {
+                RulePackId = "institution-head-neck",
+                ManifestPath = manifestPath,
+                SyntheticCaseId = "head-neck-pass"
+            });
+
+            service.PromoteManagedRulePackVersion(second.Version.RulePackId, second.Version.VersionId, new RulePackPromotionServerRequest { PromotedBy = "physics" });
+            var rolledBack = service.PromoteManagedRulePackVersion(first.Version.RulePackId, first.Version.VersionId, new RulePackPromotionServerRequest { PromotedBy = "physics", Note = "Rollback." });
+
+            Assert.True(rolledBack.IsActive);
+            Assert.Equal(first.Version.VersionId, service.ListManagedRulePackVersions("institution-head-neck").Single(version => version.IsActive).VersionId);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void PromoteManagedRulePackVersionRequiresRegressionTests()
     {
         var service = CreateService();
@@ -397,6 +499,61 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void ReviewRulePackDraftComparesAgainstActiveVersion()
+    {
+        var service = CreateService();
+        var imported = service.ImportRulePack(new RulePackImportServerRequest
+        {
+            RulePackId = "institution-head-neck",
+            ManifestPath = SampleRulePackPath()
+        });
+        var promoted = service.PromoteManagedRulePackVersion(
+            imported.Version.RulePackId,
+            imported.Version.VersionId,
+            new RulePackPromotionServerRequest { PromotedBy = "physics" });
+
+        var review = service.ReviewRulePackDraft(
+            "institution-head-neck",
+            new RulePackImportServerRequest
+            {
+                ManifestPath = SampleRulePackPath(),
+                RunRegressionTests = true
+            });
+
+        Assert.True(review.IsPromotable);
+        Assert.Equal(promoted.VersionId, review.ComparedToVersionId);
+        Assert.True(review.Validation.IsValid);
+        Assert.True(review.TestReport?.Passed);
+        Assert.Empty(review.Diff.Changes);
+    }
+
+    [Fact]
+    public void CompareManagedRulePackVersionsReturnsDiffReport()
+    {
+        var service = CreateService();
+        var first = service.ImportRulePack(new RulePackImportServerRequest
+        {
+            RulePackId = "institution-head-neck",
+            ManifestPath = SampleRulePackPath()
+        });
+        var second = service.ImportRulePack(new RulePackImportServerRequest
+        {
+            RulePackId = "institution-head-neck",
+            ManifestPath = SampleRulePackPath()
+        });
+
+        var diff = service.CompareManagedRulePackVersions(
+            "institution-head-neck",
+            first.Version.VersionId,
+            second.Version.VersionId);
+
+        Assert.Equal(first.Validation.Fingerprint, diff.OldFingerprint);
+        Assert.Equal(second.Validation.Fingerprint, diff.NewFingerprint);
+        Assert.False(diff.HasPolicyRelevantChanges);
+        Assert.Empty(diff.Changes);
+    }
+
+    [Fact]
     public void RecommendAssignmentReturnsRankedPlanner()
     {
         var service = CreateService();
@@ -414,6 +571,72 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Contains(recommendation.RecommendedPlanner!.Reasons, reason => reason.Contains("All required skills", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void RecommendStaffingReturnsDosimetristAndPhysicist()
+    {
+        var service = CreateService();
+
+        var recommendation = service.RecommendStaffing(new AssignmentServerRequest
+        {
+            DiseaseSite = "Lung",
+            RequiredSkills = new[] { "VMAT", "SBRT" },
+            DueDate = "2026-07-12",
+            ComplexityScore = 4,
+            Priority = 4,
+            Physician = "Dr Smith"
+        });
+
+        Assert.True(recommendation.IsFullyStaffed);
+        Assert.Equal("planner-jane", recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Dosimetrist).RecommendedCandidate?.Planner.Id);
+        Assert.Equal("physicist-morgan", recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Physicist).RecommendedCandidate?.Planner.Id);
+    }
+
+    [Fact]
+    public void RecommendStaffingUsesEmbeddedRoster()
+    {
+        var service = CreateService();
+        var roster = new StaffRoster(
+            "Embedded roster",
+            new[]
+            {
+                new StaffRosterMember(
+                    "embedded-dosimetrist",
+                    "Embedded Dosimetrist",
+                    PlanningStaffRole.Dosimetrist,
+                    new[] { "VMAT", "SBRT", "Lung" },
+                    new[] { "Lung" },
+                    activeCaseCount: 1,
+                    maxActiveCaseCount: 8,
+                    preferredPhysicians: new[] { "Dr Smith" },
+                    schedule: new[] { new PlannerScheduleDay(new DateOnly(2026, 7, 9), assignedCaseCount: 0, capacity: 2) }),
+                new StaffRosterMember(
+                    "embedded-physicist",
+                    "Embedded Physicist",
+                    PlanningStaffRole.Physicist,
+                    new[] { "VMAT", "SBRT", "Machine QA" },
+                    new[] { "Lung" },
+                    activeCaseCount: 2,
+                    maxActiveCaseCount: 10,
+                    schedule: new[] { new PlannerScheduleDay(new DateOnly(2026, 7, 9), assignedCaseCount: 0, capacity: 2) })
+            });
+
+        var recommendation = service.RecommendStaffing(new AssignmentServerRequest
+        {
+            DiseaseSite = "Lung",
+            RequiredSkills = new[] { "VMAT", "SBRT" },
+            RequiredRoles = new[] { "Dosimetrist", "Physicist" },
+            DueDate = "2026-07-11",
+            ComplexityScore = 4,
+            Priority = 4,
+            Physician = "Dr Smith",
+            Roster = roster
+        });
+
+        Assert.True(recommendation.IsFullyStaffed);
+        Assert.Equal("embedded-dosimetrist", recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Dosimetrist).RecommendedCandidate?.Planner.Id);
+        Assert.Equal("embedded-physicist", recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Physicist).RecommendedCandidate?.Planner.Id);
+    }
+
     private static BeamKitCiServerService CreateService(ICiRunStore? store = null)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store ?? new CiRunStore(), new FixedTimeProvider());
@@ -422,6 +645,43 @@ public sealed class BeamKitCiServerServiceTests
     private static string SampleRulePackPath()
     {
         return Path.Combine(FindRepositoryRoot(), "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+    }
+
+    private static string CreateTemporarySampleRulePackCopy()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        var root = Path.Combine(Path.GetTempPath(), "beamkit-rule-pack-" + Guid.NewGuid().ToString("N"));
+        var sampleRoot = Path.Combine(root, "samples");
+        var rulePackRoot = Path.Combine(sampleRoot, "rule-packs", "head-neck-v1");
+        Directory.CreateDirectory(rulePackRoot);
+
+        CopySample(repositoryRoot, root, "samples", "rule-catalog-head-neck.json");
+        CopySample(repositoryRoot, root, "samples", "plan-check-baseline.json");
+        CopySample(repositoryRoot, root, "samples", "naming-dictionary-head-neck.json");
+        CopySample(repositoryRoot, root, "samples", "machine-profile-synthetic.json");
+        CopySample(repositoryRoot, root, "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+
+        return root;
+    }
+
+    private static void CopySample(string repositoryRoot, string targetRoot, params string[] relativeSegments)
+    {
+        var relativePath = Path.Combine(relativeSegments);
+        var source = Path.Combine(repositoryRoot, relativePath);
+        var target = Path.Combine(targetRoot, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        File.Copy(source, target);
+    }
+
+    private static void MutateCordMaxThreshold(string catalogPath, string threshold)
+    {
+        var catalog = PlanCheckCatalogLoader.FromFile(catalogPath);
+        var changedChecks = catalog.Checks.Select(check =>
+            string.Equals(check.Id, "cord.max", StringComparison.OrdinalIgnoreCase)
+                ? check with { Parameters = new Dictionary<string, string>(check.Parameters) { ["threshold"] = threshold } }
+                : check);
+
+        PlanCheckCatalogStore.Save(catalogPath, catalog with { Checks = changedChecks.ToArray() });
     }
 
     private static string FindRepositoryRoot()

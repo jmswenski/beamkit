@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BeamKit.Workflow;
 
 /// <summary>
@@ -9,6 +11,15 @@ public sealed record PlanReadinessState
     /// Creates plan-readiness state.
     /// </summary>
     public PlanReadinessState(string planId, IEnumerable<ReadinessItem> items)
+        : this(planId, items?.ToArray() ?? throw new ArgumentNullException(nameof(items)))
+    {
+    }
+
+    /// <summary>
+    /// Creates plan-readiness state from JSON.
+    /// </summary>
+    [JsonConstructor]
+    public PlanReadinessState(string planId, IReadOnlyList<ReadinessItem> items)
     {
         if (string.IsNullOrWhiteSpace(planId))
         {

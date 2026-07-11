@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BeamKit.PlanCheck;
 
 /// <summary>
@@ -9,6 +11,15 @@ public sealed record PlanCheckReport
     /// Creates a plan-check report.
     /// </summary>
     public PlanCheckReport(string planId, string catalogName, string catalogVersion, IEnumerable<PlanCheckResult> results)
+        : this(planId, catalogName, catalogVersion, results?.ToArray() ?? throw new ArgumentNullException(nameof(results)))
+    {
+    }
+
+    /// <summary>
+    /// Creates a plan-check report from JSON.
+    /// </summary>
+    [JsonConstructor]
+    public PlanCheckReport(string planId, string catalogName, string catalogVersion, IReadOnlyList<PlanCheckResult> results)
     {
         PlanId = PlanCheckText.Required(planId, nameof(planId));
         CatalogName = PlanCheckText.Required(catalogName, nameof(catalogName));

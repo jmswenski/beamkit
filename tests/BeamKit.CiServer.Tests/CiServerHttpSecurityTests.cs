@@ -149,6 +149,29 @@ public sealed class CiServerHttpSecurityTests
         Assert.Equal("Pass", run.RootElement.GetProperty("status").GetString());
     }
 
+    [Fact]
+    public async Task RulePackDraftReviewEndpointUsesApiKey()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var payload = JsonSerializer.Serialize(new
+        {
+            manifestPath = SampleRulePackPath(),
+            runRegressionTests = true
+        });
+        using var request = CreateJsonRequest(HttpMethod.Post, "/api/rule-packs/synthetic-head-neck/review-draft", payload);
+
+        var response = await client.SendAsync(request);
+        using var review = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(review.RootElement.GetProperty("isPromotable").GetBoolean());
+        Assert.True(review.RootElement.GetProperty("validation").GetProperty("isValid").GetBoolean());
+        Assert.True(review.RootElement.GetProperty("testReport").GetProperty("passed").GetBoolean());
+        Assert.Equal("synthetic-head-neck", review.RootElement.GetProperty("rulePackId").GetString());
+    }
+
     private static async Task<JsonDocument> GetJson(HttpClient client, string path)
     {
         using var request = CreateRequest(HttpMethod.Get, path);

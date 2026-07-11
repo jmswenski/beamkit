@@ -1,0 +1,39 @@
+{
+  "$schema": "https://beamkit.dev/schemas/beamkit-rule-pack.schema.json",
+  "name": "Breast clinical rule pack",
+  "version": "2026.1",
+  "owner": "BeamKit",
+  "description": "Starter BeamKit rule pack for Breast plan review.",
+  "diseaseSite": "Breast",
+  "tags": [
+    "breast",
+    "production-template",
+    "starter"
+  ],
+  "clinicalRuleCatalog": "clinical-rules.json",
+  "planCheckCatalog": "plan-checks.json",
+  "namingDictionary": "naming-dictionary.json",
+  "machineProfile": "machine-profile.json",
+  "clinicalRuleQuery": {
+    "diseaseSite": "Breast",
+    "institution": "Synthetic",
+    "tags": [
+      "baseline"
+    ]
+  },
+  "readinessDefaults": {
+    "ctImported": true,
+    "optimizationFinished": true,
+    "physicsQaComplete": false,
+    "physicianApprovalComplete": false,
+    "treatmentReady": false
+  },
+  "approval": {
+    "status": "Draft",
+    "institution": "Synthetic",
+    "physicianGroup": "Breast",
+    "reference": "Initial starter scaffold",
+    "rationale": "Starter policy that must be reviewed and approved before clinical use.",
+    "changeTicket": "local-draft"
+  }
+}

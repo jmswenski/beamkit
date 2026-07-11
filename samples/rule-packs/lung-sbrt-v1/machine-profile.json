@@ -1,0 +1,35 @@
+{
+  "name": "Lung SBRT starter machine profile",
+  "version": "2026.1",
+  "machineId": "SYN-LINAC",
+  "beamModelId": "SYN-AAA-6X",
+  "calculationModel": "SyntheticAAA",
+  "calculationModelVersion": "16.1",
+  "allowedEnergies": [
+    "6X"
+  ],
+  "allowedTechniques": [
+    "VMAT"
+  ],
+  "allowedBeamModelIds": [
+    "SYN-AAA-6X"
+  ],
+  "minMonitorUnitsPerDegree": 0.1,
+  "monitorUnitsPerDegreeConstraints": [
+    {
+      "machineId": "SYN-LINAC",
+      "energy": "6X",
+      "techniqueId": "VMAT",
+      "diseaseSite": "Lung SBRT",
+      "minMonitorUnitsPerDegree": 0.1
+    }
+  ],
+  "minMonitorUnitsPerSegment": 0.1,
+  "minMonitorUnitsPerBeam": 40,
+  "minJawOpeningCm": 0.5,
+  "maxOpenFieldSizeCm": 40,
+  "maxMlcFieldSizeCm": 22,
+  "maxFffFieldSizeCm": 15,
+  "maxDcaStepSizeDegrees": 5,
+  "requireJawTracking": true
+}

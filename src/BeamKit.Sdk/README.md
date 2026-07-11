@@ -8,7 +8,8 @@ It exposes:
 - `ValidateRulePack` for clinical policy-as-code validation.
 - `TestRulePack` for synthetic or curated rule-pack regression tests.
 - `RunCiGate` for plan CI/CD run records and provenance.
-- `RecommendPlanner` for workflow assignment recommendations.
+- `RecommendPlanner` for single-role workflow assignment recommendations.
+- `RecommendPlanningTeam` for dosimetrist/physicist staffing recommendations.
 
 ```csharp
 var client = new BeamKitClient();
@@ -44,6 +45,12 @@ Recommend an assignment:
 ```csharp
 var recommendation = client.RecommendPlanner(assignmentRequest);
 var planner = recommendation.RecommendedPlanner;
+```
+
+Recommend a planning team:
+
+```csharp
+var team = client.RecommendPlanningTeam(assignmentRequest);
 ```
 
 The SDK facade remains vendor-neutral. ESAPI, DICOM, FHIR, RayStation, Aria, and Mosaiq integrations should convert external data into `BeamKit.Core` models before calling the SDK.

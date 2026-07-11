@@ -75,11 +75,41 @@ public sealed class CliBehaviorTests
     {
         var validate = CliOptions.Parse(new[] { "rule-pack", "validate", "--rule-pack", "pack.json" });
         var test = CliOptions.Parse(new[] { "rule-pack", "test", "--case", "head-neck-pass" });
+        var diff = CliOptions.Parse(new[]
+        {
+            "rule-pack",
+            "diff",
+            "--old-rule-pack",
+            "old.json",
+            "--new-rule-pack",
+            "new.json"
+        });
+        var addCheck = CliOptions.Parse(new[]
+        {
+            "rule-pack",
+            "add-check",
+            "--rule-pack",
+            "pack.json",
+            "--id",
+            "dose.grid",
+            "--title",
+            "Dose grid",
+            "--type",
+            "dose-grid-max-spacing",
+            "--parameter",
+            "maxSpacingMm=2.5"
+        });
 
         Assert.Equal("rule-pack-validate", validate.Command);
         Assert.Equal("pack.json", validate.RulePackPath);
         Assert.Equal("rule-pack-test", test.Command);
         Assert.Equal("head-neck-pass", test.SyntheticCaseId);
+        Assert.Equal("rule-pack-diff", diff.Command);
+        Assert.Equal("old.json", diff.RulePackPath);
+        Assert.Equal("new.json", diff.ComparisonRulePackPath);
+        Assert.Equal("rule-pack-add-check", addCheck.Command);
+        Assert.Equal("dose.grid", addCheck.CheckId);
+        Assert.Equal("maxSpacingMm=2.5", Assert.Single(addCheck.CheckParameters));
     }
 
     [Fact]
@@ -119,6 +149,10 @@ public sealed class CliBehaviorTests
             "VMAT",
             "--required-skill",
             "SBRT",
+            "--roster",
+            "staff.json",
+            "--role",
+            "Physicist",
             "--complexity",
             "5",
             "--priority",
@@ -130,9 +164,58 @@ public sealed class CliBehaviorTests
         Assert.Equal("assignment-recommend", options.Command);
         Assert.Equal("Head and Neck", options.DiseaseSite);
         Assert.Equal(new[] { "VMAT", "SBRT" }, options.RequiredSkills);
+        Assert.Equal("staff.json", options.StaffRosterPath);
+        Assert.Equal("Physicist", Assert.Single(options.AssignmentRoles));
         Assert.Equal(5, options.ComplexityScore);
         Assert.Equal(4, options.Priority);
         Assert.Equal(new DateOnly(2026, 7, 10), options.DueDate);
+    }
+
+    [Fact]
+    public void ParserReadsAssignmentTeamOptions()
+    {
+        var options = CliOptions.Parse(new[]
+        {
+            "assignment",
+            "recommend-team",
+            "--disease-site",
+            "Lung",
+            "--physician",
+            "Dr Gray",
+            "--role",
+            "Dosimetrist",
+            "--role",
+            "Physicist"
+        });
+
+        Assert.Equal("assignment-recommend-team", options.Command);
+        Assert.Equal("Lung", options.DiseaseSite);
+        Assert.Equal("Dr Gray", options.Physician);
+        Assert.Equal(new[] { "Dosimetrist", "Physicist" }, options.AssignmentRoles);
+    }
+
+    [Fact]
+    public void ParserReadsCaseIntelligenceOptions()
+    {
+        var options = CliOptions.Parse(new[]
+        {
+            "intelligence",
+            "case",
+            "--case",
+            "lung-sbrt-pass",
+            "--priority",
+            "5",
+            "--due-date",
+            "2026-07-12",
+            "--format",
+            "json"
+        });
+
+        Assert.Equal("intelligence-case", options.Command);
+        Assert.Equal("lung-sbrt-pass", options.SyntheticCaseId);
+        Assert.Equal(5, options.Priority);
+        Assert.Equal(new DateOnly(2026, 7, 12), options.DueDate);
+        Assert.Equal(ReportFormat.Json, options.Format);
     }
 
     [Fact]
@@ -484,6 +567,112 @@ public sealed class CliBehaviorTests
     }
 
     [Fact]
+    public void ProgramRunsRulePackScaffoldAndDoctorCommands()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "beamkit-cli-rulepack-tests", Guid.NewGuid().ToString("N"));
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var scaffoldOutput = new StringWriter();
+            using var scaffoldError = new StringWriter();
+            Console.SetOut(scaffoldOutput);
+            Console.SetError(scaffoldError);
+
+            var scaffoldExitCode = Program.Main(new[]
+            {
+                "rule-pack",
+                "new",
+                "--disease-site",
+                "breast",
+                "--institution",
+                "Synthetic",
+                "--output",
+                directory
+            });
+
+            Assert.Equal(0, scaffoldExitCode);
+            Assert.Contains("BeamKit Rule-Pack Scaffold", scaffoldOutput.ToString(), StringComparison.Ordinal);
+            var manifestPath = Path.Combine(directory, "beamkit-rule-pack.json");
+            Assert.True(File.Exists(manifestPath));
+
+            using var doctorOutput = new StringWriter();
+            using var doctorError = new StringWriter();
+            Console.SetOut(doctorOutput);
+            Console.SetError(doctorError);
+
+            var doctorExitCode = Program.Main(new[]
+            {
+                "rule-pack",
+                "doctor",
+                "--rule-pack",
+                manifestPath
+            });
+
+            Assert.Equal(0, doctorExitCode);
+            Assert.Contains("BeamKit Rule-Pack Doctor", doctorOutput.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Healthy: Yes", doctorOutput.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsRulePackDiffCommandWithDiffHeading()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "beamkit-cli-rulepack-diff-tests", Guid.NewGuid().ToString("N"));
+        var oldDirectory = Path.Combine(root, "old");
+        var newDirectory = Path.Combine(root, "new");
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            Console.SetOut(TextWriter.Null);
+            Console.SetError(TextWriter.Null);
+
+            Assert.Equal(0, Program.Main(new[] { "rule-pack", "new", "--disease-site", "lung-sbrt", "--institution", "Synthetic", "--output", oldDirectory }));
+            Assert.Equal(0, Program.Main(new[] { "rule-pack", "new", "--disease-site", "prostate", "--institution", "Synthetic", "--output", newDirectory }));
+
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[]
+            {
+                "rule-pack",
+                "diff",
+                "--old-rule-pack",
+                Path.Combine(oldDirectory, "beamkit-rule-pack.json"),
+                "--new-rule-pack",
+                Path.Combine(newDirectory, "beamkit-rule-pack.json")
+            });
+
+            Assert.Equal(2, exitCode);
+            Assert.Contains("BeamKit Rule-Pack Diff", output.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("BeamKit Rule-Pack Changelog", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void ProgramRunsCiRunCommand()
     {
         var originalOut = Console.Out;
@@ -555,6 +744,69 @@ public sealed class CliBehaviorTests
         {
             Console.SetOut(originalOut);
             Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsAssignmentRecommendCommandWithRosterFile()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "beamkit-cli-roster-tests", Guid.NewGuid().ToString("N"));
+        var rosterPath = Path.Combine(directory, "staff.json");
+        var dueDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(3).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(rosterPath, """
+                {
+                  "name": "CLI roster",
+                  "staff": [
+                    {
+                      "id": "custom-dosimetrist",
+                      "displayName": "Custom Dosimetrist",
+                      "role": "Dosimetrist",
+                      "skills": [ "VMAT", "Head and Neck" ],
+                      "preferredDiseaseSites": [ "Head and Neck" ],
+                      "activeCaseCount": 1,
+                      "maxActiveCaseCount": 8
+                    }
+                  ]
+                }
+                """);
+
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[]
+            {
+                "assignment",
+                "recommend",
+                "--roster",
+                rosterPath,
+                "--disease-site",
+                "Head and Neck",
+                "--required-skill",
+                "VMAT",
+                "--due-date",
+                dueDate
+            });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("Custom Dosimetrist", output.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("Jane Doe", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
         }
     }
 

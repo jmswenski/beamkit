@@ -16,11 +16,43 @@ public sealed class PlannerAssignmentEngine
         return new PlannerAssignmentRecommendation(request.CaseId, candidates);
     }
 
+    /// <summary>
+    /// Recommends a planning team across the requested roles.
+    /// </summary>
+    public PlanStaffingRecommendation RecommendTeam(PlannerAssignmentRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var roleRecommendations = request.RequiredRoles
+            .Select(role => new RoleAssignmentRecommendation(
+                role,
+                Recommend(request with
+                {
+                    RequiredRole = role,
+                    RequiredRoles = new[] { role }
+                })))
+            .ToArray();
+
+        return new PlanStaffingRecommendation(request.CaseId, roleRecommendations);
+    }
+
     private static PlannerCandidateScore Score(PlannerProfile planner, PlannerAssignmentRequest request)
     {
-        var score = 50;
+        var score = 30;
         var reasons = new List<string>();
         var isAvailable = true;
+
+        if (planner.Role == request.RequiredRole)
+        {
+            score += 8;
+            reasons.Add($"Role match for {request.RequiredRole}.");
+        }
+        else
+        {
+            score -= 60;
+            isAvailable = false;
+            reasons.Add($"Role mismatch: {planner.Role} cannot fill {request.RequiredRole} assignment.");
+        }
 
         if (planner.PtoUntil.HasValue && planner.PtoUntil.Value >= request.AssignmentDate)
         {
@@ -30,7 +62,7 @@ public sealed class PlannerAssignmentEngine
         }
         else
         {
-            score += 10;
+            score += 8;
             reasons.Add("Available before assignment date.");
         }
 
@@ -42,16 +74,33 @@ public sealed class PlannerAssignmentEngine
         }
         else
         {
-            var workloadBonus = (int)Math.Round((1m - planner.Utilization) * 25m, MidpointRounding.AwayFromZero);
+            var workloadBonus = (int)Math.Round((1m - planner.Utilization) * 20m, MidpointRounding.AwayFromZero);
             score += workloadBonus;
             reasons.Add($"{planner.ActiveCaseCount}/{planner.MaxActiveCaseCount} active workload.");
         }
 
+        ApplyScheduleScoring(planner, request, reasons, ref score, ref isAvailable);
+
         if (planner.PreferredDiseaseSites.Contains(request.DiseaseSite, StringComparer.OrdinalIgnoreCase)
             || planner.Skills.Contains(request.DiseaseSite, StringComparer.OrdinalIgnoreCase))
         {
-            score += 15;
+            score += 12;
             reasons.Add($"Disease-site match for {request.DiseaseSite}.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Physician))
+        {
+            if (planner.BlockedPhysicians.Contains(request.Physician, StringComparer.OrdinalIgnoreCase))
+            {
+                score -= 80;
+                isAvailable = false;
+                reasons.Add($"Blocked with physician {request.Physician} by assignment rule.");
+            }
+            else if (planner.PreferredPhysicians.Contains(request.Physician, StringComparer.OrdinalIgnoreCase))
+            {
+                score += 8;
+                reasons.Add($"Physician match for {request.Physician}.");
+            }
         }
 
         var missingSkills = request.RequiredSkills
@@ -59,7 +108,7 @@ public sealed class PlannerAssignmentEngine
             .ToArray();
         if (missingSkills.Length == 0 && request.RequiredSkills.Count > 0)
         {
-            score += 15;
+            score += 10;
             reasons.Add("All required skills matched.");
         }
         else if (missingSkills.Length > 0)
@@ -91,6 +140,65 @@ public sealed class PlannerAssignmentEngine
             reasons.Add("Broad skill profile for complex case.");
         }
 
+        if (request.ComplexityScore > planner.MaxComplexityScore)
+        {
+            score -= 35;
+            isAvailable = false;
+            reasons.Add($"Complexity {request.ComplexityScore} exceeds configured maximum {planner.MaxComplexityScore}.");
+        }
+
         return new PlannerCandidateScore(planner, score, reasons, isAvailable);
+    }
+
+    private static void ApplyScheduleScoring(
+        PlannerProfile planner,
+        PlannerAssignmentRequest request,
+        List<string> reasons,
+        ref int score,
+        ref bool isAvailable)
+    {
+        if (planner.Schedule.Count == 0)
+        {
+            reasons.Add("No day-level schedule supplied; using active workload capacity.");
+            return;
+        }
+
+        var scheduleWindow = planner.Schedule
+            .Where(day => day.Date >= request.AssignmentDate && day.Date <= request.DueDate)
+            .ToArray();
+        if (scheduleWindow.Length == 0)
+        {
+            score -= 20;
+            isAvailable = false;
+            reasons.Add("No schedule coverage between assignment date and due date.");
+            return;
+        }
+
+        var availableSlots = scheduleWindow.Sum(day => day.AvailableSlots);
+        if (availableSlots <= 0)
+        {
+            score -= 35;
+            isAvailable = false;
+            reasons.Add("No open schedule capacity before due date.");
+            return;
+        }
+
+        var scheduleBonus = Math.Min(12, availableSlots * 3);
+        score += scheduleBonus;
+        reasons.Add($"{availableSlots} open schedule slot(s) before due date.");
+
+        var utilization = scheduleWindow.Average(day => day.Utilization);
+        if (utilization >= 0.85m)
+        {
+            score -= 8;
+            reasons.Add("Schedule is heavily loaded before due date.");
+        }
+
+        var assignmentDay = scheduleWindow.FirstOrDefault(day => day.Date == request.AssignmentDate);
+        if (assignmentDay is { IsUnavailable: true })
+        {
+            score -= 5;
+            reasons.Add("Unavailable on assignment date but has later schedule capacity.");
+        }
     }
 }

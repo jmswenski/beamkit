@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BeamKit.Check;
 
 /// <summary>
@@ -15,6 +17,29 @@ public sealed record RulePackTestResult
         BeamKitCheckStatus actualStatus,
         IEnumerable<string> expectedFindingIds,
         IEnumerable<string> observedFindingIds,
+        BeamKitCheckReport checkReport)
+        : this(
+            testId,
+            description,
+            expectedStatus,
+            actualStatus,
+            expectedFindingIds?.ToArray() ?? throw new ArgumentNullException(nameof(expectedFindingIds)),
+            observedFindingIds?.ToArray() ?? throw new ArgumentNullException(nameof(observedFindingIds)),
+            checkReport)
+    {
+    }
+
+    /// <summary>
+    /// Creates a rule-pack test result from JSON.
+    /// </summary>
+    [JsonConstructor]
+    public RulePackTestResult(
+        string testId,
+        string description,
+        BeamKitCheckStatus expectedStatus,
+        BeamKitCheckStatus actualStatus,
+        IReadOnlyList<string> expectedFindingIds,
+        IReadOnlyList<string> observedFindingIds,
         BeamKitCheckReport checkReport)
     {
         TestId = CheckText.Required(testId, nameof(testId));

@@ -1,0 +1,41 @@
+{
+  "name": "Lung SBRT starter naming dictionary",
+  "canonicalNames": [
+    "Body",
+    "PTV_5000",
+    "OAR_1"
+  ],
+  "aliases": [
+    {
+      "alias": "External",
+      "canonicalName": "Body",
+      "source": "Starter alias"
+    },
+    {
+      "alias": "BODY",
+      "canonicalName": "Body",
+      "source": "Starter alias"
+    },
+    {
+      "alias": "PTV 5000",
+      "canonicalName": "PTV_5000",
+      "source": "Starter alias"
+    },
+    {
+      "alias": "OAR1",
+      "canonicalName": "OAR_1",
+      "source": "Starter alias"
+    }
+  ],
+  "regexMappings": [
+    {
+      "pattern": "^body$|^external$",
+      "canonicalName": "Body",
+      "source": "Starter regex"
+    }
+  ],
+  "requiredStructureNames": [
+    "Body",
+    "PTV_5000"
+  ]
+}

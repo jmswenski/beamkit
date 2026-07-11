@@ -7,12 +7,14 @@ using BeamKit.Core.Domain;
 using BeamKit.Deliverability;
 using BeamKit.Dicom;
 using BeamKit.Esapi;
+using BeamKit.Intelligence;
 using BeamKit.Metrics;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.Qa;
 using BeamKit.Release;
 using BeamKit.Reporting;
+using BeamKit.RulePacks;
 using BeamKit.Rules;
 using BeamKit.Sdk;
 using BeamKit.Structures;
@@ -42,11 +44,13 @@ public sealed class ArchitectureBoundaryTests
             "BeamKit.Check",
             "BeamKit.CiServer",
             "BeamKit.Deliverability",
+            "BeamKit.Intelligence",
             "BeamKit.Metrics",
             "BeamKit.PlanCheck",
             "BeamKit.Qa",
             "BeamKit.Release",
             "BeamKit.Reporting",
+            "BeamKit.RulePacks",
             "BeamKit.Rules",
             "BeamKit.Sdk",
             "BeamKit.Structures",
@@ -98,12 +102,14 @@ public sealed class ArchitectureBoundaryTests
             typeof(BeamKitCheckEngine).Assembly,
             typeof(DoseCalculationService).Assembly,
             typeof(DeliverabilityCheckService).Assembly,
+            typeof(CasePlanIntelligenceService).Assembly,
             typeof(PlanQualityMetricService).Assembly,
             typeof(PlanCheckEngine).Assembly,
             typeof(StructureNameNormalizer).Assembly,
             typeof(PlanQaPipeline).Assembly,
             typeof(WriteUpManifestBuilder).Assembly,
             typeof(ReportBuilder).Assembly,
+            typeof(RulePackManifest).Assembly,
             typeof(RuleEngine).Assembly,
             typeof(BeamKitClient).Assembly,
             typeof(RingStructurePlanner).Assembly,

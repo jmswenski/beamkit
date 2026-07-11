@@ -13,6 +13,7 @@
     <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
     <ProjectReference Include="..\BeamKit.Deliverability\BeamKit.Deliverability.csproj" />
     <ProjectReference Include="..\BeamKit.Esapi\BeamKit.Esapi.csproj" />
+    <ProjectReference Include="..\BeamKit.Intelligence\BeamKit.Intelligence.csproj" />
     <ProjectReference Include="..\BeamKit.Metrics\BeamKit.Metrics.csproj" />
     <ProjectReference Include="..\BeamKit.Naming\BeamKit.Naming.csproj" />
     <ProjectReference Include="..\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
@@ -25,5 +26,9 @@
     <ProjectReference Include="..\BeamKit.Templates\BeamKit.Templates.csproj" />
     <ProjectReference Include="..\BeamKit.Workflow\BeamKit.Workflow.csproj" />
     <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.RulePacks\BeamKit.RulePacks.csproj" />
   </ItemGroup>
 </Project>

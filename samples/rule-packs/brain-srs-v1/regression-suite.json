@@ -1,0 +1,13 @@
+{
+  "name": "Brain SRS starter regression suite",
+  "description": "PHI-free synthetic cases available today plus recommended future coverage for this starter rule pack.",
+  "availableSyntheticCaseIds": [
+    "brain-srs-pass"
+  ],
+  "recommendedFutureCaseIds": [
+    "brain-srs-fail",
+    "brain-srs-missing-structure",
+    "brain-srs-warning-review"
+  ],
+  "notes": "Run available cases with `beamkit rule-pack test --case <case-id>`. Future case ids are placeholders for clinic- or project-owned synthetic coverage."
+}

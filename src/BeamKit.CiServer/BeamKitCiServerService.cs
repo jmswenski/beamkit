@@ -4,6 +4,7 @@ using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
 using BeamKit.Esapi;
+using BeamKit.RulePacks;
 using BeamKit.Samples;
 using BeamKit.Sdk;
 using BeamKit.Workflow;
@@ -273,20 +274,7 @@ public sealed class BeamKitCiServerService
         ArgumentNullException.ThrowIfNull(request);
 
         var assignmentDate = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
-        var dueDate = ParseDueDate(request.DueDate) ?? assignmentDate.AddDays(3);
-        var requiredSkills = request.RequiredSkills is { Count: > 0 }
-            ? request.RequiredSkills
-            : new[] { "VMAT" };
-        var assignmentRequest = new PlannerAssignmentRequest(
-            CiServerText.Optional(request.CaseId) ?? "server-assignment",
-            CiServerText.Optional(request.DiseaseSite) ?? "Head and Neck",
-            dueDate,
-            CreateSyntheticPlannerProfiles(assignmentDate),
-            requiredSkills,
-            request.ComplexityScore ?? 3,
-            request.Priority ?? 3,
-            request.Physician,
-            assignmentDate);
+        var assignmentRequest = CreateAssignmentRequest(request, assignmentDate, includeTeamRoles: false);
 
         var recommendation = client.RecommendPlanner(assignmentRequest);
         Audit(
@@ -295,6 +283,25 @@ public sealed class BeamKitCiServerService
             caseId: assignmentRequest.CaseId,
             status: recommendation.RecommendedPlanner is null ? "NoRecommendation" : "Recommended",
             details: recommendation.RecommendedPlanner?.Planner.Id);
+        return recommendation;
+    }
+
+    /// <summary>
+    /// Creates a dosimetrist/physicist staffing recommendation.
+    /// </summary>
+    public PlanStaffingRecommendation RecommendStaffing(AssignmentServerRequest request, CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var assignmentDate = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var assignmentRequest = CreateAssignmentRequest(request, assignmentDate, includeTeamRoles: true);
+        var recommendation = client.RecommendPlanningTeam(assignmentRequest);
+        Audit(
+            "assignment.team-recommended",
+            auditContext,
+            caseId: assignmentRequest.CaseId,
+            status: recommendation.IsFullyStaffed ? "FullyStaffed" : "NeedsReview",
+            details: string.Join(", ", recommendation.RoleRecommendations.Select(role => $"{role.Role}:{role.RecommendedCandidate?.Planner.Id ?? "none"}")));
         return recommendation;
     }
 
@@ -357,12 +364,20 @@ public sealed class BeamKitCiServerService
 
         var rulePackId = NormalizeManagedRulePackId(request.RulePackId);
         var source = LoadRulePackImportSource(request);
-        var rulePack = BeamKitRulePackLoader.FromJson(source.ManifestJson, source.BaseDirectory);
+        var rulePack = source.Bundle is null
+            ? BeamKitRulePackLoader.FromJson(source.ManifestJson, source.BaseDirectory)
+            : RulePackBundleLoader.ToRulePack(source.Bundle);
         var validation = client.ValidateRulePack(rulePack);
         var testReport = request.RunRegressionTests
             ? client.TestRulePack(rulePack, LoadRulePackTestCases(request.SyntheticCaseId))
-            : null;
+            : source.Bundle?.TestReport;
         var importedBy = CiServerText.Optional(request.ImportedBy) ?? auditContext?.Actor;
+        var bundle = source.Bundle ?? new RulePackBundleBuilder(timeProvider).FromJson(
+            source.ManifestJson,
+            source.BaseDirectory,
+            source.Source,
+            importedBy,
+            testReport);
         var version = new CiServerManagedRulePackVersion(
             rulePackId,
             CreateRulePackVersionId(validation.Fingerprint),
@@ -380,7 +395,8 @@ public sealed class BeamKitCiServerService
             rulePack.Tags,
             validation.Fingerprint,
             validation,
-            testReport);
+            testReport,
+            bundleJson: RulePackBundleStore.ToJson(bundle));
         var saved = store.SaveRulePackVersion(version);
         Audit(
             "rule-pack.imported",
@@ -418,6 +434,68 @@ public sealed class BeamKitCiServerService
     {
         var version = store.FindRulePackVersion(rulePackId, versionId);
         return version is null ? null : new CiServerManagedRulePackVersionDetail(version);
+    }
+
+    /// <summary>
+    /// Compares two managed rule-pack versions.
+    /// </summary>
+    public RulePackDiffReport CompareManagedRulePackVersions(
+        string rulePackId,
+        string oldVersionId,
+        string newVersionId,
+        CiServerAuditContext? auditContext = null)
+    {
+        var oldVersion = FindRequiredManagedRulePackVersion(rulePackId, oldVersionId);
+        var newVersion = FindRequiredManagedRulePackVersion(rulePackId, newVersionId);
+        var report = new RulePackDiffer().Compare(
+            RulePackManifestStore.FromJson(oldVersion.ManifestJson),
+            LoadManagedRulePack(oldVersion),
+            RulePackManifestStore.FromJson(newVersion.ManifestJson),
+            LoadManagedRulePack(newVersion));
+        Audit(
+            "rule-pack.version.diffed",
+            auditContext,
+            caseId: rulePackId,
+            status: report.HasPolicyRelevantChanges ? "Changed" : "Unchanged",
+            details: $"{oldVersionId}->{newVersionId}:{report.PolicyRelevantCount}");
+        return report;
+    }
+
+    /// <summary>
+    /// Reviews a draft rule pack against the active version without importing it.
+    /// </summary>
+    public CiServerRulePackDraftReviewResult ReviewRulePackDraft(
+        string rulePackId,
+        RulePackImportServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var normalizedRulePackId = CiServerText.Required(rulePackId, nameof(rulePackId));
+        var draftSource = LoadRulePackImportSource(request);
+        var draftManifest = RulePackManifestStore.FromJson(draftSource.ManifestJson);
+        var draftRulePack = draftSource.Bundle is null
+            ? BeamKitRulePackLoader.FromJson(draftSource.ManifestJson, draftSource.BaseDirectory)
+            : RulePackBundleLoader.ToRulePack(draftSource.Bundle);
+        var activeVersion = store.FindActiveRulePackVersion(normalizedRulePackId);
+        var baselineManifest = activeVersion is null ? null : RulePackManifestStore.FromJson(activeVersion.ManifestJson);
+        var baselineRulePack = activeVersion is null
+            ? LoadRulePack(normalizedRulePackId)
+            : LoadManagedRulePack(activeVersion);
+        var baselineVersionId = activeVersion?.VersionId ?? "registered-active";
+        var validation = client.ValidateRulePack(draftRulePack);
+        var testReport = request.RunRegressionTests
+            ? client.TestRulePack(draftRulePack, LoadRulePackTestCases(request.SyntheticCaseId))
+            : null;
+        var diff = new RulePackDiffer().Compare(baselineManifest, baselineRulePack, draftManifest, draftRulePack);
+        var result = new CiServerRulePackDraftReviewResult(normalizedRulePackId, baselineVersionId, validation, testReport, diff);
+        Audit(
+            "rule-pack.draft.reviewed",
+            auditContext,
+            caseId: normalizedRulePackId,
+            status: result.IsPromotable ? "Promotable" : "Blocked",
+            details: $"{baselineVersionId}->{validation.Fingerprint}:{diff.PolicyRelevantCount}");
+        return result;
     }
 
     /// <summary>
@@ -544,7 +622,9 @@ public sealed class BeamKitCiServerService
 
     private static BeamKitRulePack LoadManagedRulePack(CiServerManagedRulePackVersion version)
     {
-        var rulePack = BeamKitRulePackLoader.FromJson(version.ManifestJson, version.BaseDirectory);
+        var rulePack = string.IsNullOrWhiteSpace(version.BundleJson)
+            ? BeamKitRulePackLoader.FromJson(version.ManifestJson, version.BaseDirectory)
+            : RulePackBundleLoader.ToRulePack(RulePackBundleStore.FromJson(version.BundleJson));
         var currentFingerprint = RulePackFingerprint.Compute(rulePack);
         if (!string.Equals(currentFingerprint, version.Fingerprint, StringComparison.OrdinalIgnoreCase))
         {
@@ -604,31 +684,71 @@ public sealed class BeamKitCiServerService
     private static RulePackImportSource LoadRulePackImportSource(RulePackImportServerRequest request)
     {
         var manifestJson = GetJson(request.Manifest, request.ManifestJson);
+        var bundleJson = GetJson(request.Bundle, request.BundleJson);
+        var sourceCount = new[]
+        {
+            !string.IsNullOrWhiteSpace(request.ManifestPath),
+            !string.IsNullOrWhiteSpace(manifestJson),
+            !string.IsNullOrWhiteSpace(request.BundlePath),
+            !string.IsNullOrWhiteSpace(bundleJson)
+        }.Count(value => value);
+        if (sourceCount != 1)
+        {
+            throw new ArgumentException("Rule-pack import requires exactly one of 'manifestPath', 'manifest'/'manifestJson', 'bundlePath', or 'bundle'/'bundleJson'.", nameof(request));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.BundlePath))
+        {
+            var fullPath = Path.GetFullPath(request.BundlePath);
+            var bundle = VerifyBundleSource(RulePackBundleStore.FromFile(fullPath));
+            return new RulePackImportSource(
+                bundle.ManifestJson,
+                Directory.GetCurrentDirectory(),
+                "BundleFile",
+                fullPath,
+                bundle);
+        }
+
+        if (!string.IsNullOrWhiteSpace(bundleJson))
+        {
+            var bundle = VerifyBundleSource(RulePackBundleStore.FromJson(bundleJson));
+            return new RulePackImportSource(
+                bundle.ManifestJson,
+                Directory.GetCurrentDirectory(),
+                "InlineBundleJson",
+                CiServerText.Optional(request.Source) ?? "inline-bundle-json",
+                bundle);
+        }
+
         if (!string.IsNullOrWhiteSpace(request.ManifestPath))
         {
-            if (!string.IsNullOrWhiteSpace(manifestJson))
-            {
-                throw new ArgumentException("Use either 'manifestPath' or inline 'manifest'/'manifestJson', not both.", nameof(request));
-            }
-
             var fullPath = Path.GetFullPath(request.ManifestPath);
             return new RulePackImportSource(
                 File.ReadAllText(fullPath),
                 Path.GetDirectoryName(fullPath) ?? Directory.GetCurrentDirectory(),
                 "File",
-                fullPath);
-        }
-
-        if (string.IsNullOrWhiteSpace(manifestJson))
-        {
-            throw new ArgumentException("Rule-pack import requires 'manifestPath', 'manifest', or 'manifestJson'.", nameof(request));
+                fullPath,
+                null);
         }
 
         return new RulePackImportSource(
-            manifestJson,
+            manifestJson ?? throw new ArgumentException("Manifest JSON is required.", nameof(request)),
             Path.GetFullPath(CiServerText.Optional(request.BaseDirectory) ?? Directory.GetCurrentDirectory()),
             "InlineJson",
-            CiServerText.Optional(request.Source) ?? "inline-json");
+            CiServerText.Optional(request.Source) ?? "inline-json",
+            null);
+    }
+
+    private static RulePackBundle VerifyBundleSource(RulePackBundle bundle)
+    {
+        var report = new RulePackBundleVerifier().Verify(bundle);
+        if (!report.IsValid)
+        {
+            var details = string.Join("; ", report.Issues.Select(issue => $"{issue.Code}: {issue.Message}"));
+            throw new InvalidOperationException($"Rule-pack bundle failed verification: {details}");
+        }
+
+        return bundle;
     }
 
     private string CreateRulePackVersionId(string fingerprint)
@@ -793,7 +913,50 @@ public sealed class BeamKitCiServerService
 
     private sealed record UploadedPlan(Plan Plan, CiRunInputKind InputKind, string DefaultInputSource);
 
-    private sealed record RulePackImportSource(string ManifestJson, string BaseDirectory, string SourceKind, string Source);
+    private sealed record RulePackImportSource(string ManifestJson, string BaseDirectory, string SourceKind, string Source, RulePackBundle? Bundle);
+
+    private static PlannerAssignmentRequest CreateAssignmentRequest(AssignmentServerRequest request, DateOnly assignmentDate, bool includeTeamRoles)
+    {
+        var dueDate = ParseDueDate(request.DueDate) ?? assignmentDate.AddDays(3);
+        var requiredSkills = request.RequiredSkills is { Count: > 0 }
+            ? request.RequiredSkills
+            : new[] { "VMAT" };
+        var requiredRoles = ResolveAssignmentRoles(request.RequiredRoles, includeTeamRoles);
+        var planners = LoadPlannerProfiles(request, assignmentDate, dueDate);
+
+        return new PlannerAssignmentRequest(
+            CiServerText.Optional(request.CaseId) ?? "server-assignment",
+            CiServerText.Optional(request.DiseaseSite) ?? "Head and Neck",
+            dueDate,
+            planners,
+            requiredSkills,
+            request.ComplexityScore ?? 3,
+            request.Priority ?? 3,
+            request.Physician,
+            assignmentDate,
+            requiredRoles[0],
+            requiredRoles);
+    }
+
+    private static IReadOnlyList<PlannerProfile> LoadPlannerProfiles(AssignmentServerRequest request, DateOnly assignmentDate, DateOnly dueDate)
+    {
+        if (request.Roster is not null)
+        {
+            return request.Roster.ToPlannerProfiles(assignmentDate, dueDate);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.RosterJson))
+        {
+            return StaffRosterLoader.FromJson(request.RosterJson).ToPlannerProfiles(assignmentDate, dueDate);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.RosterPath))
+        {
+            return StaffRosterLoader.FromFile(request.RosterPath).ToPlannerProfiles(assignmentDate, dueDate);
+        }
+
+        return CreateSyntheticPlannerProfiles(assignmentDate);
+    }
 
     private static IReadOnlyList<PlannerProfile> CreateSyntheticPlannerProfiles(DateOnly assignmentDate)
     {
@@ -805,14 +968,21 @@ public sealed class BeamKitCiServerService
                 new[] { "VMAT", "SBRT", "Head and Neck" },
                 new[] { "Head and Neck", "Lung" },
                 activeCaseCount: 2,
-                maxActiveCaseCount: 8),
+                maxActiveCaseCount: 8,
+                role: PlanningStaffRole.Dosimetrist,
+                preferredPhysicians: new[] { "Dr Smith" },
+                blockedPhysicians: new[] { "Dr Gray" },
+                schedule: CreateSyntheticSchedule(assignmentDate, 0, 1, 1, 2)),
             new PlannerProfile(
                 "planner-alex",
                 "Alex Kim",
                 new[] { "VMAT", "Prostate" },
                 new[] { "Prostate" },
                 activeCaseCount: 6,
-                maxActiveCaseCount: 8),
+                maxActiveCaseCount: 8,
+                role: PlanningStaffRole.Dosimetrist,
+                maxComplexityScore: 4,
+                schedule: CreateSyntheticSchedule(assignmentDate, 1, 1, 1, 1)),
             new PlannerProfile(
                 "planner-priya",
                 "Priya Shah",
@@ -820,15 +990,73 @@ public sealed class BeamKitCiServerService
                 new[] { "Head and Neck", "Brain" },
                 activeCaseCount: 4,
                 maxActiveCaseCount: 8,
-                ptoUntil: assignmentDate.AddDays(1)),
+                ptoUntil: assignmentDate.AddDays(1),
+                role: PlanningStaffRole.Dosimetrist,
+                maxComplexityScore: 5,
+                preferredPhysicians: new[] { "Dr Gray" },
+                schedule: CreateSyntheticSchedule(assignmentDate, 0, 0, 1, 1)),
             new PlannerProfile(
                 "planner-sam",
                 "Sam Rivera",
                 new[] { "3D", "Breast" },
                 new[] { "Breast" },
                 activeCaseCount: 1,
-                maxActiveCaseCount: 8)
+                maxActiveCaseCount: 8,
+                role: PlanningStaffRole.Dosimetrist,
+                maxComplexityScore: 3,
+                schedule: CreateSyntheticSchedule(assignmentDate, 1, 1, 0, 1)),
+            new PlannerProfile(
+                "physicist-morgan",
+                "Morgan Lee",
+                new[] { "VMAT", "SBRT", "SRS", "Machine QA" },
+                new[] { "Head and Neck", "Lung", "Brain" },
+                activeCaseCount: 5,
+                maxActiveCaseCount: 10,
+                role: PlanningStaffRole.Physicist,
+                maxComplexityScore: 5,
+                preferredPhysicians: new[] { "Dr Smith", "Dr Gray" },
+                schedule: CreateSyntheticSchedule(assignmentDate, 1, 1, 2, 1)),
+            new PlannerProfile(
+                "physicist-taylor",
+                "Taylor Chen",
+                new[] { "VMAT", "Prostate", "Breast" },
+                new[] { "Prostate", "Breast" },
+                activeCaseCount: 3,
+                maxActiveCaseCount: 10,
+                role: PlanningStaffRole.Physicist,
+                maxComplexityScore: 4,
+                blockedPhysicians: new[] { "Dr Gray" },
+                schedule: CreateSyntheticSchedule(assignmentDate, 0, 0, 1, 1))
         };
+    }
+
+    private static IReadOnlyList<PlannerScheduleDay> CreateSyntheticSchedule(DateOnly startDate, params int[] assignedCases)
+    {
+        return assignedCases
+            .Select((assigned, index) => new PlannerScheduleDay(startDate.AddDays(index), assigned, capacity: 2))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<PlanningStaffRole> ResolveAssignmentRoles(IReadOnlyList<string>? values, bool includeTeamRoles)
+    {
+        if (values is { Count: > 0 })
+        {
+            return values.Select(ParsePlanningStaffRole).Distinct().ToArray();
+        }
+
+        return includeTeamRoles
+            ? new[] { PlanningStaffRole.Dosimetrist, PlanningStaffRole.Physicist }
+            : new[] { PlanningStaffRole.Dosimetrist };
+    }
+
+    private static PlanningStaffRole ParsePlanningStaffRole(string value)
+    {
+        if (Enum.TryParse<PlanningStaffRole>(value, ignoreCase: true, out var role))
+        {
+            return role;
+        }
+
+        throw new ArgumentException($"Unsupported assignment role '{value}'. Use Dosimetrist or Physicist.");
     }
 
     private string CreateServerRunId()

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BeamKit.Check;
 
 /// <summary>
@@ -9,6 +11,15 @@ public sealed record RulePackTestReport
     /// Creates a rule-pack test report.
     /// </summary>
     public RulePackTestReport(string rulePackName, string rulePackVersion, DateTimeOffset generatedAtUtc, IEnumerable<RulePackTestResult> results)
+        : this(rulePackName, rulePackVersion, generatedAtUtc, results?.ToArray() ?? throw new ArgumentNullException(nameof(results)))
+    {
+    }
+
+    /// <summary>
+    /// Creates a rule-pack test report from JSON.
+    /// </summary>
+    [JsonConstructor]
+    public RulePackTestReport(string rulePackName, string rulePackVersion, DateTimeOffset generatedAtUtc, IReadOnlyList<RulePackTestResult> results)
     {
         RulePackName = CheckText.Required(rulePackName, nameof(rulePackName));
         RulePackVersion = CheckText.Required(rulePackVersion, nameof(rulePackVersion));

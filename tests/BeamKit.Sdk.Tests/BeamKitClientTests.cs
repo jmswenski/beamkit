@@ -96,6 +96,30 @@ public sealed class BeamKitClientTests
         Assert.Equal(2, recommendation.Candidates.Count);
     }
 
+    [Fact]
+    public void RecommendPlanningTeamReturnsRoleRecommendations()
+    {
+        var client = new BeamKitClient();
+        var request = new PlannerAssignmentRequest(
+            "case-1",
+            "Lung",
+            AssignmentDate.AddDays(2),
+            new[]
+            {
+                new PlannerProfile("dosimetrist", "Dosimetrist", new[] { "VMAT", "SBRT", "Lung" }, new[] { "Lung" }, 1, 8, role: PlanningStaffRole.Dosimetrist),
+                new PlannerProfile("physicist", "Physicist", new[] { "VMAT", "SBRT" }, new[] { "Lung" }, 2, 8, role: PlanningStaffRole.Physicist)
+            },
+            new[] { "SBRT" },
+            complexityScore: 4,
+            assignmentDate: AssignmentDate,
+            requiredRoles: new[] { PlanningStaffRole.Dosimetrist, PlanningStaffRole.Physicist });
+
+        var recommendation = client.RecommendPlanningTeam(request);
+
+        Assert.True(recommendation.IsFullyStaffed);
+        Assert.Equal(2, recommendation.RoleRecommendations.Count);
+    }
+
     private static BeamKitRulePack CreateRulePack()
     {
         var query = new ClinicalRuleCatalogQuery

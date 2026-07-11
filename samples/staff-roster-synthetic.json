@@ -1,0 +1,97 @@
+{
+  "$schema": "../schemas/staff-roster.schema.json",
+  "name": "Synthetic BeamKit planning staff roster",
+  "version": "2026.1",
+  "owner": "BeamKit samples",
+  "description": "PHI-free sample roster for assignment recommendations.",
+  "staff": [
+    {
+      "id": "planner-jane",
+      "displayName": "Jane Doe",
+      "role": "Dosimetrist",
+      "skills": [ "VMAT", "SBRT", "Head and Neck" ],
+      "preferredDiseaseSites": [ "Head and Neck", "Lung" ],
+      "activeCaseCount": 2,
+      "maxActiveCaseCount": 8,
+      "maxComplexityScore": 5,
+      "preferredPhysicians": [ "Dr Smith" ],
+      "blockedPhysicians": [ "Dr Gray" ],
+      "schedule": [
+        { "date": "2026-07-11", "assignedCaseCount": 0, "capacity": 2 },
+        { "date": "2026-07-12", "assignedCaseCount": 1, "capacity": 2 },
+        { "date": "2026-07-13", "assignedCaseCount": 1, "capacity": 2 },
+        { "date": "2026-07-14", "assignedCaseCount": 2, "capacity": 2 }
+      ]
+    },
+    {
+      "id": "planner-alex",
+      "displayName": "Alex Kim",
+      "role": "Dosimetrist",
+      "skills": [ "VMAT", "Prostate" ],
+      "preferredDiseaseSites": [ "Prostate" ],
+      "activeCaseCount": 6,
+      "maxActiveCaseCount": 8,
+      "maxComplexityScore": 4,
+      "schedule": [
+        { "date": "2026-07-11", "assignedCaseCount": 1, "capacity": 2 },
+        { "date": "2026-07-12", "assignedCaseCount": 1, "capacity": 2 },
+        { "date": "2026-07-13", "assignedCaseCount": 1, "capacity": 2 },
+        { "date": "2026-07-14", "assignedCaseCount": 1, "capacity": 2 }
+      ]
+    },
+    {
+      "id": "planner-priya",
+      "displayName": "Priya Shah",
+      "role": "Dosimetrist",
+      "skills": [ "VMAT", "SRS", "Head and Neck" ],
+      "preferredDiseaseSites": [ "Head and Neck", "Brain" ],
+      "activeCaseCount": 4,
+      "maxActiveCaseCount": 8,
+      "maxComplexityScore": 5,
+      "preferredPhysicians": [ "Dr Gray" ],
+      "unavailableDateRanges": [
+        { "startDate": "2026-07-11", "endDate": "2026-07-12", "note": "PTO" }
+      ],
+      "schedule": [
+        { "date": "2026-07-11", "assignedCaseCount": 0, "capacity": 2 },
+        { "date": "2026-07-12", "assignedCaseCount": 0, "capacity": 2 },
+        { "date": "2026-07-13", "assignedCaseCount": 1, "capacity": 2 },
+        { "date": "2026-07-14", "assignedCaseCount": 1, "capacity": 2 }
+      ]
+    },
+    {
+      "id": "physicist-morgan",
+      "displayName": "Morgan Lee",
+      "role": "Physicist",
+      "skills": [ "VMAT", "SBRT", "SRS", "Machine QA" ],
+      "preferredDiseaseSites": [ "Head and Neck", "Lung", "Brain" ],
+      "activeCaseCount": 5,
+      "maxActiveCaseCount": 10,
+      "maxComplexityScore": 5,
+      "preferredPhysicians": [ "Dr Smith", "Dr Gray" ],
+      "schedule": [
+        { "date": "2026-07-11", "assignedCaseCount": 1, "capacity": 2 },
+        { "date": "2026-07-12", "assignedCaseCount": 1, "capacity": 2 },
+        { "date": "2026-07-13", "assignedCaseCount": 2, "capacity": 2 },
+        { "date": "2026-07-14", "assignedCaseCount": 1, "capacity": 2 }
+      ]
+    },
+    {
+      "id": "physicist-taylor",
+      "displayName": "Taylor Chen",
+      "role": "Physicist",
+      "skills": [ "VMAT", "Prostate", "Breast" ],
+      "preferredDiseaseSites": [ "Prostate", "Breast" ],
+      "activeCaseCount": 3,
+      "maxActiveCaseCount": 10,
+      "maxComplexityScore": 4,
+      "blockedPhysicians": [ "Dr Gray" ],
+      "schedule": [
+        { "date": "2026-07-11", "assignedCaseCount": 0, "capacity": 2 },
+        { "date": "2026-07-12", "assignedCaseCount": 0, "capacity": 2 },
+        { "date": "2026-07-13", "assignedCaseCount": 1, "capacity": 2 },
+        { "date": "2026-07-14", "assignedCaseCount": 1, "capacity": 2 }
+      ]
+    }
+  ]
+}

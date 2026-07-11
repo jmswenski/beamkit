@@ -21,6 +21,8 @@
 - Polished standalone HTML reports for end-to-end check runs.
 - Rule-pack policy-as-code validation.
 - Rule-pack regression testing against PHI-free synthetic cases.
+- Rule-pack authoring tools for starter scaffolds, doctor checks, structured reminder import, field-level diffs, and changelog generation.
+- Immutable rule-pack bundles with embedded policy files, validation evidence, optional regression evidence, and tamper verification.
 - CI/CD-style check run records with provenance fingerprints.
 - Initial self-hosted CI server with HTTP APIs, dashboard, SQLite run history, artifact downloads, and provenance artifact access.
 - CI-server intake for uploaded BeamKit plan JSON and ESAPI snapshot JSON.
@@ -28,8 +30,11 @@
 - CI-server plan-snapshot retention for field-level baseline diffs.
 - CI-server API-key protection, upload-size limits, audit events, and registered rule-pack endpoints.
 - CI-server managed rule-pack version import, regression evidence, active-version promotion, and audit history.
+- CI-server managed rule-pack versions backed by immutable bundle snapshots rather than mutable source files.
+- CI-server draft rule-pack review and managed-version diff reports.
 - High-level SDK facade for embedded automation.
-- Initial planner assignment recommendation engine.
+- Dosimetrist/physicist assignment recommendation engine with roles, specialty matching, workload, schedule capacity, physician compatibility rules, complexity ceilings, priority, and due-date pressure.
+- Initial explainable predictive case intelligence for complexity, QA risk, planning effort, physics review effort, and next-action recommendations.
 
 ## Milestone 2: DICOM
 
@@ -71,7 +76,7 @@
 - Notifications.
 - Write-up packet templates and adapter-backed export verification.
 - Future: persisted queues, external workload connectors, assignment dashboards, peer-review worklists, and notification providers.
-- Future: CI-server role-based access control, identity-provider integration, bundled rule-pack dependency snapshots, formal artifact retention, PHI handling guidance, and deployment hardening.
+- Future: CI-server role-based access control, identity-provider integration, formal artifact retention, PHI handling guidance, and deployment hardening.
 
 ## Milestone 6: ESAPI
 

@@ -1,6 +1,7 @@
 using BeamKit.Naming;
 using BeamKit.Samples;
 using BeamKit.Templates;
+using BeamKit.Workflow;
 using Xunit;
 
 namespace BeamKit.Samples.Tests;
@@ -69,10 +70,12 @@ public sealed class SyntheticSampleTests
         var templateSet = ClinicalGoalTemplateLoader.FromFile(Path.Combine(root, "samples", "clinical-goals-head-neck.json"));
         var catalog = ClinicalRuleCatalogLoader.FromFile(Path.Combine(root, "samples", "rule-catalog-head-neck.json"));
         var dictionary = StructureNameDictionaryLoader.FromFile(Path.Combine(root, "samples", "naming-dictionary-head-neck.json"));
+        var roster = StaffRosterLoader.FromFile(Path.Combine(root, "samples", "staff-roster-synthetic.json"));
 
         Assert.NotEmpty(templateSet.Goals);
         Assert.NotEmpty(catalog.TemplateSets);
         Assert.NotEmpty(dictionary.CanonicalNames);
+        Assert.Contains(roster.Staff, member => member.Role == PlanningStaffRole.Physicist);
     }
 
     private static string FindRepositoryRoot()

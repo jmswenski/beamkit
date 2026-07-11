@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BeamKit.Naming;
 
 /// <summary>
@@ -8,6 +10,7 @@ public sealed record StructureNameNormalizationResult
     /// <summary>
     /// Creates a normalization result.
     /// </summary>
+    [JsonConstructor]
     public StructureNameNormalizationResult(
         string originalName,
         NormalizationStatus status,
@@ -15,7 +18,7 @@ public sealed record StructureNameNormalizationResult
         NormalizationConfidence confidence,
         NormalizationSource source,
         string message,
-        IEnumerable<string>? candidates = null)
+        IReadOnlyList<string>? candidates = null)
     {
         OriginalName = NamingText.Required(originalName, nameof(originalName));
         Status = status;

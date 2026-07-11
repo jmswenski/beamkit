@@ -21,5 +21,17 @@
     "physicsQaComplete": true,
     "physicianApprovalComplete": true,
     "treatmentReady": true
+  },
+  "approval": {
+    "status": "Approved",
+    "institution": "BeamKit Synthetic",
+    "physicianGroup": "Head and Neck",
+    "reviewedBy": "BeamKit maintainers",
+    "approvedBy": "BeamKit maintainers",
+    "effectiveDate": "2026-07-01",
+    "reviewDueDate": "2027-07-01",
+    "reference": "Synthetic demonstration policy",
+    "rationale": "Provides a complete PHI-free sample rule pack for documentation, CLI demos, and CI server smoke tests.",
+    "changeTicket": "sample-head-neck-v1"
   }
 }

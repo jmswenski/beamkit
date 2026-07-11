@@ -1,0 +1,61 @@
+{
+  "name": "Lung SBRT clinical rule catalog",
+  "institution": "Synthetic",
+  "version": "2026.1",
+  "description": "Starter clinical goals for Lung SBRT. Review locally before use.",
+  "owner": "BeamKit",
+  "tags": [
+    "lung-sbrt",
+    "starter"
+  ],
+  "templateSets": [
+    {
+      "name": "Lung SBRT baseline",
+      "diseaseSite": "Lung SBRT",
+      "institution": "Synthetic",
+      "version": "2026.1",
+      "description": "Baseline Lung SBRT starter goals.",
+      "owner": "BeamKit",
+      "tags": [
+        "baseline",
+        "lung-sbrt"
+      ],
+      "goals": [
+        {
+          "id": "goal.target.d95",
+          "structureName": "PTV_5000",
+          "metricKey": "D95PercentDoseGy",
+          "comparison": "GreaterThanOrEqual",
+          "threshold": 47.50,
+          "unit": "Gy",
+          "severity": "Required",
+          "description": "Target D95 coverage objective.",
+          "reference": "Starter institutional baseline",
+          "rationale": "Documents minimum target coverage for automated review.",
+          "tags": [
+            "target",
+            "coverage",
+            "lung-sbrt"
+          ]
+        },
+        {
+          "id": "goal.oar1.max",
+          "structureName": "OAR_1",
+          "metricKey": "MaxDoseGy",
+          "comparison": "LessThanOrEqual",
+          "threshold": 40.0,
+          "unit": "Gy",
+          "severity": "Warning",
+          "description": "Synthetic OAR maximum dose review goal.",
+          "reference": "Starter institutional baseline",
+          "rationale": "Placeholder OAR objective that should be replaced with site-specific policy.",
+          "tags": [
+            "oar",
+            "starter",
+            "lung-sbrt"
+          ]
+        }
+      ]
+    }
+  ]
+}

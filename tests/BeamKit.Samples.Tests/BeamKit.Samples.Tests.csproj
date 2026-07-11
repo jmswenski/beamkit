@@ -17,5 +17,6 @@
     <ProjectReference Include="..\..\src\BeamKit.Rules\BeamKit.Rules.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Samples\BeamKit.Samples.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Templates\BeamKit.Templates.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Workflow\BeamKit.Workflow.csproj" />
   </ItemGroup>
 </Project>

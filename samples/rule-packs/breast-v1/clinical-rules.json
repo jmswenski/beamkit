@@ -1,0 +1,61 @@
+{
+  "name": "Breast clinical rule catalog",
+  "institution": "Synthetic",
+  "version": "2026.1",
+  "description": "Starter clinical goals for Breast. Review locally before use.",
+  "owner": "BeamKit",
+  "tags": [
+    "breast",
+    "starter"
+  ],
+  "templateSets": [
+    {
+      "name": "Breast baseline",
+      "diseaseSite": "Breast",
+      "institution": "Synthetic",
+      "version": "2026.1",
+      "description": "Baseline Breast starter goals.",
+      "owner": "BeamKit",
+      "tags": [
+        "baseline",
+        "breast"
+      ],
+      "goals": [
+        {
+          "id": "goal.target.d95",
+          "structureName": "PTV_4256",
+          "metricKey": "D95PercentDoseGy",
+          "comparison": "GreaterThanOrEqual",
+          "threshold": 40.4320,
+          "unit": "Gy",
+          "severity": "Required",
+          "description": "Target D95 coverage objective.",
+          "reference": "Starter institutional baseline",
+          "rationale": "Documents minimum target coverage for automated review.",
+          "tags": [
+            "target",
+            "coverage",
+            "breast"
+          ]
+        },
+        {
+          "id": "goal.oar1.max",
+          "structureName": "OAR_1",
+          "metricKey": "MaxDoseGy",
+          "comparison": "LessThanOrEqual",
+          "threshold": 34.048,
+          "unit": "Gy",
+          "severity": "Warning",
+          "description": "Synthetic OAR maximum dose review goal.",
+          "reference": "Starter institutional baseline",
+          "rationale": "Placeholder OAR objective that should be replaced with site-specific policy.",
+          "tags": [
+            "oar",
+            "starter",
+            "breast"
+          ]
+        }
+      ]
+    }
+  ]
+}

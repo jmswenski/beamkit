@@ -15,12 +15,19 @@ public sealed record PlannerProfile
         IEnumerable<string>? preferredDiseaseSites = null,
         int activeCaseCount = 0,
         int maxActiveCaseCount = 10,
-        DateOnly? ptoUntil = null)
+        DateOnly? ptoUntil = null,
+        PlanningStaffRole role = PlanningStaffRole.Dosimetrist,
+        int maxComplexityScore = 5,
+        IEnumerable<string>? preferredPhysicians = null,
+        IEnumerable<string>? blockedPhysicians = null,
+        IEnumerable<PlannerScheduleDay>? schedule = null)
     {
         Id = WorkflowText.Required(id, nameof(id));
         DisplayName = WorkflowText.Required(displayName, nameof(displayName));
         Skills = WorkflowText.CleanList(skills);
         PreferredDiseaseSites = WorkflowText.CleanList(preferredDiseaseSites);
+        PreferredPhysicians = WorkflowText.CleanList(preferredPhysicians);
+        BlockedPhysicians = WorkflowText.CleanList(blockedPhysicians);
         if (activeCaseCount < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(activeCaseCount), activeCaseCount, "Active case count cannot be negative.");
@@ -31,9 +38,17 @@ public sealed record PlannerProfile
             throw new ArgumentOutOfRangeException(nameof(maxActiveCaseCount), maxActiveCaseCount, "Maximum active case count must be positive.");
         }
 
+        if (maxComplexityScore is < 1 or > 5)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxComplexityScore), maxComplexityScore, "Maximum complexity score must be between 1 and 5.");
+        }
+
         ActiveCaseCount = activeCaseCount;
         MaxActiveCaseCount = maxActiveCaseCount;
         PtoUntil = ptoUntil;
+        Role = role;
+        MaxComplexityScore = maxComplexityScore;
+        Schedule = schedule?.OrderBy(day => day.Date).ToArray() ?? Array.Empty<PlannerScheduleDay>();
     }
 
     /// <summary>
@@ -57,6 +72,26 @@ public sealed record PlannerProfile
     public IReadOnlyList<string> PreferredDiseaseSites { get; init; }
 
     /// <summary>
+    /// Staff role used for role-specific assignment.
+    /// </summary>
+    public PlanningStaffRole Role { get; init; }
+
+    /// <summary>
+    /// Maximum case complexity this staff member should receive without override.
+    /// </summary>
+    public int MaxComplexityScore { get; init; }
+
+    /// <summary>
+    /// Physicians this staff member commonly works with.
+    /// </summary>
+    public IReadOnlyList<string> PreferredPhysicians { get; init; }
+
+    /// <summary>
+    /// Physicians this staff member should not be paired with under local assignment rules.
+    /// </summary>
+    public IReadOnlyList<string> BlockedPhysicians { get; init; }
+
+    /// <summary>
     /// Current active workload.
     /// </summary>
     public int ActiveCaseCount { get; init; }
@@ -70,6 +105,11 @@ public sealed record PlannerProfile
     /// Date through which the planner is unavailable for PTO, when applicable.
     /// </summary>
     public DateOnly? PtoUntil { get; init; }
+
+    /// <summary>
+    /// Optional day-level schedule capacity.
+    /// </summary>
+    public IReadOnlyList<PlannerScheduleDay> Schedule { get; init; }
 
     /// <summary>
     /// Workload utilization from 0 to values above 1 when over capacity.

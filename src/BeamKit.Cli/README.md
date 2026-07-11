@@ -34,11 +34,52 @@ dotnet run --project src/BeamKit.Cli -- check --case head-neck-cord-fail
 Validate and regression-test a rule pack:
 
 ```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack doctor \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+
 dotnet run --project src/BeamKit.Cli -- rule-pack validate \
   --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
 
 dotnet run --project src/BeamKit.Cli -- rule-pack test \
   --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+```
+
+Create and verify an immutable rule-pack bundle:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack bundle \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json \
+  --case head-neck-pass \
+  --created-by physics \
+  --output artifacts/head-neck-v1.beamkit-rulepack.json
+
+dotnet run --project src/BeamKit.Cli -- rule-pack verify-bundle \
+  --bundle artifacts/head-neck-v1.beamkit-rulepack.json
+```
+
+Create and review starter rule packs:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack new \
+  --disease-site lung-sbrt \
+  --institution Synthetic \
+  --owner BeamKit \
+  --output artifacts/rule-packs/lung-sbrt-v1
+
+dotnet run --project src/BeamKit.Cli -- rule-pack explain \
+  --rule-pack artifacts/rule-packs/lung-sbrt-v1/beamkit-rule-pack.json
+
+dotnet run --project src/BeamKit.Cli -- rule-pack diff \
+  --old-rule-pack samples/rule-packs/lung-sbrt-v1/beamkit-rule-pack.json \
+  --new-rule-pack artifacts/rule-packs/lung-sbrt-v1/beamkit-rule-pack.json
+```
+
+Import structured reminder notes into a plan-check catalog:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack import-reminders \
+  --rule-pack artifacts/rule-packs/lung-sbrt-v1/beamkit-rule-pack.json \
+  --reminders artifacts/monthly-reminders.md
 ```
 
 Run a CI/CD-style plan gate with provenance metadata:
@@ -53,16 +94,42 @@ dotnet run --project src/BeamKit.Cli -- ci run \
   --format markdown
 ```
 
-Recommend a planner assignment from workload, skills, PTO, and due-date context:
+Recommend a dosimetrist or physicist assignment from workload, skills, PTO, schedule, specialty, physician pairing rules, and due-date context:
 
 ```bash
 dotnet run --project src/BeamKit.Cli -- assignment recommend \
+  --roster samples/staff-roster-synthetic.json \
   --disease-site "Head and Neck" \
+  --physician "Dr Smith" \
   --required-skill VMAT \
   --required-skill SBRT \
+  --role Dosimetrist \
   --complexity 4 \
   --priority 4 \
   --due-date 2026-07-10
+```
+
+Recommend a planning team:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- assignment recommend-team \
+  --roster samples/staff-roster-synthetic.json \
+  --disease-site Lung \
+  --physician "Dr Smith" \
+  --required-skill VMAT \
+  --required-skill SBRT \
+  --complexity 4 \
+  --priority 4
+```
+
+Predict case complexity and plan QA risk:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- intelligence case \
+  --case lung-sbrt-pass \
+  --priority 4 \
+  --due-date 2026-07-12 \
+  --format markdown
 ```
 
 Show synthetic plan readiness:
@@ -198,6 +265,6 @@ dotnet run --project src/BeamKit.Cli -- normalize-structures --format json --out
 
 - `0`: command completed and no failing, error, or not-evaluable rule results were produced.
 - `1`: invalid arguments or output failure.
-- `2`: clinical, workflow, structure-naming, catalog filter, plan-check, metric, deliverability, policy validation, CI gate, ESAPI snapshot validation, or write-up consistency gate did not pass.
+- `2`: clinical, workflow, structure-naming, catalog filter, plan-check, metric, deliverability, policy validation, CI gate, critical predictive QA risk, ESAPI snapshot validation, or write-up consistency gate did not pass.
 
 The CLI is for development and demonstration only until BeamKit has a validated clinical deployment model.

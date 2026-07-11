@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace BeamKit.Naming;
 
 /// <summary>
@@ -8,10 +10,11 @@ public sealed record StructureNameNormalizationReport
     /// <summary>
     /// Creates a structure name normalization report.
     /// </summary>
+    [JsonConstructor]
     public StructureNameNormalizationReport(
         string dictionaryName,
-        IEnumerable<StructureNameNormalizationResult> results,
-        IEnumerable<MissingStructureResult>? missingStructures = null)
+        IReadOnlyList<StructureNameNormalizationResult> results,
+        IReadOnlyList<MissingStructureResult>? missingStructures = null)
     {
         DictionaryName = NamingText.Required(dictionaryName, nameof(dictionaryName));
         Results = results?.ToArray() ?? throw new ArgumentNullException(nameof(results));

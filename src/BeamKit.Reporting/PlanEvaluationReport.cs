@@ -1,4 +1,5 @@
 using BeamKit.Rules;
+using System.Text.Json.Serialization;
 
 namespace BeamKit.Reporting;
 
@@ -16,6 +17,20 @@ public sealed record PlanEvaluationReport
         string ruleSetName,
         DateTimeOffset generatedAtUtc,
         IEnumerable<EvaluationResult> results)
+        : this(planId, patientId, ruleSetName, generatedAtUtc, results?.ToArray() ?? throw new ArgumentNullException(nameof(results)))
+    {
+    }
+
+    /// <summary>
+    /// Creates a plan evaluation report from JSON.
+    /// </summary>
+    [JsonConstructor]
+    public PlanEvaluationReport(
+        string planId,
+        string patientId,
+        string ruleSetName,
+        DateTimeOffset generatedAtUtc,
+        IReadOnlyList<EvaluationResult> results)
     {
         PlanId = ReportText.Required(planId, nameof(planId));
         PatientId = ReportText.Required(patientId, nameof(patientId));

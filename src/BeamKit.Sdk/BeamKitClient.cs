@@ -71,4 +71,12 @@ public sealed class BeamKitClient
     {
         return assignmentEngine.Recommend(request);
     }
+
+    /// <summary>
+    /// Recommends a dosimetrist/physicist planning team.
+    /// </summary>
+    public PlanStaffingRecommendation RecommendPlanningTeam(PlannerAssignmentRequest request)
+    {
+        return assignmentEngine.RecommendTeam(request);
+    }
 }

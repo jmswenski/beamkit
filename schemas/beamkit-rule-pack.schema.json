@@ -73,6 +73,46 @@
         "physicianApprovalComplete": { "type": "boolean" },
         "treatmentReady": { "type": "boolean" }
       }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional governance metadata for rule-pack review, approval, and periodic re-review.",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "Governance state, for example Draft, InReview, Approved, or Retired."
+        },
+        "institution": {
+          "type": "string"
+        },
+        "physicianGroup": {
+          "type": "string"
+        },
+        "reviewedBy": {
+          "type": "string"
+        },
+        "approvedBy": {
+          "type": "string"
+        },
+        "effectiveDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "reviewDueDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "changeTicket": {
+          "type": "string"
+        }
+      }
     }
   }
 }

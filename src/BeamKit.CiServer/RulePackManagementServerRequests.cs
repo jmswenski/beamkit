@@ -28,6 +28,21 @@ public sealed record RulePackImportServerRequest
     public string? ManifestJson { get; init; }
 
     /// <summary>
+    /// Server-local immutable rule-pack bundle path to import.
+    /// </summary>
+    public string? BundlePath { get; init; }
+
+    /// <summary>
+    /// Inline immutable rule-pack bundle JSON object.
+    /// </summary>
+    public JsonElement? Bundle { get; init; }
+
+    /// <summary>
+    /// Raw immutable rule-pack bundle JSON string.
+    /// </summary>
+    public string? BundleJson { get; init; }
+
+    /// <summary>
     /// Base directory used to resolve relative manifest file references for inline JSON.
     /// </summary>
     public string? BaseDirectory { get; init; }

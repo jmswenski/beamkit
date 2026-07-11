@@ -1,0 +1,61 @@
+{
+  "name": "Brain SRS clinical rule catalog",
+  "institution": "Synthetic",
+  "version": "2026.1",
+  "description": "Starter clinical goals for Brain SRS. Review locally before use.",
+  "owner": "BeamKit",
+  "tags": [
+    "brain-srs",
+    "starter"
+  ],
+  "templateSets": [
+    {
+      "name": "Brain SRS baseline",
+      "diseaseSite": "Brain SRS",
+      "institution": "Synthetic",
+      "version": "2026.1",
+      "description": "Baseline Brain SRS starter goals.",
+      "owner": "BeamKit",
+      "tags": [
+        "baseline",
+        "brain-srs"
+      ],
+      "goals": [
+        {
+          "id": "goal.target.d95",
+          "structureName": "PTV_2100",
+          "metricKey": "D95PercentDoseGy",
+          "comparison": "GreaterThanOrEqual",
+          "threshold": 19.95,
+          "unit": "Gy",
+          "severity": "Required",
+          "description": "Target D95 coverage objective.",
+          "reference": "Starter institutional baseline",
+          "rationale": "Documents minimum target coverage for automated review.",
+          "tags": [
+            "target",
+            "coverage",
+            "brain-srs"
+          ]
+        },
+        {
+          "id": "goal.oar1.max",
+          "structureName": "OAR_1",
+          "metricKey": "MaxDoseGy",
+          "comparison": "LessThanOrEqual",
+          "threshold": 16.8,
+          "unit": "Gy",
+          "severity": "Warning",
+          "description": "Synthetic OAR maximum dose review goal.",
+          "reference": "Starter institutional baseline",
+          "rationale": "Placeholder OAR objective that should be replaced with site-specific policy.",
+          "tags": [
+            "oar",
+            "starter",
+            "brain-srs"
+          ]
+        }
+      ]
+    }
+  ]
+}

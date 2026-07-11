@@ -18,6 +18,7 @@ BeamKit.Core domain model
         +--> BeamKit.Templates
         +--> BeamKit.Structures
         +--> BeamKit.Metrics
+        +--> BeamKit.Intelligence
         +--> BeamKit.Deliverability
         +--> BeamKit.PlanCheck
         +--> BeamKit.Rules
@@ -25,6 +26,7 @@ BeamKit.Core domain model
         +--> BeamKit.Reporting
         +--> BeamKit.Qa
         +--> BeamKit.Release
+        +--> BeamKit.RulePacks
         +--> BeamKit.Check
         +--> BeamKit.Sdk
         +--> BeamKit.CiServer
@@ -49,17 +51,21 @@ BeamKit.Core domain model
 
 `BeamKit.Metrics` owns standardized DVH metric expression parsing and target plan-quality summaries. It evaluates existing dose statistics and stays independent of adapters.
 
+`BeamKit.Intelligence` owns explainable predictive case and plan intelligence. It scores complexity, QA risk, planning effort, and physics review effort from vendor-neutral plan metadata, dose statistics, beams, prescription, structures, and optional workflow context. It is heuristic and auditable by design, not a black-box clinical outcome model.
+
 `BeamKit.Deliverability` owns machine-profile-based checks for MU, MU/degree, control-point intervals, DCA step size, and field-size limits.
 
 `BeamKit.PlanCheck` owns configurable plan-check catalogs. It composes core plans, metrics, and deliverability into auditable results without putting clinic policy into `BeamKit.Core`.
 
 `BeamKit.Reporting` turns evaluation results into JSON, Markdown, or HTML.
 
-`BeamKit.Workflow` owns workflow state such as plan readiness and planner assignment recommendation. It consumes explicit workflow inputs but does not know where data came from.
+`BeamKit.Workflow` owns workflow state such as plan readiness and dosimetrist/physicist assignment recommendation. It consumes explicit workflow inputs such as specialty, workload, schedule capacity, physician compatibility rules, complexity, priority, and due dates, but does not know where data came from.
 
 `BeamKit.Qa` orchestrates naming, rules, reporting, and workflow checks into combined QA reports.
 
 `BeamKit.Release` captures plan write-up evidence manifests and verifies whether a current plan snapshot is stale relative to captured fingerprints. It records external exports and documents as attestations unless optional adapters verify them.
+
+`BeamKit.RulePacks` owns rule-pack authoring and governance workflows: manifest read/write, approval metadata, doctor checks, field-level diffs, changelog generation, structured reminder import, and disease-site starter scaffolds. It depends on vendor-neutral policy packages and must not reference adapters.
 
 `BeamKit.Check` is the top-level plan-review workflow. It composes templates, plan checks, naming, readiness, metrics, optional release evidence, policy-as-code validation, rule-pack regression tests, and CI/CD-style provenance records while staying independent of adapters.
 
@@ -71,7 +77,7 @@ BeamKit.Core domain model
 
 `BeamKit.Cli` composes packages for command line workflows.
 
-Architecture-boundary tests in `tests/BeamKit.Architecture.Tests` enforce key dependency rules, including keeping `BeamKit.Core` independent and keeping adapters free of metrics, deliverability, plan-check, check, SDK, release, rules, reporting, QA, workflow, and proprietary SDK references.
+Architecture-boundary tests in `tests/BeamKit.Architecture.Tests` enforce key dependency rules, including keeping `BeamKit.Core` independent and keeping adapters free of intelligence, metrics, deliverability, plan-check, check, SDK, release, rules, reporting, QA, workflow, and proprietary SDK references.
 
 ## Adapter Rules
 

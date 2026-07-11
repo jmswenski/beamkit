@@ -12,13 +12,14 @@
 [![DICOM RT](https://img.shields.io/badge/DICOM%20RT-initial%20support-blue.svg)](docs/dicom.md)
 [![ESAPI](https://img.shields.io/badge/ESAPI-read--only%20adapter-lightgrey.svg)](docs/esapi.md)
 [![BeamKit Check](https://img.shields.io/badge/BeamKit%20Check-rule%20packs%20%7C%20HTML%20reports-blue.svg)](docs/beamkit-check.md)
+[![Predictive Intelligence](https://img.shields.io/badge/intelligence-explainable%20risk%20scoring-blue.svg)](src/BeamKit.Intelligence/README.md)
 [![Docs](https://img.shields.io/badge/docs-included-blue.svg)](#documentation)
 [![Code Style](https://img.shields.io/badge/warnings-as%20errors-informational.svg)](Directory.Build.props)
 [![Contributions](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](docs/contributing.md)
 
 **A modern, open-source platform for radiation oncology workflow automation, analytics, plan QA, and treatment-planning integrations.**
 
-BeamKit provides a vendor-neutral C#/.NET foundation for modeling radiation oncology plans, running CI/CD-style plan checks, normalizing structure names, evaluating clinical and physics rules, automating dosimetry tasks, importing DICOM RT metadata, adapting treatment-planning-system data, calculating plan-quality metrics, producing portable QA reports, and generating plan write-up consistency evidence.
+BeamKit provides a vendor-neutral C#/.NET foundation for modeling radiation oncology plans, running CI/CD-style plan checks, normalizing structure names, evaluating clinical and physics rules, automating dosimetry tasks, importing DICOM RT metadata, adapting treatment-planning-system data, calculating plan-quality metrics, producing portable QA reports, predicting case complexity and QA risk, and generating plan write-up consistency evidence.
 
 It is designed so core functionality can be built and tested on Linux, Windows, and macOS without proprietary treatment-planning-system SDKs, while still allowing optional adapters for systems such as Eclipse/ESAPI, RayStation, DICOM RT, FHIR/Epic, Aria, Mosaiq, and future clinical applications.
 
@@ -35,7 +36,7 @@ BeamKit is intended to become a common software layer for radiation oncology tea
 | Dosimetry automation | Structure naming, missing-structure validation, PTV ring recipes, dose/fraction calculations, and repeatable planning helpers. |
 | Clinical and physics QA | Configurable catalogs for clinical goals, physician preferences, dose checks, beam model checks, dose-grid checks, jaw policy, MU/degree, and treatment-vs-QA plan integrity. |
 | Workflow orchestration | Plan readiness, change detection, write-up evidence manifests, approvals, peer-review queues, notifications, assignment logic, and treatment-readiness gates. |
-| Analytics and research | Plan-quality metrics, DVH trends, workload metrics, disease-site cohorts, machine utilization, and synthetic/research export paths. |
+| Analytics and research | Plan-quality metrics, explainable predictive case intelligence, DVH trends, workload metrics, disease-site cohorts, machine utilization, and synthetic/research export paths. |
 | Integrations | DICOM RT, read-only ESAPI snapshots, future RayStation adapters, FHIR/Epic workflows, and other optional hospital-system connectors. |
 | Applications | CLI tools today, with a path to desktop tools, web dashboards, service APIs, and research pipelines. |
 
@@ -53,10 +54,13 @@ What is usable today:
 - `BeamKit Check`, a flagship rule-pack workflow that combines clinical goals, plan checks, naming, readiness, metrics, ESAPI/DICOM-ready plan input, and optional write-up evidence.
 - Combined QA pipeline.
 - Rule-pack manifests that compose clinical rule catalogs, plan-check catalogs, naming dictionaries, machine profiles, and readiness defaults.
+- Rule-pack authoring tools for starter scaffolds, doctor checks, explanation reports, reminder imports, field-level diffs, and changelog generation.
 - Rule-pack policy-as-code validation with deterministic fingerprints.
 - Rule-pack regression testing against PHI-free synthetic cases.
+- Immutable rule-pack bundle artifacts with embedded catalog files, validation evidence, regression evidence, fingerprints, and tamper verification.
+- Explainable predictive case/plan intelligence for complexity, QA risk, planning effort, physics review effort, target metrics, and next-action recommendations.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, registered and managed rule-pack versions, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, registered and managed immutable rule-pack versions, draft rule-pack review, managed-version diffs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -68,11 +72,11 @@ What is usable today:
 - Plan change detection and treatment-vs-QA plan integrity verification for prescriptions, structures, dose, beams, control points, and jaws.
 - Plan write-up manifests that capture fingerprints, readiness evidence, export attestations, document records, and stale/not-stale verification.
 - Automated dose calculations for BED, EQD2, dose per fraction, equivalent fractionation, and cumulative EQD2.
-- Machine-readable JSON Schemas for plans, templates, catalogs, dictionaries, reports, and machine profiles.
+- Machine-readable JSON Schemas for plans, templates, catalogs, dictionaries, reports, staff rosters, and machine profiles.
 - Synthetic clinical case library with passing and failing PHI-free examples.
 - Architecture-boundary tests.
 - High-level `BeamKit.Sdk` facade for embedding checks, policy validation, CI gates, rule-pack tests, and assignment recommendations.
-- Planner assignment recommendation based on disease site, workload, PTO, complexity, priority, and skills.
+- Dosimetrist and physicist assignment recommendations based on configurable staff rosters, disease site, specialty, workload, schedule, PTO, physician compatibility rules, complexity, priority, and required skills.
 - Read-only ESAPI adapter scaffold without proprietary DLL references.
 - ESAPI snapshot JSON bridge and smoke-harness template for local Varian workstation testing.
 - ESAPI snapshot validation for missing target, dose, structure, beam, and model metadata.
@@ -109,6 +113,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 - Dosimetry automation for recurring setup work such as optimization rings, dose calculations, and reminder-list checks.
 - Plan write-up consistency evidence for export/document handoff workflows.
 - Versioned clinical rule catalogs with owner, approval, reference, rationale, and tag metadata.
+- Explainable predictive intelligence for case complexity, plan QA risk, effort estimation, and early physics-review triage.
 - Repeatable derived-structure recipes for common PTV optimization rings.
 - Plan readiness and workflow checks.
 - Planner assignment, peer review, approval tracking, and notification workflows.
@@ -145,6 +150,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.Check`](src/BeamKit.Check/README.md) | Flagship rule-pack workflow for CI/CD-style plan QA, polished reports, readiness, metrics, naming, and write-up evidence. | Active |
 | [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for API-key protected plan gates, managed rule-pack versions, audit events, provenance artifacts, baseline comparisons, and assignment recommendations. | Initial |
 | [`BeamKit.Deliverability`](src/BeamKit.Deliverability/README.md) | Beam deliverability and machine-profile checks for MU, MU/degree, jaw policy, beam model, and calculation model constraints. | Active |
+| [`BeamKit.Intelligence`](src/BeamKit.Intelligence/README.md) | Explainable predictive case and plan intelligence for complexity, QA risk, planning effort, and physics review triage. | Initial |
 | [`BeamKit.Metrics`](src/BeamKit.Metrics/README.md) | Standardized DVH metric expressions and target plan-quality summaries. | Active |
 | [`BeamKit.Naming`](src/BeamKit.Naming/README.md) | Structure name normalization, aliases, regex mappings, ambiguity, and missing-structure checks. | Active |
 | [`BeamKit.PlanCheck`](src/BeamKit.PlanCheck/README.md) | Configurable plan-check catalogs that combine structure, prescription, dose, metric, model, and deliverability checks. | Active |
@@ -154,11 +160,12 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.Templates`](src/BeamKit.Templates/README.md) | JSON clinical goal templates and rule catalogs that generate goals and rule sets. | Active |
 | [`BeamKit.Qa`](src/BeamKit.Qa/README.md) | Combined QA pipeline for naming, rules, and readiness. | Active |
 | [`BeamKit.Release`](src/BeamKit.Release/README.md) | Plan write-up manifests, export/document attestations, fingerprints, and stale verification. | Active |
+| [`BeamKit.RulePacks`](src/BeamKit.RulePacks/README.md) | Rule-pack authoring, governance metadata, doctor checks, reminder import, diffs, changelogs, and disease-site starter scaffolds. | Active |
 | [`BeamKit.Dvh`](src/BeamKit.Dvh/README.md) | Cumulative DVH curve models and dose-volume metrics. | Active |
 | [`BeamKit.Dicom`](src/BeamKit.Dicom/README.md) | Initial DICOM RTSTRUCT, RTPLAN, and RTDOSE import using open-source `fo-dicom`. | Initial |
 | [`BeamKit.Esapi`](src/BeamKit.Esapi/README.md) | Read-only ESAPI snapshot adapter pattern without proprietary references. | Scaffold |
 | [`BeamKit.Reporting`](src/BeamKit.Reporting/README.md) | JSON, Markdown, and HTML report writers. | Active |
-| [`BeamKit.Workflow`](src/BeamKit.Workflow/README.md) | Plan-readiness workflow primitives and planner assignment recommendation. | Active |
+| [`BeamKit.Workflow`](src/BeamKit.Workflow/README.md) | Plan-readiness workflow primitives, configurable staff rosters, and dosimetrist/physicist assignment recommendation. | Active |
 | [`BeamKit.Samples`](src/BeamKit.Samples/README.md) | Synthetic plans, rule sets, dictionaries, and templates. | Active |
 | [`BeamKit.Cli`](src/BeamKit.Cli/README.md) | Command line demos and automation entry points. | Active |
 
@@ -179,6 +186,7 @@ BeamKit.Core domain model
         +--> BeamKit.ChangeDetection
         +--> BeamKit.Structures
         +--> BeamKit.Metrics
+        +--> BeamKit.Intelligence
         +--> BeamKit.Deliverability
         +--> BeamKit.PlanCheck
         +--> BeamKit.Templates
@@ -188,6 +196,7 @@ BeamKit.Core domain model
         +--> BeamKit.Reporting
         +--> BeamKit.Qa
         +--> BeamKit.Release
+        +--> BeamKit.RulePacks
         +--> BeamKit.Check
         +--> BeamKit.Sdk
         |
@@ -248,6 +257,19 @@ dotnet run --project src/BeamKit.Cli -- cases
 dotnet run --project src/BeamKit.Cli -- check --case head-neck-cord-fail
 ```
 
+Scaffold and inspect a disease-site rule pack:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack new \
+  --disease-site lung-sbrt \
+  --institution Synthetic \
+  --owner BeamKit \
+  --output artifacts/rule-packs/lung-sbrt-v1
+
+dotnet run --project src/BeamKit.Cli -- rule-pack doctor \
+  --rule-pack artifacts/rule-packs/lung-sbrt-v1/beamkit-rule-pack.json
+```
+
 Validate and regression-test a rule pack before promotion:
 
 ```bash
@@ -256,6 +278,28 @@ dotnet run --project src/BeamKit.Cli -- rule-pack validate \
 
 dotnet run --project src/BeamKit.Cli -- rule-pack test \
   --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+```
+
+Create and verify an immutable rule-pack release bundle:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack bundle \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json \
+  --case head-neck-pass \
+  --created-by physics \
+  --output artifacts/head-neck-v1.beamkit-rulepack.json
+
+dotnet run --project src/BeamKit.Cli -- rule-pack verify-bundle \
+  --bundle artifacts/head-neck-v1.beamkit-rulepack.json
+```
+
+Review policy changes before promotion:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack diff \
+  --old-rule-pack samples/rule-packs/lung-sbrt-v1/beamkit-rule-pack.json \
+  --new-rule-pack artifacts/rule-packs/lung-sbrt-v1/beamkit-rule-pack.json \
+  --format markdown
 ```
 
 Run BeamKit as a CI/CD gate and capture provenance:
@@ -269,14 +313,40 @@ dotnet run --project src/BeamKit.Cli -- ci run \
   --build-id local-demo
 ```
 
-Generate a planner assignment recommendation:
+Generate a dosimetrist assignment recommendation:
 
 ```bash
 dotnet run --project src/BeamKit.Cli -- assignment recommend \
+  --roster samples/staff-roster-synthetic.json \
   --disease-site "Head and Neck" \
+  --physician "Dr Smith" \
   --required-skill VMAT \
+  --role Dosimetrist \
   --complexity 4 \
   --priority 4
+```
+
+Generate a dosimetrist and physicist staffing recommendation:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- assignment recommend-team \
+  --roster samples/staff-roster-synthetic.json \
+  --disease-site Lung \
+  --physician "Dr Smith" \
+  --required-skill VMAT \
+  --required-skill SBRT \
+  --complexity 4 \
+  --priority 4
+```
+
+Predict case complexity and plan QA risk:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- intelligence case \
+  --case lung-sbrt-pass \
+  --priority 4 \
+  --due-date 2026-07-12 \
+  --format markdown
 ```
 
 Start the self-hosted BeamKit CI server:
@@ -486,7 +556,7 @@ Exit codes:
 | ---: | --- |
 | `0` | Command completed and no blocking gate failed. |
 | `1` | Invalid command line input or output error. |
-| `2` | Clinical, workflow, naming, QA, plan-check, metric, deliverability, policy, CI, or write-up consistency gate did not pass. |
+| `2` | Clinical, workflow, naming, QA, plan-check, metric, deliverability, policy, CI, critical predictive QA risk, or write-up consistency gate did not pass. |
 
 Every CLI run prints a research-use disclaimer to `stderr`.
 
@@ -606,17 +676,21 @@ See [docs/writeup-release.md](docs/writeup-release.md).
 BeamKit rule packs are intended to be reviewed like software:
 
 - Policy files are versioned as JSON catalogs and manifests.
+- `rule-pack new` creates disease-site starter packs for head-and-neck, lung SBRT, prostate, brain SRS, breast, and palliative workflows.
+- `rule-pack doctor` checks missing references, incomplete approval metadata, stale review dates, and policy validation errors.
+- `rule-pack import-reminders` converts structured monthly reminder notes into executable plan-check catalog entries.
+- `rule-pack diff` and `rule-pack changelog` show reviewable field-level policy changes before promotion.
 - `rule-pack validate` catches missing metadata and duplicate IDs before promotion.
 - `rule-pack test` runs curated or synthetic cases against expected pass/fail outcomes.
 - `ci run` emits a single record containing policy validation, plan check results, and provenance fingerprints.
 - Fingerprints make it possible to prove which plan, prescription, and rule pack produced a report.
 - The CI server can promote a run as a baseline and compare later runs against it using both exact fingerprints and field-level plan changes when snapshots are available.
 - The CI server can protect plan-gate APIs with API keys, record audit events, enforce upload-size limits, and run registered rule packs by stable id.
-- Managed rule-pack versions can be imported, validated, regression-tested, promoted active, and audited before they drive plan gates.
+- Managed rule-pack versions can be draft-reviewed, diffed, imported, validated, regression-tested, promoted active, and audited before they drive plan gates.
 
 This is the open-source foundation for treating radiation plans like reproducible clinical build artifacts: every rule change can be reviewed, tested, and traced.
 
-See [docs/beamkit-check.md](docs/beamkit-check.md), [docs/ci-server.md](docs/ci-server.md), and [src/BeamKit.Sdk/README.md](src/BeamKit.Sdk/README.md).
+See [docs/beamkit-check.md](docs/beamkit-check.md), [docs/rule-pack-authoring.md](docs/rule-pack-authoring.md), [docs/ci-server.md](docs/ci-server.md), and [src/BeamKit.Sdk/README.md](src/BeamKit.Sdk/README.md).
 
 ## DICOM and DVH
 
@@ -665,12 +739,15 @@ See [docs/esapi.md](docs/esapi.md).
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | Clinical safety | [docs/clinical-safety.md](docs/clinical-safety.md) |
 | BeamKit Check | [docs/beamkit-check.md](docs/beamkit-check.md) |
+| Rule-pack authoring | [docs/rule-pack-authoring.md](docs/rule-pack-authoring.md) |
+| Sample rule packs | [samples/rule-packs/README.md](samples/rule-packs/README.md) |
 | CI server | [docs/ci-server.md](docs/ci-server.md) |
 | Rules | [docs/rules.md](docs/rules.md) |
 | Clinical goal templates | [docs/clinical-goal-templates.md](docs/clinical-goal-templates.md) |
 | Clinical rule catalog | [docs/rule-catalog.md](docs/rule-catalog.md) |
 | Plan checks | [docs/plan-check.md](docs/plan-check.md) |
 | Plan-quality metrics | [docs/metrics.md](docs/metrics.md) |
+| Predictive intelligence | [src/BeamKit.Intelligence/README.md](src/BeamKit.Intelligence/README.md) |
 | Deliverability checks | [docs/deliverability.md](docs/deliverability.md) |
 | Dose calculations | [docs/dose-calculations.md](docs/dose-calculations.md) |
 | Structure ring recipes | [docs/structure-rings.md](docs/structure-rings.md) |
@@ -725,6 +802,7 @@ src/
   BeamKit.Reporting/
   BeamKit.Workflow/
   BeamKit.Release/
+  BeamKit.RulePacks/
   BeamKit.Sdk/
   BeamKit.CiServer/
   BeamKit.Samples/
@@ -742,7 +820,7 @@ Near-term:
 - Fuller TG-263 dictionary coverage.
 - More report snapshots and schema validation tests.
 - More configurable plan-check types based on real dosimetry and physics reminder lists.
-- More rule-pack examples and disease-site-specific synthetic clinical cases.
+- More disease-site-specific synthetic clinical cases, especially failing, warning, breast, and palliative examples.
 - Managed rule-pack dependency bundling so imported policy versions no longer rely on external catalog file paths.
 - More DICOM RTPLAN/RTDOSE metadata coverage for physics QA checks.
 - Expand machine profiles for institutional beam models, algorithms, energies, and delivery-technique policies.

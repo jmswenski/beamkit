@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\BeamKit.Deliverability\BeamKit.Deliverability.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Dicom\BeamKit.Dicom.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Esapi\BeamKit.Esapi.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Intelligence\BeamKit.Intelligence.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Metrics\BeamKit.Metrics.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Naming\BeamKit.Naming.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />

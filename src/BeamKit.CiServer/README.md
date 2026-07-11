@@ -12,14 +12,15 @@ This first slice supports:
 - Upload-size limits for plan snapshot intake.
 - Audit events for protected CI actions.
 - Built-in and configured rule-pack registry entries.
-- Managed rule-pack version import, regression evidence, and active-version promotion.
+- Managed rule-pack version import from manifests or immutable bundles, regression evidence, and active-version promotion.
+- Draft rule-pack review and managed-version diff reports.
 - CI run records with plan, prescription, and rule-pack provenance fingerprints.
 - SQLite-backed run metadata and artifact persistence.
 - Run history filters for status, case id, branch, and date ranges.
 - Exact artifact JSON download.
 - Internal BeamKit plan snapshot retention for field-level baseline comparison.
 - Baseline promotion with fingerprint and plan-change comparison for later runs.
-- Assignment recommendations from workflow inputs.
+- Single-role and dosimetrist/physicist team assignment recommendations from workflow inputs and optional staff rosters.
 - A compact local dashboard.
 
 ## Run
@@ -56,6 +57,7 @@ GET /api/rule-packs/versions
 GET /api/rule-packs/{id}
 GET /api/rule-packs/{id}/versions
 GET /api/rule-packs/{id}/versions/{versionId}
+GET /api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}
 GET /api/audit-events
 POST /api/runs
 POST /api/runs/{id}/baseline
@@ -68,7 +70,9 @@ POST /api/rule-packs/{id}/test
 POST /api/rule-packs/{id}/versions/{versionId}/validate
 POST /api/rule-packs/{id}/versions/{versionId}/test
 POST /api/rule-packs/{id}/versions/{versionId}/promote
+POST /api/rule-packs/{id}/review-draft
 POST /api/assignments/recommend
+POST /api/assignments/recommend-team
 ```
 
 Examples assume:
@@ -171,7 +175,16 @@ Recommend an assignment:
 curl -s "$API/api/assignments/recommend" \
   -H 'content-type: application/json' \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
-  -d '{"diseaseSite":"Head and Neck","requiredSkills":["VMAT"],"complexityScore":4,"priority":4}'
+  -d '{"diseaseSite":"Head and Neck","requiredSkills":["VMAT"],"complexityScore":4,"priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
+```
+
+Recommend a dosimetrist and physicist team:
+
+```bash
+curl -s "$API/api/assignments/recommend-team" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"diseaseSite":"Lung","requiredSkills":["VMAT","SBRT"],"physician":"Dr Smith","complexityScore":4,"priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
 ```
 
 Review audit events:
@@ -222,7 +235,33 @@ curl -s "$API/api/rule-packs/institution-head-neck/versions/{versionId}/promote"
   -d '{"promotedBy":"physics","note":"Approved policy version."}'
 ```
 
-Managed versions store the manifest, validation report, latest test report, active marker, and imported fingerprint. Referenced catalog files are reloaded from the import base directory and fingerprint-checked so dependency drift blocks use instead of silently changing active policy.
+Managed imports can also use immutable bundle JSON or a server-local `bundlePath`. Bundles embed manifest-referenced policy files, file hashes, validation evidence, optional regression evidence, and a bundle fingerprint.
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack bundle \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json \
+  --case head-neck-pass \
+  --output artifacts/head-neck-v1.beamkit-rulepack.json
+
+curl -s "$API/api/rule-packs/import" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"rulePackId":"institution-head-neck","bundlePath":"artifacts/head-neck-v1.beamkit-rulepack.json","importedBy":"physics"}'
+```
+
+Managed versions store immutable bundle JSON, the manifest, validation report, latest test report, active marker, and imported fingerprint. Active managed versions load from embedded bundle files instead of mutable source paths, so later edits to source catalogs do not silently change active policy.
+
+Review a draft without importing it, then compare managed versions:
+
+```bash
+curl -s "$API/api/rule-packs/institution-head-neck/review-draft" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"manifestPath":"samples/rule-packs/head-neck-v1/beamkit-rule-pack.json","syntheticCaseId":"head-neck-pass","importedBy":"physics"}'
+
+curl -s "$API/api/rule-packs/institution-head-neck/versions/{oldVersionId}/diff/{newVersionId}" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+```
 
 ## Storage
 

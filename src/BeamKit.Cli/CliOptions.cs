@@ -23,6 +23,12 @@ internal sealed record CliOptions
 
     public string? RulePackPath { get; init; }
 
+    public string? RulePackBundlePath { get; init; }
+
+    public string? ComparisonRulePackPath { get; init; }
+
+    public string? ReminderPath { get; init; }
+
     public string? TemplatePath { get; init; }
 
     public string? RuleCatalogPath { get; init; }
@@ -32,6 +38,8 @@ internal sealed record CliOptions
     public string? MachineProfilePath { get; init; }
 
     public string? NamingDictionaryPath { get; init; }
+
+    public string? StaffRosterPath { get; init; }
 
     public string? MetricExpression { get; init; }
 
@@ -45,11 +53,31 @@ internal sealed record CliOptions
 
     public string? Physician { get; init; }
 
+    public string? Name { get; init; }
+
+    public string? Version { get; init; }
+
+    public string? Owner { get; init; }
+
+    public string? Description { get; init; }
+
+    public string? CheckId { get; init; }
+
+    public string? CheckTitle { get; init; }
+
+    public string? CheckType { get; init; }
+
+    public string? CheckSeverity { get; init; }
+
+    public string? CheckReference { get; init; }
+
     public string? Branch { get; init; }
 
     public string? Commit { get; init; }
 
     public string? BuildId { get; init; }
+
+    public string? CreatedBy { get; init; }
 
     public decimal? TotalDoseGy { get; init; }
 
@@ -79,11 +107,15 @@ internal sealed record CliOptions
 
     public IReadOnlyList<string> RequiredSkills { get; init; } = Array.Empty<string>();
 
+    public IReadOnlyList<string> AssignmentRoles { get; init; } = Array.Empty<string>();
+
     public IReadOnlyList<string> ExportRecords { get; init; } = Array.Empty<string>();
 
     public IReadOnlyList<string> DocumentRecords { get; init; } = Array.Empty<string>();
 
     public IReadOnlyList<string> Attestations { get; init; } = Array.Empty<string>();
+
+    public IReadOnlyList<string> CheckParameters { get; init; } = Array.Empty<string>();
 
     public bool CtImported { get; init; }
 
@@ -97,6 +129,8 @@ internal sealed record CliOptions
 
     public bool CaptureWriteUp { get; init; }
 
+    public bool Overwrite { get; init; }
+
     public bool ShowHelp { get; init; }
 
     public static CliOptions Parse(IReadOnlyList<string> args)
@@ -106,9 +140,11 @@ internal sealed record CliOptions
         var ringDefinitions = new List<string>();
         var tags = new List<string>();
         var requiredSkills = new List<string>();
+        var assignmentRoles = new List<string>();
         var exportRecords = new List<string>();
         var documentRecords = new List<string>();
         var attestations = new List<string>();
+        var checkParameters = new List<string>();
         var index = 0;
 
         if (args.Count > 0 && !args[0].StartsWith("--", StringComparison.Ordinal))
@@ -146,6 +182,13 @@ internal sealed record CliOptions
                 && !args[1].StartsWith("--", StringComparison.Ordinal))
             {
                 options = options with { Command = $"assignment-{args[1]}" };
+                index = 2;
+            }
+            else if (string.Equals(args[0], "intelligence", StringComparison.OrdinalIgnoreCase)
+                && args.Count > 1
+                && !args[1].StartsWith("--", StringComparison.Ordinal))
+            {
+                options = options with { Command = $"intelligence-{args[1]}" };
                 index = 2;
             }
             else
@@ -199,6 +242,25 @@ internal sealed record CliOptions
                     options = options with { RulePackPath = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
+                case "--bundle":
+                case "--rule-pack-bundle":
+                    options = options with { RulePackBundlePath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--compare-rule-pack":
+                case "--new-rule-pack":
+                    options = options with { ComparisonRulePackPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--old-rule-pack":
+                    options = options with { RulePackPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--reminders":
+                case "--reminder":
+                    options = options with { ReminderPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
                 case "--template":
                     options = options with { TemplatePath = ReadRequiredValue(args, ++index, arg) };
                     index++;
@@ -215,6 +277,11 @@ internal sealed record CliOptions
                     break;
                 case "--machine-profile":
                     options = options with { MachineProfilePath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--roster":
+                case "--staff-roster":
+                    options = options with { StaffRosterPath = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
                 case "--metric":
@@ -251,6 +318,43 @@ internal sealed record CliOptions
                     options = options with { Physician = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
+                case "--name":
+                    options = options with { Name = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--version":
+                    options = options with { Version = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--owner":
+                    options = options with { Owner = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--description":
+                    options = options with { Description = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--id":
+                case "--check-id":
+                    options = options with { CheckId = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--title":
+                    options = options with { CheckTitle = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--type":
+                    options = options with { CheckType = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--severity":
+                    options = options with { CheckSeverity = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--reference":
+                    options = options with { CheckReference = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
                 case "--branch":
                     options = options with { Branch = ReadRequiredValue(args, ++index, arg) };
                     index++;
@@ -263,12 +367,22 @@ internal sealed record CliOptions
                     options = options with { BuildId = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
+                case "--created-by":
+                    options = options with { CreatedBy = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
                 case "--tag":
                     tags.Add(ReadRequiredValue(args, ++index, arg));
                     index++;
                     break;
                 case "--required-skill":
                     requiredSkills.Add(ReadRequiredValue(args, ++index, arg));
+                    index++;
+                    break;
+                case "--role":
+                case "--required-role":
+                case "--staff-role":
+                    assignmentRoles.Add(ReadRequiredValue(args, ++index, arg));
                     index++;
                     break;
                 case "--export":
@@ -281,6 +395,11 @@ internal sealed record CliOptions
                     break;
                 case "--attest":
                     attestations.Add(ReadRequiredValue(args, ++index, arg));
+                    index++;
+                    break;
+                case "--parameter":
+                case "--param":
+                    checkParameters.Add(ReadRequiredValue(args, ++index, arg));
                     index++;
                     break;
                 case "--ct-imported":
@@ -306,6 +425,10 @@ internal sealed record CliOptions
                 case "--capture-writeup":
                 case "--capture-write-up":
                     options = options with { CaptureWriteUp = true };
+                    index++;
+                    break;
+                case "--overwrite":
+                    options = options with { Overwrite = true };
                     index++;
                     break;
                 case "--structure":
@@ -367,9 +490,11 @@ internal sealed record CliOptions
             RingDefinitions = ringDefinitions.ToArray(),
             Tags = tags.ToArray(),
             RequiredSkills = requiredSkills.ToArray(),
+            AssignmentRoles = assignmentRoles.ToArray(),
             ExportRecords = exportRecords.ToArray(),
             DocumentRecords = documentRecords.ToArray(),
-            Attestations = attestations.ToArray()
+            Attestations = attestations.ToArray(),
+            CheckParameters = checkParameters.ToArray()
         };
     }
 

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://beamkit.dev/schemas/beamkit-rule-pack.schema.json",
+  "name": "Brain SRS clinical rule pack",
+  "version": "2026.1",
+  "owner": "BeamKit",
+  "description": "Starter BeamKit rule pack for Brain SRS plan review.",
+  "diseaseSite": "Brain SRS",
+  "tags": [
+    "brain-srs",
+    "production-template",
+    "starter"
+  ],
+  "clinicalRuleCatalog": "clinical-rules.json",
+  "planCheckCatalog": "plan-checks.json",
+  "namingDictionary": "naming-dictionary.json",
+  "machineProfile": "machine-profile.json",
+  "clinicalRuleQuery": {
+    "diseaseSite": "Brain SRS",
+    "institution": "Synthetic",
+    "tags": [
+      "baseline"
+    ]
+  },
+  "readinessDefaults": {
+    "ctImported": true,
+    "optimizationFinished": true,
+    "physicsQaComplete": false,
+    "physicianApprovalComplete": false,
+    "treatmentReady": false
+  },
+  "approval": {
+    "status": "Draft",
+    "institution": "Synthetic",
+    "physicianGroup": "Brain SRS",
+    "reference": "Initial starter scaffold",
+    "rationale": "Starter policy that must be reviewed and approved before clinical use.",
+    "changeTicket": "local-draft"
+  }
+}

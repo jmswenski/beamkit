@@ -150,6 +150,14 @@ app.MapGet("/api/rule-packs/{id}/versions/{versionId}", (string id, string versi
     var version = service.FindManagedRulePackVersion(id, versionId);
     return version is null ? Results.NotFound() : Results.Ok(version);
 });
+app.MapGet("/api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}", (string id, string oldVersionId, string newVersionId, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.CompareManagedRulePackVersions(id, oldVersionId, newVersionId, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/rule-packs/{id}/review-draft", (string id, RulePackImportServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ReviewRulePackDraft(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
 app.MapPost("/api/rule-packs/{id}/versions/{versionId}/validate", (string id, string versionId, HttpContext context, BeamKitCiServerService service) =>
 {
     return Results.Ok(service.ValidateManagedRulePackVersion(id, versionId, CiServerAuditContext.FromHttpContext(context)));
@@ -186,6 +194,10 @@ app.MapPost("/api/rule-packs/{id}/test", (string id, RulePackTestServerRequest r
 app.MapPost("/api/assignments/recommend", (AssignmentServerRequest request, HttpContext context, BeamKitCiServerService service) =>
 {
     return Results.Ok(service.RecommendAssignment(request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/assignments/recommend-team", (AssignmentServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.RecommendStaffing(request, CiServerAuditContext.FromHttpContext(context)));
 });
 app.MapGet("/api/audit-events", (
     BeamKitCiServerService service,
