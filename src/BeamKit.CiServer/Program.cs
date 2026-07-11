@@ -132,6 +132,36 @@ app.MapGet("/api/baselines/{caseId}", (string caseId, BeamKitCiServerService ser
     return baseline is null ? Results.NotFound() : Results.Ok(baseline);
 });
 app.MapGet("/api/rule-packs", (BeamKitCiServerService service) => Results.Ok(service.ListRulePacks()));
+app.MapGet("/api/rule-packs/versions", (BeamKitCiServerService service, string? rulePackId) =>
+{
+    return Results.Ok(service.ListManagedRulePackVersions(rulePackId));
+});
+app.MapPost("/api/rule-packs/import", (RulePackImportServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    var result = service.ImportRulePack(request, CiServerAuditContext.FromHttpContext(context));
+    return Results.Created($"/api/rule-packs/{result.Version.RulePackId}/versions/{result.Version.VersionId}", result);
+});
+app.MapGet("/api/rule-packs/{id}/versions", (string id, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ListManagedRulePackVersions(id));
+});
+app.MapGet("/api/rule-packs/{id}/versions/{versionId}", (string id, string versionId, BeamKitCiServerService service) =>
+{
+    var version = service.FindManagedRulePackVersion(id, versionId);
+    return version is null ? Results.NotFound() : Results.Ok(version);
+});
+app.MapPost("/api/rule-packs/{id}/versions/{versionId}/validate", (string id, string versionId, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ValidateManagedRulePackVersion(id, versionId, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/rule-packs/{id}/versions/{versionId}/test", (string id, string versionId, RulePackVersionTestServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.TestManagedRulePackVersion(id, versionId, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/rule-packs/{id}/versions/{versionId}/promote", (string id, string versionId, RulePackPromotionServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.PromoteManagedRulePackVersion(id, versionId, request, CiServerAuditContext.FromHttpContext(context)));
+});
 app.MapGet("/api/rule-packs/{id}", (string id, BeamKitCiServerService service) =>
 {
     var rulePack = service.FindRulePack(id);

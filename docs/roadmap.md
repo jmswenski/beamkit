@@ -27,6 +27,7 @@
 - CI-server baseline promotion with fingerprint and plan-change comparison for later runs.
 - CI-server plan-snapshot retention for field-level baseline diffs.
 - CI-server API-key protection, upload-size limits, audit events, and registered rule-pack endpoints.
+- CI-server managed rule-pack version import, regression evidence, active-version promotion, and audit history.
 - High-level SDK facade for embedded automation.
 - Initial planner assignment recommendation engine.
 
@@ -70,7 +71,7 @@
 - Notifications.
 - Write-up packet templates and adapter-backed export verification.
 - Future: persisted queues, external workload connectors, assignment dashboards, peer-review worklists, and notification providers.
-- Future: CI-server role-based access control, identity-provider integration, formal artifact retention, PHI handling guidance, and deployment hardening.
+- Future: CI-server role-based access control, identity-provider integration, bundled rule-pack dependency snapshots, formal artifact retention, PHI handling guidance, and deployment hardening.
 
 ## Milestone 6: ESAPI
 

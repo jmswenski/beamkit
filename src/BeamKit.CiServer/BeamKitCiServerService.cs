@@ -60,7 +60,7 @@ public sealed class BeamKitCiServerService
 
         var caseId = CiServerText.Optional(request.SyntheticCaseId) ?? "head-neck-pass";
         var clinicalCase = SyntheticClinicalCaseLibrary.Find(caseId);
-        var rulePack = rulePacks.Load(request.RulePackId, request.RulePackPath);
+        var rulePack = LoadRulePack(request.RulePackId, request.RulePackPath);
         return CreateRunForPlan(
             clinicalCase.Plan,
             rulePack,
@@ -83,7 +83,7 @@ public sealed class BeamKitCiServerService
         var uploaded = LoadUploadedPlan(request);
         var record = CreateRunForPlan(
             uploaded.Plan,
-            rulePacks.Load(request.RulePackId, request.RulePackPath),
+            LoadRulePack(request.RulePackId, request.RulePackPath),
             caseId: uploaded.Plan.Id,
             uploaded.InputKind,
             CiServerText.Optional(request.InputSource) ?? uploaded.DefaultInputSource,
@@ -248,7 +248,7 @@ public sealed class BeamKitCiServerService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var report = client.ValidateRulePack(rulePacks.Load(request.RulePackId, request.RulePackPath));
+        var report = client.ValidateRulePack(LoadRulePack(request.RulePackId, request.RulePackPath));
         Audit("rule-pack.validated", auditContext, status: report.IsValid ? "Valid" : "Invalid", details: report.Fingerprint);
         return report;
     }
@@ -260,7 +260,7 @@ public sealed class BeamKitCiServerService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var report = client.TestRulePack(rulePacks.Load(request.RulePackId, request.RulePackPath), LoadRulePackTestCases(request.SyntheticCaseId));
+        var report = client.TestRulePack(LoadRulePack(request.RulePackId, request.RulePackPath), LoadRulePackTestCases(request.SyntheticCaseId));
         Audit("rule-pack.tested", auditContext, status: report.Passed ? "Passed" : "Failed", details: report.RulePackVersion);
         return report;
     }
@@ -303,7 +303,13 @@ public sealed class BeamKitCiServerService
     /// </summary>
     public IReadOnlyList<CiServerRulePackSummary> ListRulePacks()
     {
-        return rulePacks.List();
+        return rulePacks.List()
+            .Concat(store.ListRulePackVersions()
+                .Where(version => version.IsActive)
+                .Select(CreateManagedRulePackSummary))
+            .OrderBy(summary => summary.Id, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(summary => summary.SourceKind, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     /// <summary>
@@ -311,6 +317,12 @@ public sealed class BeamKitCiServerService
     /// </summary>
     public CiServerRulePackDetail? FindRulePack(string id)
     {
+        var managed = store.FindActiveRulePackVersion(id);
+        if (managed is not null)
+        {
+            return CreateManagedRulePackDetail(managed);
+        }
+
         return rulePacks.Find(id);
     }
 
@@ -319,7 +331,7 @@ public sealed class BeamKitCiServerService
     /// </summary>
     public RulePackValidationReport ValidateRulePack(string id, CiServerAuditContext? auditContext = null)
     {
-        var report = client.ValidateRulePack(rulePacks.Load(id));
+        var report = client.ValidateRulePack(LoadRulePack(id));
         Audit("rule-pack.validated", auditContext, status: report.IsValid ? "Valid" : "Invalid", details: $"{id}:{report.Fingerprint}");
         return report;
     }
@@ -331,9 +343,167 @@ public sealed class BeamKitCiServerService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        var report = client.TestRulePack(rulePacks.Load(id), LoadRulePackTestCases(request.SyntheticCaseId));
+        var report = client.TestRulePack(LoadRulePack(id), LoadRulePackTestCases(request.SyntheticCaseId));
         Audit("rule-pack.tested", auditContext, status: report.Passed ? "Passed" : "Failed", details: $"{id}:{report.RulePackVersion}");
         return report;
+    }
+
+    /// <summary>
+    /// Imports a managed rule-pack version into CI-server storage.
+    /// </summary>
+    public CiServerRulePackImportResult ImportRulePack(RulePackImportServerRequest request, CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var rulePackId = NormalizeManagedRulePackId(request.RulePackId);
+        var source = LoadRulePackImportSource(request);
+        var rulePack = BeamKitRulePackLoader.FromJson(source.ManifestJson, source.BaseDirectory);
+        var validation = client.ValidateRulePack(rulePack);
+        var testReport = request.RunRegressionTests
+            ? client.TestRulePack(rulePack, LoadRulePackTestCases(request.SyntheticCaseId))
+            : null;
+        var importedBy = CiServerText.Optional(request.ImportedBy) ?? auditContext?.Actor;
+        var version = new CiServerManagedRulePackVersion(
+            rulePackId,
+            CreateRulePackVersionId(validation.Fingerprint),
+            timeProvider.GetUtcNow(),
+            importedBy,
+            source.SourceKind,
+            source.Source,
+            source.BaseDirectory,
+            source.ManifestJson,
+            rulePack.Name,
+            rulePack.Version,
+            rulePack.Owner,
+            rulePack.Description,
+            rulePack.DiseaseSite,
+            rulePack.Tags,
+            validation.Fingerprint,
+            validation,
+            testReport);
+        var saved = store.SaveRulePackVersion(version);
+        Audit(
+            "rule-pack.imported",
+            auditContext,
+            caseId: saved.RulePackId,
+            status: validation.IsValid ? "Valid" : "Invalid",
+            details: $"{saved.VersionId}:{saved.Fingerprint}");
+
+        var activated = false;
+        if (request.Promote)
+        {
+            saved = PromoteManagedRulePackVersion(
+                saved.RulePackId,
+                saved.VersionId,
+                new RulePackPromotionServerRequest { PromotedBy = importedBy, Note = request.Note },
+                auditContext);
+            activated = true;
+        }
+
+        return new CiServerRulePackImportResult(saved.ToSummary(), validation, testReport, activated);
+    }
+
+    /// <summary>
+    /// Lists managed rule-pack versions.
+    /// </summary>
+    public IReadOnlyList<CiServerManagedRulePackVersionSummary> ListManagedRulePackVersions(string? rulePackId = null)
+    {
+        return store.ListRulePackVersions(rulePackId);
+    }
+
+    /// <summary>
+    /// Finds one managed rule-pack version.
+    /// </summary>
+    public CiServerManagedRulePackVersionDetail? FindManagedRulePackVersion(string rulePackId, string versionId)
+    {
+        var version = store.FindRulePackVersion(rulePackId, versionId);
+        return version is null ? null : new CiServerManagedRulePackVersionDetail(version);
+    }
+
+    /// <summary>
+    /// Revalidates a managed rule-pack version.
+    /// </summary>
+    public RulePackValidationReport ValidateManagedRulePackVersion(string rulePackId, string versionId, CiServerAuditContext? auditContext = null)
+    {
+        var version = FindRequiredManagedRulePackVersion(rulePackId, versionId);
+        var rulePack = LoadManagedRulePack(version);
+        var report = client.ValidateRulePack(rulePack);
+        var saved = store.SaveRulePackVersion(version with { ValidationReport = report });
+        Audit(
+            "rule-pack.version.validated",
+            auditContext,
+            caseId: saved.RulePackId,
+            status: report.IsValid ? "Valid" : "Invalid",
+            details: $"{saved.VersionId}:{report.Fingerprint}");
+        return report;
+    }
+
+    /// <summary>
+    /// Runs regression tests for a managed rule-pack version and stores the report.
+    /// </summary>
+    public RulePackTestReport TestManagedRulePackVersion(
+        string rulePackId,
+        string versionId,
+        RulePackVersionTestServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var version = FindRequiredManagedRulePackVersion(rulePackId, versionId);
+        var rulePack = LoadManagedRulePack(version);
+        var report = client.TestRulePack(rulePack, LoadRulePackTestCases(request.SyntheticCaseId));
+        var saved = store.SaveRulePackVersion(version with { TestReport = report });
+        Audit(
+            "rule-pack.version.tested",
+            auditContext,
+            caseId: saved.RulePackId,
+            status: report.Passed ? "Passed" : "Failed",
+            details: $"{saved.VersionId}:{report.PassedCount}/{report.Results.Count}");
+        return report;
+    }
+
+    /// <summary>
+    /// Promotes a managed rule-pack version as active.
+    /// </summary>
+    public CiServerManagedRulePackVersion PromoteManagedRulePackVersion(
+        string rulePackId,
+        string versionId,
+        RulePackPromotionServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var version = FindRequiredManagedRulePackVersion(rulePackId, versionId);
+        if (!version.ValidationReport.IsValid)
+        {
+            throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' cannot be promoted because validation has {version.ValidationReport.ErrorCount} error(s).");
+        }
+
+        if (version.TestReport is null)
+        {
+            throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' cannot be promoted before regression tests pass.");
+        }
+
+        if (!version.TestReport.Passed)
+        {
+            throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' cannot be promoted because {version.TestReport.FailedCount} regression test(s) failed.");
+        }
+
+        LoadManagedRulePack(version);
+        var promotedBy = CiServerText.Optional(request.PromotedBy) ?? auditContext?.Actor;
+        var promoted = store.PromoteRulePackVersion(
+            version.RulePackId,
+            version.VersionId,
+            timeProvider.GetUtcNow(),
+            promotedBy,
+            request.Note);
+        Audit(
+            "rule-pack.version.promoted",
+            auditContext,
+            caseId: promoted.RulePackId,
+            status: "Active",
+            details: $"{promoted.VersionId}:{promoted.Fingerprint}");
+        return promoted;
     }
 
     /// <summary>
@@ -351,6 +521,122 @@ public sealed class BeamKitCiServerService
     public IReadOnlyList<CiServerAuditEvent> ListAuditEvents(CiServerAuditQuery query)
     {
         return store.ListAuditEvents(query);
+    }
+
+    private BeamKitRulePack LoadRulePack(string? rulePackId = null, string? rulePackPath = null)
+    {
+        if (!string.IsNullOrWhiteSpace(rulePackPath))
+        {
+            return rulePacks.Load(rulePackPath: rulePackPath);
+        }
+
+        if (!string.IsNullOrWhiteSpace(rulePackId))
+        {
+            var managed = store.FindActiveRulePackVersion(rulePackId);
+            if (managed is not null)
+            {
+                return LoadManagedRulePack(managed);
+            }
+        }
+
+        return rulePacks.Load(rulePackId);
+    }
+
+    private static BeamKitRulePack LoadManagedRulePack(CiServerManagedRulePackVersion version)
+    {
+        var rulePack = BeamKitRulePackLoader.FromJson(version.ManifestJson, version.BaseDirectory);
+        var currentFingerprint = RulePackFingerprint.Compute(rulePack);
+        if (!string.Equals(currentFingerprint, version.Fingerprint, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Managed rule pack version '{version.RulePackId}/{version.VersionId}' no longer matches its imported fingerprint. Expected {version.Fingerprint}; loaded {currentFingerprint}.");
+        }
+
+        return rulePack;
+    }
+
+    private CiServerManagedRulePackVersion FindRequiredManagedRulePackVersion(string rulePackId, string versionId)
+    {
+        return store.FindRulePackVersion(rulePackId, versionId)
+            ?? throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' was not found.");
+    }
+
+    private static CiServerRulePackSummary CreateManagedRulePackSummary(CiServerManagedRulePackVersionSummary version)
+    {
+        return new CiServerRulePackSummary(
+            version.RulePackId,
+            "Managed",
+            $"ci-store:{version.VersionId}",
+            version.Name,
+            version.Version,
+            version.Owner,
+            version.Description,
+            version.DiseaseSite,
+            version.Tags,
+            version.Fingerprint,
+            isLoadable: true,
+            version.IsValid,
+            version.ValidationErrorCount,
+            version.ValidationWarningCount);
+    }
+
+    private static CiServerRulePackDetail CreateManagedRulePackDetail(CiServerManagedRulePackVersion version)
+    {
+        return new CiServerRulePackDetail(CreateManagedRulePackSummary(version.ToSummary()), version.ValidationReport);
+    }
+
+    private static string NormalizeManagedRulePackId(string? value)
+    {
+        var rulePackId = CiServerText.Required(value, nameof(value));
+        if (CiServerRulePackRegistry.IsBuiltInRulePackId(rulePackId))
+        {
+            throw new ArgumentException($"Rule-pack id '{rulePackId}' is reserved.", nameof(value));
+        }
+
+        if (rulePackId.Any(character => !char.IsLetterOrDigit(character) && character is not '-' and not '_' and not '.'))
+        {
+            throw new ArgumentException("Rule-pack id may only contain letters, numbers, dashes, underscores, and periods.", nameof(value));
+        }
+
+        return rulePackId;
+    }
+
+    private static RulePackImportSource LoadRulePackImportSource(RulePackImportServerRequest request)
+    {
+        var manifestJson = GetJson(request.Manifest, request.ManifestJson);
+        if (!string.IsNullOrWhiteSpace(request.ManifestPath))
+        {
+            if (!string.IsNullOrWhiteSpace(manifestJson))
+            {
+                throw new ArgumentException("Use either 'manifestPath' or inline 'manifest'/'manifestJson', not both.", nameof(request));
+            }
+
+            var fullPath = Path.GetFullPath(request.ManifestPath);
+            return new RulePackImportSource(
+                File.ReadAllText(fullPath),
+                Path.GetDirectoryName(fullPath) ?? Directory.GetCurrentDirectory(),
+                "File",
+                fullPath);
+        }
+
+        if (string.IsNullOrWhiteSpace(manifestJson))
+        {
+            throw new ArgumentException("Rule-pack import requires 'manifestPath', 'manifest', or 'manifestJson'.", nameof(request));
+        }
+
+        return new RulePackImportSource(
+            manifestJson,
+            Path.GetFullPath(CiServerText.Optional(request.BaseDirectory) ?? Directory.GetCurrentDirectory()),
+            "InlineJson",
+            CiServerText.Optional(request.Source) ?? "inline-json");
+    }
+
+    private string CreateRulePackVersionId(string fingerprint)
+    {
+        var fingerprintSuffix = fingerprint.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
+            ? fingerprint["sha256:".Length..Math.Min(fingerprint.Length, "sha256:".Length + 12)]
+            : fingerprint[..Math.Min(fingerprint.Length, 12)];
+        return $"rpv-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{fingerprintSuffix}-{Guid.NewGuid():N}"[..59];
     }
 
     private void Audit(
@@ -506,6 +792,8 @@ public sealed class BeamKitCiServerService
     }
 
     private sealed record UploadedPlan(Plan Plan, CiRunInputKind InputKind, string DefaultInputSource);
+
+    private sealed record RulePackImportSource(string ManifestJson, string BaseDirectory, string SourceKind, string Source);
 
     private static IReadOnlyList<PlannerProfile> CreateSyntheticPlannerProfiles(DateOnly assignmentDate)
     {

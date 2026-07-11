@@ -11,6 +11,7 @@ public sealed class CiRunStore : ICiRunStore
     private readonly ConcurrentDictionary<string, HostedCiRunRecord> records = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiRunBaseline> baselines = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerAuditEvent> auditEvents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CiServerManagedRulePackVersion> rulePackVersions = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Adds or replaces a run record.
@@ -115,6 +116,95 @@ public sealed class CiRunStore : ICiRunStore
     }
 
     /// <summary>
+    /// Adds or replaces a managed rule-pack version.
+    /// </summary>
+    public CiServerManagedRulePackVersion SaveRulePackVersion(CiServerManagedRulePackVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        rulePackVersions[CreateRulePackVersionKey(version.RulePackId, version.VersionId)] = version;
+        return version;
+    }
+
+    /// <summary>
+    /// Finds a managed rule-pack version.
+    /// </summary>
+    public CiServerManagedRulePackVersion? FindRulePackVersion(string rulePackId, string versionId)
+    {
+        return string.IsNullOrWhiteSpace(rulePackId) || string.IsNullOrWhiteSpace(versionId)
+            ? null
+            : rulePackVersions.GetValueOrDefault(CreateRulePackVersionKey(rulePackId, versionId));
+    }
+
+    /// <summary>
+    /// Finds the active managed version for a rule-pack id.
+    /// </summary>
+    public CiServerManagedRulePackVersion? FindActiveRulePackVersion(string rulePackId)
+    {
+        if (string.IsNullOrWhiteSpace(rulePackId))
+        {
+            return null;
+        }
+
+        return rulePackVersions.Values
+            .Where(version => version.IsActive)
+            .Where(version => string.Equals(version.RulePackId, rulePackId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(version => version.ActivatedAtUtc ?? version.ImportedAtUtc)
+            .ThenBy(version => version.VersionId, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Lists managed rule-pack versions.
+    /// </summary>
+    public IReadOnlyList<CiServerManagedRulePackVersionSummary> ListRulePackVersions(string? rulePackId = null)
+    {
+        return rulePackVersions.Values
+            .Where(version => string.IsNullOrWhiteSpace(rulePackId)
+                || string.Equals(version.RulePackId, rulePackId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(version => version.RulePackId, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(version => version.ImportedAtUtc)
+            .ThenBy(version => version.VersionId, StringComparer.OrdinalIgnoreCase)
+            .Select(version => version.ToSummary())
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Promotes one managed rule-pack version as active.
+    /// </summary>
+    public CiServerManagedRulePackVersion PromoteRulePackVersion(
+        string rulePackId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null)
+    {
+        var version = FindRulePackVersion(rulePackId, versionId)
+            ?? throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' was not found.");
+
+        foreach (var existing in rulePackVersions.Values.Where(existing => string.Equals(existing.RulePackId, rulePackId, StringComparison.OrdinalIgnoreCase)))
+        {
+            rulePackVersions[CreateRulePackVersionKey(existing.RulePackId, existing.VersionId)] = existing with
+            {
+                IsActive = false,
+                ActivatedAtUtc = null,
+                ActivatedBy = null,
+                ActivationNote = null
+            };
+        }
+
+        var promoted = version with
+        {
+            IsActive = true,
+            ActivatedAtUtc = activatedAtUtc,
+            ActivatedBy = CiServerText.Optional(activatedBy),
+            ActivationNote = CiServerText.Optional(note)
+        };
+        rulePackVersions[CreateRulePackVersionKey(rulePackId, versionId)] = promoted;
+        return promoted;
+    }
+
+    /// <summary>
     /// Adds an audit event.
     /// </summary>
     public CiServerAuditEvent SaveAuditEvent(CiServerAuditEvent auditEvent)
@@ -143,5 +233,10 @@ public sealed class CiRunStore : ICiRunStore
             .ThenBy(auditEvent => auditEvent.Id, StringComparer.OrdinalIgnoreCase)
             .Take(query.ClampedLimit)
             .ToArray();
+    }
+
+    private static string CreateRulePackVersionKey(string rulePackId, string versionId)
+    {
+        return $"{rulePackId.Trim()}::{versionId.Trim()}";
     }
 }

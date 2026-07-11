@@ -160,6 +160,9 @@ internal static class DashboardHtml
                   <label>Build ID
                     <input id="buildId" value="beamkit-local">
                   </label>
+                  <label>Rule pack ID
+                    <input id="rulePackId" placeholder="synthetic-head-neck">
+                  </label>
                 </div>
                 <div class="actions">
                   <button onclick="createRun()">Run</button>
@@ -253,7 +256,8 @@ internal static class DashboardHtml
                   syntheticCaseId: document.getElementById("caseId").value,
                   branch: document.getElementById("branch").value,
                   commit: document.getElementById("commit").value,
-                  buildId: document.getElementById("buildId").value
+                  buildId: document.getElementById("buildId").value,
+                  rulePackId: document.getElementById("rulePackId").value || null
                 })
               });
             }

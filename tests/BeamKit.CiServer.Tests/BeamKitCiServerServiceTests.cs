@@ -301,6 +301,102 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void ImportRulePackStoresValidationTestAndAuditHistory()
+    {
+        var store = new CiRunStore();
+        var service = CreateService(store);
+
+        var result = service.ImportRulePack(
+            new RulePackImportServerRequest
+            {
+                RulePackId = "institution-head-neck",
+                ManifestPath = SampleRulePackPath(),
+                ImportedBy = "physics"
+            },
+            new CiServerAuditContext("physics-key", "/api/rule-packs/import", "POST"));
+
+        Assert.Equal("institution-head-neck", result.Version.RulePackId);
+        Assert.True(result.Validation.IsValid);
+        Assert.True(result.TestReport?.Passed);
+        Assert.False(result.Activated);
+        var stored = Assert.Single(service.ListManagedRulePackVersions("institution-head-neck"));
+        Assert.Equal(result.Version.VersionId, stored.VersionId);
+        Assert.True(stored.TestPassed);
+        var auditEvent = Assert.Single(store.ListAuditEvents(new CiServerAuditQuery { Action = "rule-pack.imported" }));
+        Assert.Equal("physics-key", auditEvent.Actor);
+        Assert.Equal("institution-head-neck", auditEvent.CaseId);
+    }
+
+    [Fact]
+    public void PromoteManagedRulePackVersionMakesItAvailableForRuns()
+    {
+        var service = CreateService();
+        var imported = service.ImportRulePack(new RulePackImportServerRequest
+        {
+            RulePackId = "institution-head-neck",
+            ManifestPath = SampleRulePackPath()
+        });
+
+        var promoted = service.PromoteManagedRulePackVersion(
+            imported.Version.RulePackId,
+            imported.Version.VersionId,
+            new RulePackPromotionServerRequest { PromotedBy = "physics", Note = "Approved for use." });
+        var run = service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            RulePackId = "institution-head-neck"
+        });
+
+        Assert.True(promoted.IsActive);
+        Assert.Equal(promoted.Fingerprint, run.Artifact.Provenance.RulePackFingerprint);
+        Assert.Contains(service.ListRulePacks(), rulePack => rulePack.Id == "institution-head-neck" && rulePack.SourceKind == "Managed");
+        Assert.Equal("institution-head-neck", service.FindRulePack("institution-head-neck")?.Summary.Id);
+    }
+
+    [Fact]
+    public void PromoteManagedRulePackVersionRequiresRegressionTests()
+    {
+        var service = CreateService();
+        var imported = service.ImportRulePack(new RulePackImportServerRequest
+        {
+            RulePackId = "institution-head-neck",
+            ManifestPath = SampleRulePackPath(),
+            RunRegressionTests = false
+        });
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.PromoteManagedRulePackVersion(
+            imported.Version.RulePackId,
+            imported.Version.VersionId,
+            new RulePackPromotionServerRequest()));
+
+        Assert.Contains("before regression tests pass", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TestManagedRulePackVersionStoresLatestReport()
+    {
+        var service = CreateService();
+        var imported = service.ImportRulePack(new RulePackImportServerRequest
+        {
+            RulePackId = "institution-head-neck",
+            ManifestPath = SampleRulePackPath(),
+            RunRegressionTests = false
+        });
+
+        var report = service.TestManagedRulePackVersion(
+            imported.Version.RulePackId,
+            imported.Version.VersionId,
+            new RulePackVersionTestServerRequest { SyntheticCaseId = "head-neck-pass" });
+        var detail = service.FindManagedRulePackVersion(imported.Version.RulePackId, imported.Version.VersionId)
+            ?? throw new InvalidOperationException("Version detail was not stored.");
+
+        Assert.True(report.Passed);
+        Assert.Equal(1, report.PassedCount);
+        Assert.True(detail.TestReport?.Passed);
+        Assert.Equal(1, detail.TestReport?.PassedCount);
+    }
+
+    [Fact]
     public void RecommendAssignmentReturnsRankedPlanner()
     {
         var service = CreateService();
@@ -321,6 +417,27 @@ public sealed class BeamKitCiServerServiceTests
     private static BeamKitCiServerService CreateService(ICiRunStore? store = null)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store ?? new CiRunStore(), new FixedTimeProvider());
+    }
+
+    private static string SampleRulePackPath()
+    {
+        return Path.Combine(FindRepositoryRoot(), "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "BeamKit.sln")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Could not find BeamKit repository root.");
     }
 
     private static EsapiPlanSnapshot CreateEsapiSnapshot(Plan plan)

@@ -102,6 +102,35 @@ public sealed class CiRunStoreTests
         Assert.Equal("case-1", auditEvent.CaseId);
     }
 
+    [Fact]
+    public void SaveRulePackVersionStoresQueryableVersionHistory()
+    {
+        var store = new CiRunStore();
+        store.SaveRulePackVersion(CreateRulePackVersion("institution-head-neck", "v1", DateTimeOffset.UtcNow.AddMinutes(-1)));
+        store.SaveRulePackVersion(CreateRulePackVersion("institution-head-neck", "v2", DateTimeOffset.UtcNow));
+
+        var versions = store.ListRulePackVersions("INSTITUTION-HEAD-NECK");
+
+        Assert.Equal(new[] { "v2", "v1" }, versions.Select(version => version.VersionId));
+        var found = store.FindRulePackVersion("institution-head-neck", "V1") ?? throw new InvalidOperationException("Version was not stored.");
+        Assert.Equal("sha256:v1", found.Fingerprint);
+    }
+
+    [Fact]
+    public void PromoteRulePackVersionMakesOnlyOneVersionActive()
+    {
+        var store = new CiRunStore();
+        store.SaveRulePackVersion(CreateRulePackVersion("institution-head-neck", "v1", DateTimeOffset.UtcNow.AddMinutes(-1)));
+        store.SaveRulePackVersion(CreateRulePackVersion("institution-head-neck", "v2", DateTimeOffset.UtcNow));
+
+        var promoted = store.PromoteRulePackVersion("institution-head-neck", "v2", DateTimeOffset.UtcNow, "physics", "Approved.");
+
+        Assert.True(promoted.IsActive);
+        Assert.Equal("physics", promoted.ActivatedBy);
+        Assert.Equal("v2", store.FindActiveRulePackVersion("INSTITUTION-HEAD-NECK")?.VersionId);
+        Assert.False(store.FindRulePackVersion("institution-head-neck", "v1")!.IsActive);
+    }
+
     private static BeamKitCiRunRecord CreateArtifact(BeamKitCheckStatus status)
     {
         return new BeamKitCiRunRecord(
@@ -151,5 +180,27 @@ public sealed class CiRunStoreTests
             "sha256:rx",
             "sha256:pack",
             promotedBy: "physics");
+    }
+
+    private static CiServerManagedRulePackVersion CreateRulePackVersion(string rulePackId, string versionId, DateTimeOffset importedAtUtc)
+    {
+        return new CiServerManagedRulePackVersion(
+            rulePackId,
+            versionId,
+            importedAtUtc,
+            "physics",
+            "InlineJson",
+            "test",
+            Directory.GetCurrentDirectory(),
+            "{}",
+            "Rule pack",
+            versionId,
+            "BeamKit",
+            "Test rule pack.",
+            "Head and Neck",
+            new[] { "test" },
+            $"sha256:{versionId}",
+            new RulePackValidationReport("Rule pack", versionId, $"sha256:{versionId}", Array.Empty<RulePackPolicyIssue>()),
+            new RulePackTestReport("Rule pack", versionId, importedAtUtc, Array.Empty<RulePackTestResult>()));
     }
 }

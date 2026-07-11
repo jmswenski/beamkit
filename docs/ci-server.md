@@ -29,6 +29,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Limit uploaded plan-snapshot request size before model binding.
 - Store searchable audit events for protected API actions.
 - Register named rule packs and run CI gates by `rulePackId`.
+- Import managed rule-pack versions, capture validation/test evidence, and promote one passing version active.
 - Persist run metadata and full CI artifacts in SQLite.
 - Persist vendor-neutral plan snapshots internally for field-level baseline comparison.
 - Promote stored runs as case baselines and compare later runs against baseline fingerprints and plan changes.
@@ -51,16 +52,23 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `GET` | `/api/runs/{id}/baseline-comparison` | Compare a run to the promoted baseline for its case id. |
 | `GET` | `/api/baselines` | List promoted baselines. |
 | `GET` | `/api/baselines/{caseId}` | Get the promoted baseline for one case id. |
-| `GET` | `/api/rule-packs` | List built-in and configured rule packs. |
+| `GET` | `/api/rule-packs` | List built-in, configured, and active managed rule packs. |
+| `GET` | `/api/rule-packs/versions` | List managed rule-pack versions. Supports `rulePackId`. |
 | `GET` | `/api/rule-packs/{id}` | Get validation detail for one registered rule pack. |
+| `GET` | `/api/rule-packs/{id}/versions` | List managed versions for one rule-pack id. |
+| `GET` | `/api/rule-packs/{id}/versions/{versionId}` | Get one managed rule-pack version with validation and test evidence. |
 | `GET` | `/api/audit-events` | List audit events. Supports `limit`, `action`, `runId`, and `caseId`. |
 | `POST` | `/api/runs` | Create a run from a synthetic case. |
 | `POST` | `/api/runs/{id}/baseline` | Promote a run as the baseline for its case id. |
 | `POST` | `/api/runs/from-plan-snapshot` | Create a run from uploaded BeamKit plan JSON or ESAPI snapshot JSON. |
+| `POST` | `/api/rule-packs/import` | Import a managed rule-pack version from manifest JSON or a server-local manifest path. |
 | `POST` | `/api/rule-packs/validate` | Validate a rule pack. |
 | `POST` | `/api/rule-packs/test` | Run rule-pack regression tests. |
 | `POST` | `/api/rule-packs/{id}/validate` | Validate a registered rule pack by id. |
 | `POST` | `/api/rule-packs/{id}/test` | Run regression tests for a registered rule pack by id. |
+| `POST` | `/api/rule-packs/{id}/versions/{versionId}/validate` | Revalidate a managed rule-pack version. |
+| `POST` | `/api/rule-packs/{id}/versions/{versionId}/test` | Run regression tests for a managed rule-pack version. |
+| `POST` | `/api/rule-packs/{id}/versions/{versionId}/promote` | Promote a valid, passing managed rule-pack version active. |
 | `POST` | `/api/assignments/recommend` | Recommend a planner assignment. |
 
 All `/api/*` routes require the configured API-key header when `RequireApiKey` is `true`, which is the default. Examples below assume:
@@ -265,6 +273,39 @@ curl -s "$API/api/runs" \
   -d '{"syntheticCaseId":"head-neck-pass","rulePackId":"institution-head-neck"}'
 ```
 
+Static registrations are useful for local demos and fixed server deployments. For policy review workflows, use managed versions instead:
+
+```bash
+curl -s "$API/api/rule-packs/import" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "rulePackId": "institution-head-neck",
+    "manifestPath": "samples/rule-packs/head-neck-v1/beamkit-rule-pack.json",
+    "importedBy": "physics"
+  }'
+```
+
+The import response includes `version.versionId`, validation evidence, regression-test evidence, and `activated=false`. Promote a passing version before production runs use it:
+
+```bash
+curl -s "$API/api/rule-packs/institution-head-neck/versions/{versionId}/promote" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"promotedBy":"physics","note":"Approved policy version."}'
+```
+
+After promotion, plan gates can use the stable managed id:
+
+```bash
+curl -s "$API/api/runs" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"syntheticCaseId":"head-neck-pass","rulePackId":"institution-head-neck"}'
+```
+
+Managed imports store the manifest JSON, metadata, validation report, latest test report, active-version marker, and import-time policy fingerprint. Referenced catalog files are resolved from the import base directory and reloaded when the version is used; BeamKit recomputes the fingerprint and blocks use if those dependencies drift from the imported version.
+
 ## Storage
 
 By default, the server stores run metadata and artifact JSON at:
@@ -293,6 +334,8 @@ The `ci_runs` table stores searchable metadata separately from the full artifact
 
 The `ci_audit_events` table stores protected API activity with actor label, action, endpoint, method, optional run/case ids, source IP, status, and compact details.
 
+The `ci_rule_pack_versions` table stores managed rule-pack version history, validation evidence, latest regression-test evidence, and the active version marker.
+
 ## Current Boundaries
 
 This is a development server, not a production clinical deployment. It persists run history locally and accepts uploaded JSON snapshots. Keep it behind trusted network boundaries, use synthetic data by default, and assume uploaded plan snapshots may contain identifiers unless they were scrubbed before submission.
@@ -303,6 +346,7 @@ Production hardening still needs:
 - Formal audit-retention policy.
 - Role-based access control.
 - Integration with an identity provider or clinic SSO.
+- Fully bundled immutable rule-pack dependency snapshots.
 - TLS and deployment hardening.
 - PHI handling guidance.
 - Integration adapters for real TPS, OIS, EHR, and task-system workflows.

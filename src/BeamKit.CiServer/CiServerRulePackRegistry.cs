@@ -94,6 +94,27 @@ public sealed class CiServerRulePackRegistry
         return BeamKitRulePackLoader.FromFile(registration.RulePackPath);
     }
 
+    /// <summary>
+    /// Indicates whether the id is reserved for the built-in rule pack.
+    /// </summary>
+    public static bool IsBuiltInRulePackId(string id)
+    {
+        return IsBuiltIn(id);
+    }
+
+    /// <summary>
+    /// Indicates whether a static built-in or configured rule pack exists.
+    /// </summary>
+    public bool ContainsStaticRulePack(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return false;
+        }
+
+        return IsBuiltIn(id) || FindRegistration(id.Trim()) is not null;
+    }
+
     private static bool IsBuiltIn(string id)
     {
         return string.Equals(id, BuiltInRulePackId, StringComparison.OrdinalIgnoreCase)

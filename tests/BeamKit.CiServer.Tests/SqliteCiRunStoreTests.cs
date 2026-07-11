@@ -213,6 +213,27 @@ public sealed class SqliteCiRunStoreTests
         Assert.Equal("run-1", auditEvent.RunId);
     }
 
+    [Fact]
+    public void RulePackVersionsSurviveNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        firstStore.SaveRulePackVersion(CreateRulePackVersion("institution-head-neck", "v1", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero)));
+        firstStore.SaveRulePackVersion(CreateRulePackVersion("institution-head-neck", "v2", new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero)));
+        firstStore.PromoteRulePackVersion("institution-head-neck", "v2", new DateTimeOffset(2026, 7, 9, 12, 2, 0, TimeSpan.Zero), "physics", "Approved.");
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var versions = secondStore.ListRulePackVersions("institution-head-neck");
+        var active = secondStore.FindActiveRulePackVersion("institution-head-neck");
+
+        Assert.Equal(new[] { "v2", "v1" }, versions.Select(version => version.VersionId));
+        Assert.NotNull(active);
+        Assert.Equal("v2", active.VersionId);
+        Assert.Equal("physics", active.ActivatedBy);
+        Assert.True(active.TestReport?.Passed);
+        Assert.True(active.ValidationReport.IsValid);
+    }
+
     private static BeamKitCiServerService CreateService(ICiRunStore store)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store, new FixedTimeProvider());
@@ -239,6 +260,28 @@ public sealed class SqliteCiRunStoreTests
         }
 
         return new HostedCiRunRecord(id, createdAtUtc, source.CaseId, artifact, inputKind, planSnapshotJson);
+    }
+
+    private static CiServerManagedRulePackVersion CreateRulePackVersion(string rulePackId, string versionId, DateTimeOffset importedAtUtc)
+    {
+        return new CiServerManagedRulePackVersion(
+            rulePackId,
+            versionId,
+            importedAtUtc,
+            "physics",
+            "InlineJson",
+            "test",
+            Directory.GetCurrentDirectory(),
+            "{}",
+            "Rule pack",
+            versionId,
+            "BeamKit",
+            "Test rule pack.",
+            "Head and Neck",
+            new[] { "test" },
+            $"sha256:{versionId}",
+            new RulePackValidationReport("Rule pack", versionId, $"sha256:{versionId}", Array.Empty<RulePackPolicyIssue>()),
+            new RulePackTestReport("Rule pack", versionId, importedAtUtc, Array.Empty<RulePackTestResult>()));
     }
 
     private static void CreateLegacyDatabase(string path)

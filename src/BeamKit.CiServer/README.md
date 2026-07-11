@@ -12,6 +12,7 @@ This first slice supports:
 - Upload-size limits for plan snapshot intake.
 - Audit events for protected CI actions.
 - Built-in and configured rule-pack registry entries.
+- Managed rule-pack version import, regression evidence, and active-version promotion.
 - CI run records with plan, prescription, and rule-pack provenance fingerprints.
 - SQLite-backed run metadata and artifact persistence.
 - Run history filters for status, case id, branch, and date ranges.
@@ -51,15 +52,22 @@ GET /api/runs/{id}/baseline-comparison
 GET /api/baselines
 GET /api/baselines/{caseId}
 GET /api/rule-packs
+GET /api/rule-packs/versions
 GET /api/rule-packs/{id}
+GET /api/rule-packs/{id}/versions
+GET /api/rule-packs/{id}/versions/{versionId}
 GET /api/audit-events
 POST /api/runs
 POST /api/runs/{id}/baseline
 POST /api/runs/from-plan-snapshot
+POST /api/rule-packs/import
 POST /api/rule-packs/validate
 POST /api/rule-packs/test
 POST /api/rule-packs/{id}/validate
 POST /api/rule-packs/{id}/test
+POST /api/rule-packs/{id}/versions/{versionId}/validate
+POST /api/rule-packs/{id}/versions/{versionId}/test
+POST /api/rule-packs/{id}/versions/{versionId}/promote
 POST /api/assignments/recommend
 ```
 
@@ -200,6 +208,22 @@ curl -s "$API/api/runs" \
   -d '{"syntheticCaseId":"head-neck-pass","rulePackId":"institution-head-neck"}'
 ```
 
+For policy review, import and promote managed versions:
+
+```bash
+curl -s "$API/api/rule-packs/import" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"rulePackId":"institution-head-neck","manifestPath":"samples/rule-packs/head-neck-v1/beamkit-rule-pack.json","importedBy":"physics"}'
+
+curl -s "$API/api/rule-packs/institution-head-neck/versions/{versionId}/promote" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"promotedBy":"physics","note":"Approved policy version."}'
+```
+
+Managed versions store the manifest, validation report, latest test report, active marker, and imported fingerprint. Referenced catalog files are reloaded from the import base directory and fingerprint-checked so dependency drift blocks use instead of silently changing active policy.
+
 ## Storage
 
 The default SQLite database is:
@@ -222,4 +246,4 @@ Configure it under `BeamKit:CiServer:Storage`:
 
 This server persists local run history, artifacts, internal BeamKit plan snapshots, and audit events, and can run checks from synthetic cases, BeamKit plan JSON, or ESAPI snapshot JSON. It is suitable for local demos, API shape validation, and future dashboard development.
 
-Before clinical or production use, BeamKit still needs production database deployment guidance, formal audit retention policy, role-based access control, identity-provider integration, network hardening, deployment documentation, PHI handling guidance, and clinical validation.
+Before clinical or production use, BeamKit still needs production database deployment guidance, formal audit retention policy, role-based access control, identity-provider integration, bundled rule-pack dependency snapshots, network hardening, deployment documentation, PHI handling guidance, and clinical validation.

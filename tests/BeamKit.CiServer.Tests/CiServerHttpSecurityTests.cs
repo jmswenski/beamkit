@@ -109,6 +109,46 @@ public sealed class CiServerHttpSecurityTests
         Assert.Equal("Pass", run.RootElement.GetProperty("status").GetString());
     }
 
+    [Fact]
+    public async Task ManagedRulePackImportPromoteAndRunFlowUsesApiKey()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var importPayload = JsonSerializer.Serialize(new
+        {
+            rulePackId = "institution-head-neck",
+            manifestPath = SampleRulePackPath(),
+            importedBy = "physics"
+        });
+        using var importRequest = CreateJsonRequest(HttpMethod.Post, "/api/rule-packs/import", importPayload);
+
+        var importResponse = await client.SendAsync(importRequest);
+        using var importResult = JsonDocument.Parse(await importResponse.Content.ReadAsStringAsync());
+        var versionId = importResult.RootElement.GetProperty("version").GetProperty("versionId").GetString()
+            ?? throw new InvalidOperationException("Import did not return a version id.");
+        using var promoteRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/rule-packs/institution-head-neck/versions/{versionId}/promote",
+            """{"promotedBy":"physics","note":"Approved."}""");
+        var promoteResponse = await client.SendAsync(promoteRequest);
+        using var activeRulePack = await GetJson(client, "/api/rule-packs/institution-head-neck");
+        using var runRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            "/api/runs",
+            """{"syntheticCaseId":"head-neck-pass","rulePackId":"institution-head-neck"}""");
+        var runResponse = await client.SendAsync(runRequest);
+        using var run = JsonDocument.Parse(await runResponse.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Created, importResponse.StatusCode);
+        Assert.True(importResult.RootElement.GetProperty("validation").GetProperty("isValid").GetBoolean());
+        Assert.True(importResult.RootElement.GetProperty("testReport").GetProperty("passed").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, promoteResponse.StatusCode);
+        Assert.Equal("Managed", activeRulePack.RootElement.GetProperty("summary").GetProperty("sourceKind").GetString());
+        Assert.Equal(HttpStatusCode.Created, runResponse.StatusCode);
+        Assert.Equal("Pass", run.RootElement.GetProperty("status").GetString());
+    }
+
     private static async Task<JsonDocument> GetJson(HttpClient client, string path)
     {
         using var request = CreateRequest(HttpMethod.Get, path);
@@ -129,6 +169,27 @@ public sealed class CiServerHttpSecurityTests
         var request = new HttpRequestMessage(method, path);
         request.Headers.Add("X-BeamKit-Api-Key", ApiKey);
         return request;
+    }
+
+    private static string SampleRulePackPath()
+    {
+        return System.IO.Path.Combine(FindRepositoryRoot(), "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(System.IO.Path.Combine(directory.FullName, "BeamKit.sln")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Could not find BeamKit repository root.");
     }
 
     private sealed class TestCiServerFactory : WebApplicationFactory<Program>

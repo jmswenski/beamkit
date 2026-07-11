@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using BeamKit.Check;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
@@ -431,6 +432,246 @@ public sealed class SqliteCiRunStore : ICiRunStore
     }
 
     /// <summary>
+    /// Adds or replaces a managed rule-pack version.
+    /// </summary>
+    public CiServerManagedRulePackVersion SaveRulePackVersion(CiServerManagedRulePackVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ci_rule_pack_versions (
+                    rule_pack_id,
+                    version_id,
+                    imported_at_utc,
+                    imported_by,
+                    source_kind,
+                    source,
+                    base_directory,
+                    manifest_json,
+                    name,
+                    version,
+                    owner,
+                    description,
+                    disease_site,
+                    tags_json,
+                    fingerprint,
+                    validation_report_json,
+                    test_report_json,
+                    is_active,
+                    activated_at_utc,
+                    activated_by,
+                    activation_note
+                )
+                VALUES (
+                    $rule_pack_id,
+                    $version_id,
+                    $imported_at_utc,
+                    $imported_by,
+                    $source_kind,
+                    $source,
+                    $base_directory,
+                    $manifest_json,
+                    $name,
+                    $version,
+                    $owner,
+                    $description,
+                    $disease_site,
+                    $tags_json,
+                    $fingerprint,
+                    $validation_report_json,
+                    $test_report_json,
+                    $is_active,
+                    $activated_at_utc,
+                    $activated_by,
+                    $activation_note
+                )
+                ON CONFLICT(rule_pack_id, version_id) DO UPDATE SET
+                    imported_at_utc = excluded.imported_at_utc,
+                    imported_by = excluded.imported_by,
+                    source_kind = excluded.source_kind,
+                    source = excluded.source,
+                    base_directory = excluded.base_directory,
+                    manifest_json = excluded.manifest_json,
+                    name = excluded.name,
+                    version = excluded.version,
+                    owner = excluded.owner,
+                    description = excluded.description,
+                    disease_site = excluded.disease_site,
+                    tags_json = excluded.tags_json,
+                    fingerprint = excluded.fingerprint,
+                    validation_report_json = excluded.validation_report_json,
+                    test_report_json = excluded.test_report_json,
+                    is_active = excluded.is_active,
+                    activated_at_utc = excluded.activated_at_utc,
+                    activated_by = excluded.activated_by,
+                    activation_note = excluded.activation_note;
+                """;
+            AddRulePackVersionParameters(command, version);
+            command.ExecuteNonQuery();
+        }
+
+        return version;
+    }
+
+    /// <summary>
+    /// Finds a managed rule-pack version.
+    /// </summary>
+    public CiServerManagedRulePackVersion? FindRulePackVersion(string rulePackId, string versionId)
+    {
+        if (string.IsNullOrWhiteSpace(rulePackId) || string.IsNullOrWhiteSpace(versionId))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectRulePackVersionColumns()}
+                WHERE rule_pack_id = $rule_pack_id AND version_id = $version_id;
+                """;
+            command.Parameters.AddWithValue("$rule_pack_id", rulePackId.Trim());
+            command.Parameters.AddWithValue("$version_id", versionId.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadRulePackVersion(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Finds the active managed version for a rule-pack id.
+    /// </summary>
+    public CiServerManagedRulePackVersion? FindActiveRulePackVersion(string rulePackId)
+    {
+        if (string.IsNullOrWhiteSpace(rulePackId))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectRulePackVersionColumns()}
+                WHERE rule_pack_id = $rule_pack_id AND is_active = 1
+                ORDER BY COALESCE(activated_at_utc, imported_at_utc) DESC, version_id ASC
+                LIMIT 1;
+                """;
+            command.Parameters.AddWithValue("$rule_pack_id", rulePackId.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadRulePackVersion(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Lists managed rule-pack versions.
+    /// </summary>
+    public IReadOnlyList<CiServerManagedRulePackVersionSummary> ListRulePackVersions(string? rulePackId = null)
+    {
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            var where = string.Empty;
+            if (!string.IsNullOrWhiteSpace(rulePackId))
+            {
+                where = "WHERE rule_pack_id = $rule_pack_id";
+                command.Parameters.AddWithValue("$rule_pack_id", rulePackId.Trim());
+            }
+
+            command.CommandText = $"""
+                {SelectRulePackVersionColumns()}
+                {where}
+                ORDER BY rule_pack_id ASC, imported_at_utc DESC, version_id ASC;
+                """;
+
+            var versions = new List<CiServerManagedRulePackVersionSummary>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                versions.Add(ReadRulePackVersion(reader).ToSummary());
+            }
+
+            return versions;
+        }
+    }
+
+    /// <summary>
+    /// Promotes one managed rule-pack version as active.
+    /// </summary>
+    public CiServerManagedRulePackVersion PromoteRulePackVersion(
+        string rulePackId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null)
+    {
+        if (string.IsNullOrWhiteSpace(rulePackId))
+        {
+            throw new ArgumentException("Rule-pack id is required.", nameof(rulePackId));
+        }
+
+        if (string.IsNullOrWhiteSpace(versionId))
+        {
+            throw new ArgumentException("Version id is required.", nameof(versionId));
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var transaction = connection.BeginTransaction();
+
+            using (var clear = connection.CreateCommand())
+            {
+                clear.Transaction = transaction;
+                clear.CommandText = """
+                    UPDATE ci_rule_pack_versions
+                    SET is_active = 0,
+                        activated_at_utc = NULL,
+                        activated_by = NULL,
+                        activation_note = NULL
+                    WHERE rule_pack_id = $rule_pack_id;
+                    """;
+                clear.Parameters.AddWithValue("$rule_pack_id", rulePackId.Trim());
+                clear.ExecuteNonQuery();
+            }
+
+            using (var promote = connection.CreateCommand())
+            {
+                promote.Transaction = transaction;
+                promote.CommandText = """
+                    UPDATE ci_rule_pack_versions
+                    SET is_active = 1,
+                        activated_at_utc = $activated_at_utc,
+                        activated_by = $activated_by,
+                        activation_note = $activation_note
+                    WHERE rule_pack_id = $rule_pack_id AND version_id = $version_id;
+                    """;
+                promote.Parameters.AddWithValue("$rule_pack_id", rulePackId.Trim());
+                promote.Parameters.AddWithValue("$version_id", versionId.Trim());
+                promote.Parameters.AddWithValue("$activated_at_utc", ToStoredTimestamp(activatedAtUtc));
+                promote.Parameters.AddWithValue("$activated_by", ToDbValue(activatedBy));
+                promote.Parameters.AddWithValue("$activation_note", ToDbValue(note));
+                var updated = promote.ExecuteNonQuery();
+                if (updated == 0)
+                {
+                    throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' was not found.");
+                }
+            }
+
+            transaction.Commit();
+        }
+
+        return FindRulePackVersion(rulePackId, versionId)
+            ?? throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' was not found after promotion.");
+    }
+
+    /// <summary>
     /// Adds an audit event.
     /// </summary>
     public CiServerAuditEvent SaveAuditEvent(CiServerAuditEvent auditEvent)
@@ -618,6 +859,36 @@ public sealed class SqliteCiRunStore : ICiRunStore
 
                 CREATE INDEX IF NOT EXISTS ix_ci_run_baselines_run_id ON ci_run_baselines(baseline_run_id);
 
+                CREATE TABLE IF NOT EXISTS ci_rule_pack_versions (
+                    rule_pack_id TEXT NOT NULL,
+                    version_id TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL,
+                    imported_by TEXT NULL,
+                    source_kind TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    base_directory TEXT NOT NULL,
+                    manifest_json TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    owner TEXT NULL,
+                    description TEXT NULL,
+                    disease_site TEXT NULL,
+                    tags_json TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    validation_report_json TEXT NOT NULL,
+                    test_report_json TEXT NULL,
+                    is_active INTEGER NOT NULL,
+                    activated_at_utc TEXT NULL,
+                    activated_by TEXT NULL,
+                    activation_note TEXT NULL,
+                    PRIMARY KEY (rule_pack_id, version_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_rule_pack_id ON ci_rule_pack_versions(rule_pack_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_fingerprint ON ci_rule_pack_versions(fingerprint);
+                CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_active ON ci_rule_pack_versions(rule_pack_id, is_active);
+                CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_imported_at ON ci_rule_pack_versions(imported_at_utc);
+
                 CREATE TABLE IF NOT EXISTS ci_audit_events (
                     id TEXT PRIMARY KEY,
                     occurred_at_utc TEXT NOT NULL,
@@ -712,6 +983,31 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$details", ToDbValue(auditEvent.Details));
     }
 
+    private static void AddRulePackVersionParameters(SqliteCommand command, CiServerManagedRulePackVersion version)
+    {
+        command.Parameters.AddWithValue("$rule_pack_id", version.RulePackId);
+        command.Parameters.AddWithValue("$version_id", version.VersionId);
+        command.Parameters.AddWithValue("$imported_at_utc", ToStoredTimestamp(version.ImportedAtUtc));
+        command.Parameters.AddWithValue("$imported_by", ToDbValue(version.ImportedBy));
+        command.Parameters.AddWithValue("$source_kind", version.SourceKind);
+        command.Parameters.AddWithValue("$source", version.Source);
+        command.Parameters.AddWithValue("$base_directory", version.BaseDirectory);
+        command.Parameters.AddWithValue("$manifest_json", version.ManifestJson);
+        command.Parameters.AddWithValue("$name", version.Name);
+        command.Parameters.AddWithValue("$version", version.Version);
+        command.Parameters.AddWithValue("$owner", ToDbValue(version.Owner));
+        command.Parameters.AddWithValue("$description", ToDbValue(version.Description));
+        command.Parameters.AddWithValue("$disease_site", ToDbValue(version.DiseaseSite));
+        command.Parameters.AddWithValue("$tags_json", JsonSerializer.Serialize(version.Tags, CiServerJson.Options));
+        command.Parameters.AddWithValue("$fingerprint", version.Fingerprint);
+        command.Parameters.AddWithValue("$validation_report_json", JsonSerializer.Serialize(version.ValidationReport, CiServerJson.Options));
+        command.Parameters.AddWithValue("$test_report_json", version.TestReport is null ? DBNull.Value : JsonSerializer.Serialize(version.TestReport, CiServerJson.Options));
+        command.Parameters.AddWithValue("$is_active", version.IsActive ? 1 : 0);
+        command.Parameters.AddWithValue("$activated_at_utc", version.ActivatedAtUtc is null ? DBNull.Value : ToStoredTimestamp(version.ActivatedAtUtc.Value));
+        command.Parameters.AddWithValue("$activated_by", ToDbValue(version.ActivatedBy));
+        command.Parameters.AddWithValue("$activation_note", ToDbValue(version.ActivationNote));
+    }
+
     private static object ToDbValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? DBNull.Value : value;
@@ -796,6 +1092,114 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.GetString(17),
             GetNullableString(reader, 3),
             GetNullableString(reader, 4));
+    }
+
+    private static string SelectRulePackVersionColumns()
+    {
+        return """
+            SELECT
+                rule_pack_id,
+                version_id,
+                imported_at_utc,
+                imported_by,
+                source_kind,
+                source,
+                base_directory,
+                manifest_json,
+                name,
+                version,
+                owner,
+                description,
+                disease_site,
+                tags_json,
+                fingerprint,
+                validation_report_json,
+                test_report_json,
+                is_active,
+                activated_at_utc,
+                activated_by,
+                activation_note
+            FROM ci_rule_pack_versions
+            """;
+    }
+
+    private static CiServerManagedRulePackVersion ReadRulePackVersion(SqliteDataReader reader)
+    {
+        var validation = ReadRulePackValidationReport(reader.GetString(15));
+        var testReportJson = GetNullableString(reader, 16);
+        var testReport = string.IsNullOrWhiteSpace(testReportJson)
+            ? null
+            : ReadRulePackTestReport(testReportJson);
+        var tags = JsonSerializer.Deserialize<string[]>(reader.GetString(13), CiServerJson.Options)
+            ?? Array.Empty<string>();
+
+        return new CiServerManagedRulePackVersion(
+            reader.GetString(0),
+            reader.GetString(1),
+            DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            GetNullableString(reader, 3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetString(7),
+            reader.GetString(8),
+            reader.GetString(9),
+            GetNullableString(reader, 10),
+            GetNullableString(reader, 11),
+            GetNullableString(reader, 12),
+            tags,
+            reader.GetString(14),
+            validation,
+            testReport,
+            reader.GetInt32(17) != 0,
+            reader.IsDBNull(18) ? null : DateTimeOffset.Parse(reader.GetString(18), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            GetNullableString(reader, 19),
+            GetNullableString(reader, 20));
+    }
+
+    private static RulePackValidationReport ReadRulePackValidationReport(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var issues = root.TryGetProperty("issues", out var issuesElement) && issuesElement.ValueKind == JsonValueKind.Array
+            ? issuesElement.EnumerateArray().Select(ReadRulePackPolicyIssue).ToArray()
+            : Array.Empty<RulePackPolicyIssue>();
+        return new RulePackValidationReport(
+            root.GetProperty("rulePackName").GetString() ?? "Rule pack",
+            root.GetProperty("rulePackVersion").GetString() ?? "unknown",
+            root.GetProperty("fingerprint").GetString() ?? "sha256:unknown",
+            issues);
+    }
+
+    private static RulePackPolicyIssue ReadRulePackPolicyIssue(JsonElement element)
+    {
+        var severity = Enum.Parse<PolicyIssueSeverity>(
+            element.GetProperty("severity").GetString() ?? PolicyIssueSeverity.Error.ToString(),
+            ignoreCase: true);
+        return new RulePackPolicyIssue(
+            element.GetProperty("code").GetString() ?? "policy.issue",
+            severity,
+            element.GetProperty("message").GetString() ?? "Policy issue.",
+            element.TryGetProperty("subject", out var subject) ? subject.GetString() : null);
+    }
+
+    private static RulePackTestReport? ReadRulePackTestReport(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        if (root.TryGetProperty("passed", out var passed) && !passed.GetBoolean())
+        {
+            return null;
+        }
+
+        var generatedAtUtc = root.TryGetProperty("generatedAtUtc", out var generated)
+            ? DateTimeOffset.Parse(generated.GetString() ?? DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
+            : DateTimeOffset.UtcNow;
+        return new RulePackTestReport(
+            root.GetProperty("rulePackName").GetString() ?? "Rule pack",
+            root.GetProperty("rulePackVersion").GetString() ?? "unknown",
+            generatedAtUtc,
+            Array.Empty<RulePackTestResult>());
     }
 
     private static CiServerAuditEvent ReadAuditEvent(SqliteDataReader reader)

@@ -46,6 +46,36 @@ public interface ICiRunStore
     IReadOnlyList<CiRunBaseline> ListBaselines();
 
     /// <summary>
+    /// Adds or replaces a managed rule-pack version.
+    /// </summary>
+    CiServerManagedRulePackVersion SaveRulePackVersion(CiServerManagedRulePackVersion version);
+
+    /// <summary>
+    /// Finds a managed rule-pack version.
+    /// </summary>
+    CiServerManagedRulePackVersion? FindRulePackVersion(string rulePackId, string versionId);
+
+    /// <summary>
+    /// Finds the active managed version for a rule-pack id.
+    /// </summary>
+    CiServerManagedRulePackVersion? FindActiveRulePackVersion(string rulePackId);
+
+    /// <summary>
+    /// Lists managed rule-pack versions.
+    /// </summary>
+    IReadOnlyList<CiServerManagedRulePackVersionSummary> ListRulePackVersions(string? rulePackId = null);
+
+    /// <summary>
+    /// Promotes one managed rule-pack version as active.
+    /// </summary>
+    CiServerManagedRulePackVersion PromoteRulePackVersion(
+        string rulePackId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null);
+
+    /// <summary>
     /// Adds an audit event.
     /// </summary>
     CiServerAuditEvent SaveAuditEvent(CiServerAuditEvent auditEvent);
