@@ -286,7 +286,7 @@ public sealed class SqliteCiRunStoreTests
 
     private static void CreateLegacyDatabase(string path)
     {
-        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+        using var connection = new SqliteConnection(CreateTemporaryDatabaseConnectionString(path));
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -314,7 +314,7 @@ public sealed class SqliteCiRunStoreTests
 
     private static void CreateDatabaseWithoutPlanSnapshotColumn(string path)
     {
-        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+        using var connection = new SqliteConnection(CreateTemporaryDatabaseConnectionString(path));
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -339,6 +339,15 @@ public sealed class SqliteCiRunStoreTests
             );
             """;
         command.ExecuteNonQuery();
+    }
+
+    private static string CreateTemporaryDatabaseConnectionString(string path)
+    {
+        return new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            Pooling = false
+        }.ToString();
     }
 
     private sealed class FixedTimeProvider : TimeProvider
