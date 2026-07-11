@@ -1,0 +1,25 @@
+{
+  "$schema": "../../../schemas/beamkit-rule-pack.schema.json",
+  "name": "Synthetic head-and-neck check pack",
+  "version": "2026.1",
+  "owner": "BeamKit",
+  "description": "Synthetic rule pack that composes clinical goals, plan checks, naming, machine constraints, and readiness defaults for BeamKit Check demos.",
+  "diseaseSite": "Head and Neck",
+  "tags": [ "synthetic", "head-neck", "beamkit-check" ],
+  "clinicalRuleCatalog": "../../rule-catalog-head-neck.json",
+  "planCheckCatalog": "../../plan-check-baseline.json",
+  "namingDictionary": "../../naming-dictionary-head-neck.json",
+  "machineProfile": "../../machine-profile-synthetic.json",
+  "clinicalRuleQuery": {
+    "diseaseSite": "Head and Neck",
+    "institution": "Synthetic",
+    "tags": [ "baseline" ]
+  },
+  "readinessDefaults": {
+    "ctImported": true,
+    "optimizationFinished": true,
+    "physicsQaComplete": true,
+    "physicianApprovalComplete": true,
+    "treatmentReady": true
+  }
+}

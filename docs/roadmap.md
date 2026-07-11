@@ -7,6 +7,9 @@
 - JSON, Markdown, and HTML reporting.
 - CLI sample report generation.
 - Synthetic plans.
+- BeamKit Check flagship workflow for rule-pack-driven plan QA.
+- Rule-pack manifests for composing clinical rules, plan checks, naming dictionaries, machine profiles, and readiness defaults.
+- Synthetic clinical case library with passing and failing examples.
 - Linux/Windows build path without proprietary software.
 - Dose calculation helpers for BED, EQD2, equivalent fractionation, and cumulative EQD2.
 - Derived structure ring recipes for common PTV optimization rings.
@@ -14,6 +17,14 @@
 - Deliverability checks driven by machine constraint profiles.
 - Configurable plan-check catalogs for dosimetry reminder lists.
 - Physics QA checks for prescription-vs-plan consistency, beam model validation, jaw policies, and treatment-vs-QA plan integrity.
+- Plan write-up evidence manifests with fingerprints, export/document attestations, and stale verification.
+- Polished standalone HTML reports for end-to-end check runs.
+- Rule-pack policy-as-code validation.
+- Rule-pack regression testing against PHI-free synthetic cases.
+- CI/CD-style check run records with provenance fingerprints.
+- Initial self-hosted CI server with HTTP APIs, dashboard, in-memory run history, and provenance artifact access.
+- High-level SDK facade for embedded automation.
+- Initial planner assignment recommendation engine.
 
 ## Milestone 2: DICOM
 
@@ -48,21 +59,26 @@
 
 ## Milestone 5: Workflow
 
-- Case assignment.
+- Case assignment recommendations.
 - Plan readiness.
 - Plan change detection.
 - Approval state.
 - Notifications.
+- Write-up packet templates and adapter-backed export verification.
+- Future: persisted queues, external workload connectors, assignment dashboards, peer-review worklists, and notification providers.
+- Future: persistent CI-server storage, authenticated uploads, role-based access control, artifact retention, and deployment hardening.
 
 ## Milestone 6: ESAPI
 
 - Read-only adapter scaffold.
 - Convert ESAPI objects into `BeamKit.Core`.
+- Validate extracted ESAPI snapshot completeness before downstream checks.
 - No rules or reporting logic inside the adapter.
 
 ## Milestone 7: Web
 
 - Worklists.
 - QA dashboard.
+- CI-server run dashboard.
 - Case status.
 - Analytics.

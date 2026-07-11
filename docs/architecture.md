@@ -24,6 +24,10 @@ BeamKit.Core domain model
         +--> BeamKit.Workflow
         +--> BeamKit.Reporting
         +--> BeamKit.Qa
+        +--> BeamKit.Release
+        +--> BeamKit.Check
+        +--> BeamKit.Sdk
+        +--> BeamKit.CiServer
         +--> CLI / desktop / web
 ```
 
@@ -37,7 +41,7 @@ BeamKit.Core domain model
 
 `BeamKit.Naming` owns structure name normalization, alias dictionaries, regex mappings, rename suggestions, and missing-structure checks. It consumes core structures but does not mutate plans or call vendor APIs.
 
-`BeamKit.ChangeDetection` owns plan comparison logic for prescription, contour, dose, and beam changes. It depends only on `BeamKit.Core`.
+`BeamKit.ChangeDetection` owns plan comparison logic for prescription, contour, dose, and beam changes, plus deterministic plan fingerprints used by release evidence. It depends only on `BeamKit.Core`.
 
 `BeamKit.Templates` owns vendor-neutral clinical goal templates and rule catalogs, then converts active goals into core goals or rules.
 
@@ -51,15 +55,23 @@ BeamKit.Core domain model
 
 `BeamKit.Reporting` turns evaluation results into JSON, Markdown, or HTML.
 
-`BeamKit.Workflow` owns workflow state such as plan readiness. It consumes the core model but does not know where data came from.
+`BeamKit.Workflow` owns workflow state such as plan readiness and planner assignment recommendation. It consumes explicit workflow inputs but does not know where data came from.
 
 `BeamKit.Qa` orchestrates naming, rules, reporting, and workflow checks into combined QA reports.
+
+`BeamKit.Release` captures plan write-up evidence manifests and verifies whether a current plan snapshot is stale relative to captured fingerprints. It records external exports and documents as attestations unless optional adapters verify them.
+
+`BeamKit.Check` is the top-level plan-review workflow. It composes templates, plan checks, naming, readiness, metrics, optional release evidence, policy-as-code validation, rule-pack regression tests, and CI/CD-style provenance records while staying independent of adapters.
+
+`BeamKit.Sdk` is the high-level developer facade for applications that want common automation workflows without manually composing every package. It remains vendor-neutral and must not reference adapters.
+
+`BeamKit.CiServer` is the first hosted application layer. It exposes BeamKit Check, rule-pack validation, rule-pack tests, run records, provenance artifacts, and assignment recommendations through HTTP APIs and a local dashboard. It is allowed to depend on samples for the initial PHI-free demo workflow, but it must not contain adapter-specific business logic.
 
 `BeamKit.Samples` provides synthetic data only. It should never contain real patient data.
 
 `BeamKit.Cli` composes packages for command line workflows.
 
-Architecture-boundary tests in `tests/BeamKit.Architecture.Tests` enforce key dependency rules, including keeping `BeamKit.Core` independent and keeping adapters free of metrics, deliverability, plan-check, rules, reporting, QA, workflow, and proprietary SDK references.
+Architecture-boundary tests in `tests/BeamKit.Architecture.Tests` enforce key dependency rules, including keeping `BeamKit.Core` independent and keeping adapters free of metrics, deliverability, plan-check, check, SDK, release, rules, reporting, QA, workflow, and proprietary SDK references.
 
 ## Adapter Rules
 

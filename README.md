@@ -11,13 +11,14 @@
 [![No PHI](https://img.shields.io/badge/test%20data-synthetic%20only-success.svg)](SECURITY.md)
 [![DICOM RT](https://img.shields.io/badge/DICOM%20RT-initial%20support-blue.svg)](docs/dicom.md)
 [![ESAPI](https://img.shields.io/badge/ESAPI-read--only%20adapter-lightgrey.svg)](docs/esapi.md)
+[![BeamKit Check](https://img.shields.io/badge/BeamKit%20Check-rule%20packs%20%7C%20HTML%20reports-blue.svg)](docs/beamkit-check.md)
 [![Docs](https://img.shields.io/badge/docs-included-blue.svg)](#documentation)
 [![Code Style](https://img.shields.io/badge/warnings-as%20errors-informational.svg)](Directory.Build.props)
 [![Contributions](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](docs/contributing.md)
 
 **A modern, open-source platform for radiation oncology workflow automation, analytics, plan QA, and treatment-planning integrations.**
 
-BeamKit provides a vendor-neutral C#/.NET foundation for modeling radiation oncology plans, normalizing structure names, evaluating clinical and physics rules, automating dosimetry tasks, importing DICOM RT metadata, adapting treatment-planning-system data, calculating plan-quality metrics, and producing portable QA reports.
+BeamKit provides a vendor-neutral C#/.NET foundation for modeling radiation oncology plans, running CI/CD-style plan checks, normalizing structure names, evaluating clinical and physics rules, automating dosimetry tasks, importing DICOM RT metadata, adapting treatment-planning-system data, calculating plan-quality metrics, producing portable QA reports, and generating plan write-up consistency evidence.
 
 It is designed so core functionality can be built and tested on Linux, Windows, and macOS without proprietary treatment-planning-system SDKs, while still allowing optional adapters for systems such as Eclipse/ESAPI, RayStation, DICOM RT, FHIR/Epic, Aria, Mosaiq, and future clinical applications.
 
@@ -33,7 +34,7 @@ BeamKit is intended to become a common software layer for radiation oncology tea
 | Domain model | A vendor-neutral representation of patients, prescriptions, structures, beams, dose, DVH data, clinical goals, and workflow state. |
 | Dosimetry automation | Structure naming, missing-structure validation, PTV ring recipes, dose/fraction calculations, and repeatable planning helpers. |
 | Clinical and physics QA | Configurable catalogs for clinical goals, physician preferences, dose checks, beam model checks, dose-grid checks, jaw policy, MU/degree, and treatment-vs-QA plan integrity. |
-| Workflow orchestration | Plan readiness, change detection, approvals, peer-review queues, notifications, assignment logic, and treatment-readiness gates. |
+| Workflow orchestration | Plan readiness, change detection, write-up evidence manifests, approvals, peer-review queues, notifications, assignment logic, and treatment-readiness gates. |
 | Analytics and research | Plan-quality metrics, DVH trends, workload metrics, disease-site cohorts, machine utilization, and synthetic/research export paths. |
 | Integrations | DICOM RT, read-only ESAPI snapshots, future RayStation adapters, FHIR/Epic workflows, and other optional hospital-system connectors. |
 | Applications | CLI tools today, with a path to desktop tools, web dashboards, service APIs, and research pipelines. |
@@ -49,7 +50,13 @@ What is usable today:
 - Structure name normalization.
 - Clinical goal template loading.
 - Clinical rule catalogs for changing institutional, disease-site, and physician rules.
+- `BeamKit Check`, a flagship rule-pack workflow that combines clinical goals, plan checks, naming, readiness, metrics, ESAPI/DICOM-ready plan input, and optional write-up evidence.
 - Combined QA pipeline.
+- Rule-pack manifests that compose clinical rule catalogs, plan-check catalogs, naming dictionaries, machine profiles, and readiness defaults.
+- Rule-pack policy-as-code validation with deterministic fingerprints.
+- Rule-pack regression testing against PHI-free synthetic cases.
+- CI/CD-style run records with plan, prescription, and rule-pack provenance.
+- Self-hosted `BeamKit.CiServer` with JSON APIs, in-memory run history, provenance artifacts, rule-pack validation/testing, assignment recommendations, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -59,10 +66,16 @@ What is usable today:
 - Initial DICOM RTSTRUCT, RTPLAN, and RTDOSE import.
 - RTDOSE pixel-grid value extraction for uncompressed grids.
 - Plan change detection and treatment-vs-QA plan integrity verification for prescriptions, structures, dose, beams, control points, and jaws.
+- Plan write-up manifests that capture fingerprints, readiness evidence, export attestations, document records, and stale/not-stale verification.
 - Automated dose calculations for BED, EQD2, dose per fraction, equivalent fractionation, and cumulative EQD2.
 - Machine-readable JSON Schemas for plans, templates, catalogs, dictionaries, reports, and machine profiles.
+- Synthetic clinical case library with passing and failing PHI-free examples.
 - Architecture-boundary tests.
+- High-level `BeamKit.Sdk` facade for embedding checks, policy validation, CI gates, rule-pack tests, and assignment recommendations.
+- Planner assignment recommendation based on disease site, workload, PTO, complexity, priority, and skills.
 - Read-only ESAPI adapter scaffold without proprietary DLL references.
+- ESAPI snapshot JSON bridge and smoke-harness template for local Varian workstation testing.
+- ESAPI snapshot validation for missing target, dose, structure, beam, and model metadata.
 - CLI demos, synthetic fixtures, and template-driven QA input files.
 
 What is not complete yet:
@@ -72,8 +85,10 @@ What is not complete yet:
 - FHIR/Epic integration.
 - RayStation integration.
 - Aria/Mosaiq workflow integration.
+- Actual export execution and destination read-back for plan write-up manifests.
+- Production persistence, authentication, upload hardening, and audit-retention policy for the CI server.
 - Production notification adapters for email, Teams, EHR inboxes, or task systems.
-- Case assignment, workload balancing, and peer-review dashboard applications.
+- External case-assignment data connectors, persisted work queues, workload dashboards, and peer-review dashboard applications.
 - Research warehouse/export tooling.
 - Full TG-263 dictionary coverage.
 - Clinical deployment validation.
@@ -92,6 +107,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 - Clinical goal and plan QA evaluation.
 - Physics QA checks that compare prescription intent, beam metadata, dose-grid settings, calculation models, machine profiles, and QA-plan integrity.
 - Dosimetry automation for recurring setup work such as optimization rings, dose calculations, and reminder-list checks.
+- Plan write-up consistency evidence for export/document handoff workflows.
 - Versioned clinical rule catalogs with owner, approval, reference, rationale, and tag metadata.
 - Repeatable derived-structure recipes for common PTV optimization rings.
 - Plan readiness and workflow checks.
@@ -104,7 +120,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 
 | User or system | BeamKit can support |
 | --- | --- |
-| Dosimetrists | Normalize structure names, generate ring-structure recipes, run recurring checklist items, calculate BED/EQD2, and validate plan readiness before handoff. |
+| Dosimetrists | Normalize structure names, generate ring-structure recipes, run recurring checklist items, calculate BED/EQD2, capture write-up evidence, and validate plan readiness before handoff. |
 | Physicists | Check Rx-vs-plan consistency, beam model selection, dose-grid spacing, jaw policy, MU/degree thresholds, calculation model/version, and treatment-vs-QA plan integrity. |
 | Physicians | Maintain disease-site or physician-specific clinical goal catalogs and review structured pass/warning/fail reports. |
 | Clinical informatics teams | Build optional adapters around DICOM RT, ESAPI, future RayStation APIs, FHIR/Epic workflows, and hospital notification systems. |
@@ -126,19 +142,23 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.Calculations`](src/BeamKit.Calculations/README.md) | Dose calculation helpers for BED, EQD2, equivalent fractionation, cumulative dose, and unit conversion. | Active |
 | [`BeamKit.Core`](src/BeamKit.Core/README.md) | Vendor-neutral models for patients, plans, structures, dose, beams, prescriptions, and clinical goals. | Active |
 | [`BeamKit.ChangeDetection`](src/BeamKit.ChangeDetection/README.md) | Vendor-neutral plan change detection and treatment-vs-QA plan integrity verification. | Active |
+| [`BeamKit.Check`](src/BeamKit.Check/README.md) | Flagship rule-pack workflow for CI/CD-style plan QA, polished reports, readiness, metrics, naming, and write-up evidence. | Active |
+| [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for plan gates, policy validation, rule-pack tests, provenance artifacts, and assignment recommendations. | Initial |
 | [`BeamKit.Deliverability`](src/BeamKit.Deliverability/README.md) | Beam deliverability and machine-profile checks for MU, MU/degree, jaw policy, beam model, and calculation model constraints. | Active |
 | [`BeamKit.Metrics`](src/BeamKit.Metrics/README.md) | Standardized DVH metric expressions and target plan-quality summaries. | Active |
 | [`BeamKit.Naming`](src/BeamKit.Naming/README.md) | Structure name normalization, aliases, regex mappings, ambiguity, and missing-structure checks. | Active |
 | [`BeamKit.PlanCheck`](src/BeamKit.PlanCheck/README.md) | Configurable plan-check catalogs that combine structure, prescription, dose, metric, model, and deliverability checks. | Active |
 | [`BeamKit.Structures`](src/BeamKit.Structures/README.md) | Derived-structure recipes, including deterministic PTV ring specifications. | Active |
 | [`BeamKit.Rules`](src/BeamKit.Rules/README.md) | Clinical rule engine and built-in plan checks. | Active |
+| [`BeamKit.Sdk`](src/BeamKit.Sdk/README.md) | High-level developer facade for checks, rule-pack validation, regression testing, CI gates, and workflow assignment. | Active |
 | [`BeamKit.Templates`](src/BeamKit.Templates/README.md) | JSON clinical goal templates and rule catalogs that generate goals and rule sets. | Active |
 | [`BeamKit.Qa`](src/BeamKit.Qa/README.md) | Combined QA pipeline for naming, rules, and readiness. | Active |
+| [`BeamKit.Release`](src/BeamKit.Release/README.md) | Plan write-up manifests, export/document attestations, fingerprints, and stale verification. | Active |
 | [`BeamKit.Dvh`](src/BeamKit.Dvh/README.md) | Cumulative DVH curve models and dose-volume metrics. | Active |
 | [`BeamKit.Dicom`](src/BeamKit.Dicom/README.md) | Initial DICOM RTSTRUCT, RTPLAN, and RTDOSE import using open-source `fo-dicom`. | Initial |
 | [`BeamKit.Esapi`](src/BeamKit.Esapi/README.md) | Read-only ESAPI snapshot adapter pattern without proprietary references. | Scaffold |
 | [`BeamKit.Reporting`](src/BeamKit.Reporting/README.md) | JSON, Markdown, and HTML report writers. | Active |
-| [`BeamKit.Workflow`](src/BeamKit.Workflow/README.md) | Plan-readiness workflow primitives. | Active |
+| [`BeamKit.Workflow`](src/BeamKit.Workflow/README.md) | Plan-readiness workflow primitives and planner assignment recommendation. | Active |
 | [`BeamKit.Samples`](src/BeamKit.Samples/README.md) | Synthetic plans, rule sets, dictionaries, and templates. | Active |
 | [`BeamKit.Cli`](src/BeamKit.Cli/README.md) | Command line demos and automation entry points. | Active |
 
@@ -167,9 +187,12 @@ BeamKit.Core domain model
         +--> BeamKit.Dvh
         +--> BeamKit.Reporting
         +--> BeamKit.Qa
+        +--> BeamKit.Release
+        +--> BeamKit.Check
+        +--> BeamKit.Sdk
         |
         v
-CLI / desktop / web / research workflows
+CLI / CI server / desktop / web / research workflows
 ```
 
 Adapter packages convert external system data into `BeamKit.Core`. They must not own clinical policy, reporting policy, or workflow policy.
@@ -202,10 +225,72 @@ dotnet build BeamKit.sln --no-restore
 dotnet test BeamKit.sln --no-build
 ```
 
-Run a combined synthetic QA report:
+Run the flagship synthetic plan check:
 
 ```bash
-dotnet run --project src/BeamKit.Cli -- qa --format markdown
+dotnet run --project src/BeamKit.Cli -- check --format markdown
+```
+
+Generate a polished HTML check report from the sample rule pack:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- check \
+  --plan samples/synthetic-plan.json \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json \
+  --format html \
+  --output artifacts/head-neck-check.html
+```
+
+List and run PHI-free synthetic clinical cases:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- cases
+dotnet run --project src/BeamKit.Cli -- check --case head-neck-cord-fail
+```
+
+Validate and regression-test a rule pack before promotion:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack validate \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+
+dotnet run --project src/BeamKit.Cli -- rule-pack test \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+```
+
+Run BeamKit as a CI/CD gate and capture provenance:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- ci run \
+  --case head-neck-pass \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json \
+  --branch main \
+  --commit abc123 \
+  --build-id local-demo
+```
+
+Generate a planner assignment recommendation:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- assignment recommend \
+  --disease-site "Head and Neck" \
+  --required-skill VMAT \
+  --complexity 4 \
+  --priority 4
+```
+
+Start the self-hosted BeamKit CI server:
+
+```bash
+dotnet run --project src/BeamKit.CiServer --urls http://localhost:5088
+```
+
+Then open `http://localhost:5088` or call the JSON API:
+
+```bash
+curl -s http://localhost:5088/api/runs \
+  -H 'content-type: application/json' \
+  -d '{"syntheticCaseId":"head-neck-pass","branch":"main","commit":"abc123","buildId":"local-demo"}'
 ```
 
 Run template-driven QA from repository sample files:
@@ -258,6 +343,21 @@ dotnet run --project src/BeamKit.Cli -- plan-check \
   --format markdown
 ```
 
+Run the same checks from a locally extracted ESAPI snapshot:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- check \
+  --esapi-snapshot samples/esapi-smoke/artifacts/esapi-plan-snapshot.json \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+```
+
+Validate the ESAPI snapshot before running downstream checks:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- esapi-snapshot validate \
+  --esapi-snapshot samples/esapi-smoke/artifacts/esapi-plan-snapshot.json
+```
+
 Calculate target plan-quality metrics:
 
 ```bash
@@ -278,6 +378,28 @@ Verify a QA plan still matches its treatment plan:
 dotnet run --project src/BeamKit.Cli -- plan-integrity \
   --plan samples/synthetic-plan.json \
   --qa-plan samples/synthetic-plan.json
+```
+
+Capture and verify plan write-up evidence:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- writeup capture \
+  --plan samples/synthetic-plan.json \
+  --export record-and-verify:ARIA:HN-SYN-001:V1:dosimetry \
+  --document "Plan write-up:html" \
+  --attest documents-printed=true \
+  --ct-imported \
+  --optimization-finished \
+  --physics-qa-complete \
+  --physician-approved \
+  --treatment-ready \
+  --format json \
+  --output artifacts/writeup.json
+
+dotnet run --project src/BeamKit.Cli -- writeup verify \
+  --manifest artifacts/writeup.json \
+  --plan samples/synthetic-plan.json \
+  --format markdown
 ```
 
 ## CLI Examples
@@ -332,7 +454,7 @@ Exit codes:
 | ---: | --- |
 | `0` | Command completed and no blocking gate failed. |
 | `1` | Invalid command line input or output error. |
-| `2` | Clinical, workflow, naming, QA, plan-check, metric, or deliverability gate did not pass. |
+| `2` | Clinical, workflow, naming, QA, plan-check, metric, deliverability, policy, CI, or write-up consistency gate did not pass. |
 
 Every CLI run prints a research-use disclaimer to `stderr`.
 
@@ -408,11 +530,13 @@ See [docs/rule-catalog.md](docs/rule-catalog.md).
 
 ## Plan Checks, Metrics, and Deliverability
 
+`BeamKit Check` is the highest-level plan-review workflow. It loads a rule pack, evaluates clinical goals, runs configurable plan checks, normalizes structure names, evaluates readiness, summarizes target metrics, and can capture write-up evidence in one pass.
+
 Plan checks turn clinic-specific reminders into versioned JSON catalogs. A catalog can require structures, verify empty contours, compare requested energy and technique to treatment beams, evaluate D95/V20/mean/max metrics, calculate plan-quality summaries such as CI and HI, and run machine-profile deliverability checks.
 
 Machine profiles are JSON files with constraints such as minimum MU per beam, minimum MU per degree for arcs, maximum control-point step size for DCA, minimum jaw opening, maximum jaw-defined field size, beam model, allowed energies, allowed techniques, calculation model, and calculation version.
 
-See [docs/plan-check.md](docs/plan-check.md), [docs/metrics.md](docs/metrics.md), and [docs/deliverability.md](docs/deliverability.md).
+See [docs/beamkit-check.md](docs/beamkit-check.md), [docs/plan-check.md](docs/plan-check.md), [docs/metrics.md](docs/metrics.md), and [docs/deliverability.md](docs/deliverability.md).
 
 ## Structure Ring Recipes
 
@@ -427,6 +551,37 @@ Z_PTV_7000Ring3 = Expand(PTV_7000, 4.0 cm) - Expand(PTV_7000, 2.0 cm)
 BeamKit produces vendor-neutral specifications. TPS adapters should execute the final contour geometry.
 
 See [docs/structure-rings.md](docs/structure-rings.md).
+
+## Plan Write-Up Evidence
+
+BeamKit can capture a write-up manifest for the dosimetry handoff step where plans are exported to other systems and documents are assembled.
+
+A manifest includes:
+
+- Exact plan and prescription fingerprints.
+- Captured vendor-neutral plan snapshot.
+- Readiness and write-up checklist items.
+- Export evidence records for systems such as record-and-verify, PACS, QA, or secondary-dose-check destinations.
+- Document evidence records.
+- Caller-supplied attestations.
+
+Verification recomputes the current plan fingerprint and reports whether the write-up evidence is current or stale. BeamKit records external exports and printed documents as attestations unless a future optional adapter verifies them.
+
+See [docs/writeup-release.md](docs/writeup-release.md).
+
+## Policy As Code And Plan CI/CD
+
+BeamKit rule packs are intended to be reviewed like software:
+
+- Policy files are versioned as JSON catalogs and manifests.
+- `rule-pack validate` catches missing metadata and duplicate IDs before promotion.
+- `rule-pack test` runs curated or synthetic cases against expected pass/fail outcomes.
+- `ci run` emits a single record containing policy validation, plan check results, and provenance fingerprints.
+- Fingerprints make it possible to prove which plan, prescription, and rule pack produced a report.
+
+This is the open-source foundation for treating radiation plans like reproducible clinical build artifacts: every rule change can be reviewed, tested, and traced.
+
+See [docs/beamkit-check.md](docs/beamkit-check.md), [docs/ci-server.md](docs/ci-server.md), and [src/BeamKit.Sdk/README.md](src/BeamKit.Sdk/README.md).
 
 ## DICOM and DVH
 
@@ -451,6 +606,14 @@ See [docs/dicom.md](docs/dicom.md) and [docs/dvh.md](docs/dvh.md).
 
 Instead, caller-owned ESAPI code extracts read-only values into snapshot records, then BeamKit converts those snapshots into `BeamKit.Core.Plan`.
 
+For practical ESAPI testing, use the JSON bridge in [samples/esapi-smoke](samples/esapi-smoke): a local .NET Framework extractor writes `EsapiPlanSnapshot` JSON on the Varian workstation, then BeamKit CLI reads it with `--esapi-snapshot`.
+
+Snapshots can be checked for missing target, dose, structure, beam, and machine-model metadata with:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- esapi-snapshot validate --esapi-snapshot path/to/snapshot.json
+```
+
 This keeps the default repository build:
 
 - Open source.
@@ -466,6 +629,8 @@ See [docs/esapi.md](docs/esapi.md).
 | --- | --- |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | Clinical safety | [docs/clinical-safety.md](docs/clinical-safety.md) |
+| BeamKit Check | [docs/beamkit-check.md](docs/beamkit-check.md) |
+| CI server | [docs/ci-server.md](docs/ci-server.md) |
 | Rules | [docs/rules.md](docs/rules.md) |
 | Clinical goal templates | [docs/clinical-goal-templates.md](docs/clinical-goal-templates.md) |
 | Clinical rule catalog | [docs/rule-catalog.md](docs/rule-catalog.md) |
@@ -474,6 +639,8 @@ See [docs/esapi.md](docs/esapi.md).
 | Deliverability checks | [docs/deliverability.md](docs/deliverability.md) |
 | Dose calculations | [docs/dose-calculations.md](docs/dose-calculations.md) |
 | Structure ring recipes | [docs/structure-rings.md](docs/structure-rings.md) |
+| Plan write-up evidence | [docs/writeup-release.md](docs/writeup-release.md) |
+| SDK facade | [src/BeamKit.Sdk/README.md](src/BeamKit.Sdk/README.md) |
 | Structure normalization | [docs/structure-normalization.md](docs/structure-normalization.md) |
 | Plan change detection | [docs/change-detection.md](docs/change-detection.md) |
 | QA pipeline | [docs/qa-pipeline.md](docs/qa-pipeline.md) |
@@ -508,6 +675,7 @@ src/
   BeamKit.Core/
   BeamKit.Calculations/
   BeamKit.ChangeDetection/
+  BeamKit.Check/
   BeamKit.Deliverability/
   BeamKit.Metrics/
   BeamKit.Naming/
@@ -521,6 +689,9 @@ src/
   BeamKit.Esapi/
   BeamKit.Reporting/
   BeamKit.Workflow/
+  BeamKit.Release/
+  BeamKit.Sdk/
+  BeamKit.CiServer/
   BeamKit.Samples/
   BeamKit.Cli/
 tests/
@@ -536,15 +707,19 @@ Near-term:
 - Fuller TG-263 dictionary coverage.
 - More report snapshots and schema validation tests.
 - More configurable plan-check types based on real dosimetry and physics reminder lists.
+- More rule-pack examples and disease-site-specific synthetic clinical cases.
 - More DICOM RTPLAN/RTDOSE metadata coverage for physics QA checks.
 - Expand machine profiles for institutional beam models, algorithms, energies, and delivery-technique policies.
+- Expand write-up manifest schemas, packet templates, and adapter-backed export verification.
+- Add file-backed planner rosters and assignment inputs for CLI and SDK workflows.
+- Add persistent CI-server storage, authenticated uploads, role-based access control, and artifact-retention settings.
 
 Medium-term:
 
 - Voxel-based DVH calculation.
 - RTDOSE plus RTSTRUCT contour-based dose-volume analysis.
-- Case assignment engine.
-- Peer-review and plan-readiness worklists.
+- Peer-review, assignment, and plan-readiness worklists.
+- Production CI-server deployment profile and external artifact storage.
 - Notification adapters.
 - Web dashboard prototype.
 - FHIR/Epic integration.

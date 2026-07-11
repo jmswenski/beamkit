@@ -8,19 +8,22 @@
       "id": "plan.dose.exists",
       "title": "Dose exists",
       "type": "dose-exists",
-      "severity": "Failure"
+      "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline"
     },
     {
       "id": "plan.beams.present",
       "title": "Treatment beams exist",
       "type": "beams-present",
-      "severity": "Failure"
+      "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline"
     },
     {
       "id": "structure.body.exists",
       "title": "Body exists",
       "type": "structure-exists",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": { "structureName": "BODY" }
     },
     {
@@ -28,6 +31,7 @@
       "title": "Body has contours",
       "type": "structure-not-empty",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": { "structureName": "BODY" }
     },
     {
@@ -35,6 +39,7 @@
       "title": "Prescription target exists",
       "type": "structure-exists",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": { "structureName": "$target" }
     },
     {
@@ -42,6 +47,7 @@
       "title": "Prescription target has contours",
       "type": "structure-not-empty",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": { "structureName": "$target" }
     },
     {
@@ -49,25 +55,29 @@
       "title": "Dose grid spacing",
       "type": "dose-grid-max-spacing",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": { "maxSpacingMm": "2.5" }
     },
     {
       "id": "prescription.energy",
       "title": "Prescription requested energy",
       "type": "prescription-energy",
-      "severity": "Failure"
+      "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline"
     },
     {
       "id": "prescription.technique",
       "title": "Prescription requested technique",
       "type": "prescription-technique",
-      "severity": "Failure"
+      "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline"
     },
     {
       "id": "prescription.fractionation",
       "title": "Prescription fractionation",
       "type": "prescription-fractionation",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": {
         "totalDoseGy": "70",
         "fractionCount": "35",
@@ -78,19 +88,22 @@
       "id": "dose.calculation-model",
       "title": "Dose calculation model",
       "type": "calculation-model",
-      "severity": "Failure"
+      "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline"
     },
     {
       "id": "beam.model",
       "title": "Beam model",
       "type": "beam-model",
-      "severity": "Failure"
+      "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline"
     },
     {
       "id": "target.d95",
       "title": "Target D95 coverage",
       "type": "target-coverage",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": { "metric": "D95%", "minPercentPrescription": "95" }
     },
     {
@@ -98,6 +111,7 @@
       "title": "Target V95 coverage",
       "type": "dose-metric",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": {
         "structureName": "$target",
         "metric": "V66.5Gy",
@@ -111,6 +125,7 @@
       "title": "Target homogeneity index",
       "type": "plan-quality-metric",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": { "metric": "HI", "comparison": "LessThanOrEqual", "threshold": "0.15" }
     },
     {
@@ -118,6 +133,7 @@
       "title": "Target conformity index",
       "type": "plan-quality-metric",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": { "metric": "CI", "comparison": "GreaterThanOrEqual", "threshold": "0.7" }
     },
     {
@@ -125,6 +141,7 @@
       "title": "Cord maximum dose",
       "type": "dose-metric",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": {
         "structureName": "SpinalCord",
         "metric": "Max",
@@ -138,6 +155,7 @@
       "title": "Heart mean dose",
       "type": "dose-metric",
       "severity": "Warning",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": {
         "structureName": "Heart",
         "metric": "Mean",
@@ -151,6 +169,7 @@
       "title": "Right lung V20",
       "type": "dose-metric",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": {
         "structureName": "Lung_R",
         "metric": "V20Gy",
@@ -164,6 +183,7 @@
       "title": "Left lung V20",
       "type": "dose-metric",
       "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline",
       "parameters": {
         "structureName": "Lung_L",
         "metric": "V20Gy",
@@ -176,7 +196,8 @@
       "id": "deliverability.profile",
       "title": "Beam deliverability profile",
       "type": "deliverability",
-      "severity": "Failure"
+      "severity": "Failure",
+      "reference": "Synthetic institutional plan-check baseline"
     }
   ]
 }

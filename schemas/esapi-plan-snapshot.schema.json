@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beamkit.dev/schemas/esapi-plan-snapshot.schema.json",
+  "title": "BeamKit ESAPI plan snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [ "patientId", "courseId", "planId", "prescription", "structures" ],
+  "properties": {
+    "patientId": { "type": "string", "minLength": 1 },
+    "patientDisplayName": { "type": [ "string", "null" ] },
+    "courseId": { "type": "string", "minLength": 1 },
+    "planId": { "type": "string", "minLength": 1 },
+    "diseaseSite": { "type": [ "string", "null" ] },
+    "prescription": { "$ref": "#/$defs/prescription" },
+    "structures": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/structure" }
+    },
+    "doseGrid": { "$ref": "#/$defs/doseGrid" },
+    "doseStatistics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/doseStatistics" },
+      "default": []
+    },
+    "beams": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/beam" },
+      "default": []
+    }
+  },
+  "$defs": {
+    "prescription": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "totalDoseGy", "fractionCount", "targetStructureId", "isSigned" ],
+      "properties": {
+        "totalDoseGy": { "type": "number", "exclusiveMinimum": 0 },
+        "fractionCount": { "type": "integer", "minimum": 1 },
+        "targetStructureId": { "type": "string", "minLength": 1 },
+        "isSigned": { "type": "boolean" },
+        "intent": { "type": [ "string", "null" ] },
+        "requestedEnergy": { "type": [ "string", "null" ] },
+        "requestedTechniqueId": { "type": [ "string", "null" ] }
+      }
+    },
+    "structure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "id", "name", "type", "volumeCc", "hasContours" ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "enum": [ "Unknown", "External", "Target", "OrganAtRisk", "Avoidance", "Support" ]
+        },
+        "volumeCc": { "type": "number", "minimum": 0 },
+        "hasContours": { "type": "boolean" }
+      }
+    },
+    "doseGrid": {
+      "type": [ "object", "null" ],
+      "additionalProperties": false,
+      "required": [ "spacingXMm", "spacingYMm", "spacingZMm" ],
+      "properties": {
+        "spacingXMm": { "type": "number", "exclusiveMinimum": 0 },
+        "spacingYMm": { "type": "number", "exclusiveMinimum": 0 },
+        "spacingZMm": { "type": "number", "exclusiveMinimum": 0 },
+        "calculationModel": { "type": [ "string", "null" ] },
+        "calculationModelVersion": { "type": [ "string", "null" ] }
+      }
+    },
+    "doseStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "structureId", "metrics" ],
+      "properties": {
+        "structureId": { "type": "string", "minLength": 1 },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        }
+      }
+    },
+    "beam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "id", "name", "modality", "energy" ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "modality": { "type": "string", "minLength": 1 },
+        "energy": { "type": "string", "minLength": 1 },
+        "gantryAngleDegrees": { "type": [ "number", "null" ] },
+        "monitorUnits": { "type": [ "number", "null" ] },
+        "treatmentUnitId": { "type": [ "string", "null" ] },
+        "techniqueId": { "type": [ "string", "null" ] },
+        "isSetupField": { "type": "boolean" },
+        "beamModelId": { "type": [ "string", "null" ] },
+        "jawTrackingEnabled": { "type": [ "boolean", "null" ] },
+        "controlPoints": {
+          "type": [ "array", "null" ],
+          "items": { "$ref": "#/$defs/controlPoint" }
+        }
+      }
+    },
+    "controlPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "index" ],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "gantryAngleDegrees": { "type": [ "number", "null" ] },
+        "cumulativeMetersetWeight": { "type": [ "number", "null" ], "minimum": 0, "maximum": 1 },
+        "jawPositions": { "$ref": "#/$defs/jawPositions" }
+      }
+    },
+    "jawPositions": {
+      "type": [ "object", "null" ],
+      "additionalProperties": false,
+      "required": [ "x1Cm", "x2Cm", "y1Cm", "y2Cm" ],
+      "properties": {
+        "x1Cm": { "type": "number" },
+        "x2Cm": { "type": "number" },
+        "y1Cm": { "type": "number" },
+        "y2Cm": { "type": "number" }
+      }
+    }
+  }
+}

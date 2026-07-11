@@ -4,6 +4,8 @@ BeamKit keeps JSON Schemas in [schemas/](../schemas) for public sample inputs an
 
 Current schemas:
 
+- [beamkit-rule-pack.schema.json](../schemas/beamkit-rule-pack.schema.json)
+- [esapi-plan-snapshot.schema.json](../schemas/esapi-plan-snapshot.schema.json)
 - [clinical-goal-template.schema.json](../schemas/clinical-goal-template.schema.json)
 - [naming-dictionary.schema.json](../schemas/naming-dictionary.schema.json)
 - [machine-profile.schema.json](../schemas/machine-profile.schema.json)
@@ -12,5 +14,6 @@ Current schemas:
 - [synthetic-plan.schema.json](../schemas/synthetic-plan.schema.json)
 - [plan-evaluation-report.schema.json](../schemas/plan-evaluation-report.schema.json)
 - [qa-report.schema.json](../schemas/qa-report.schema.json)
+- [writeup-manifest.schema.json](../schemas/writeup-manifest.schema.json)
 
 These schemas are intended for editor completion, CI validation, and downstream integration contracts. They are versioned with the repository while BeamKit is pre-alpha.

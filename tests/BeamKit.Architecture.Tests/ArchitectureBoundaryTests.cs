@@ -1,6 +1,8 @@
 using System.Reflection;
 using BeamKit.Calculations;
 using BeamKit.ChangeDetection;
+using BeamKit.Check;
+using BeamKit.CiServer;
 using BeamKit.Core.Domain;
 using BeamKit.Deliverability;
 using BeamKit.Dicom;
@@ -9,8 +11,10 @@ using BeamKit.Metrics;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.Qa;
+using BeamKit.Release;
 using BeamKit.Reporting;
 using BeamKit.Rules;
+using BeamKit.Sdk;
 using BeamKit.Structures;
 using BeamKit.Templates;
 using BeamKit.Workflow;
@@ -35,12 +39,16 @@ public sealed class ArchitectureBoundaryTests
         var forbidden = new[]
         {
             "BeamKit.ChangeDetection",
+            "BeamKit.Check",
+            "BeamKit.CiServer",
             "BeamKit.Deliverability",
             "BeamKit.Metrics",
             "BeamKit.PlanCheck",
             "BeamKit.Qa",
+            "BeamKit.Release",
             "BeamKit.Reporting",
             "BeamKit.Rules",
+            "BeamKit.Sdk",
             "BeamKit.Structures",
             "BeamKit.Templates",
             "BeamKit.Workflow"
@@ -87,14 +95,18 @@ public sealed class ArchitectureBoundaryTests
         return new TheoryData<Assembly>
         {
             typeof(PlanChangeDetector).Assembly,
+            typeof(BeamKitCheckEngine).Assembly,
+            typeof(BeamKitCiServerService).Assembly,
             typeof(DoseCalculationService).Assembly,
             typeof(DeliverabilityCheckService).Assembly,
             typeof(PlanQualityMetricService).Assembly,
             typeof(PlanCheckEngine).Assembly,
             typeof(StructureNameNormalizer).Assembly,
             typeof(PlanQaPipeline).Assembly,
+            typeof(WriteUpManifestBuilder).Assembly,
             typeof(ReportBuilder).Assembly,
             typeof(RuleEngine).Assembly,
+            typeof(BeamKitClient).Assembly,
             typeof(RingStructurePlanner).Assembly,
             typeof(ClinicalGoalTemplateLoader).Assembly,
             typeof(PlanReadinessEvaluator).Assembly

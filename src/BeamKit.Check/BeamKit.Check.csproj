@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Flagship BeamKit plan-check workflow, rule-pack loading, and polished report generation.</Description>
+    <PackageId>BeamKit.Check</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.ChangeDetection\BeamKit.ChangeDetection.csproj" />
+    <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
+    <ProjectReference Include="..\BeamKit.Deliverability\BeamKit.Deliverability.csproj" />
+    <ProjectReference Include="..\BeamKit.Metrics\BeamKit.Metrics.csproj" />
+    <ProjectReference Include="..\BeamKit.Naming\BeamKit.Naming.csproj" />
+    <ProjectReference Include="..\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
+    <ProjectReference Include="..\BeamKit.Release\BeamKit.Release.csproj" />
+    <ProjectReference Include="..\BeamKit.Reporting\BeamKit.Reporting.csproj" />
+    <ProjectReference Include="..\BeamKit.Rules\BeamKit.Rules.csproj" />
+    <ProjectReference Include="..\BeamKit.Templates\BeamKit.Templates.csproj" />
+    <ProjectReference Include="..\BeamKit.Workflow\BeamKit.Workflow.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

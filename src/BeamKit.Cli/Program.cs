@@ -5,12 +5,15 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using BeamKit.Calculations;
 using BeamKit.ChangeDetection;
+using BeamKit.Check;
 using BeamKit.Cli;
 using BeamKit.Deliverability;
+using BeamKit.Esapi;
 using BeamKit.Metrics;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.Qa;
+using BeamKit.Release;
 using BeamKit.Reporting;
 using BeamKit.Rules;
 using BeamKit.Samples;
@@ -36,6 +39,12 @@ internal static class Program
             return options.Command switch
             {
                 "sample-report" => RunSampleReport(options),
+                "check" => RunCheck(options),
+                "rule-pack-validate" => RunRulePackValidate(options),
+                "rule-pack-test" => RunRulePackTest(options),
+                "ci-run" => RunCiRun(options),
+                "assignment-recommend" => RunAssignmentRecommend(options),
+                "cases" => RunCases(options),
                 "dose-calc" => RunDoseCalculation(options),
                 "structure-rings" => RunStructureRings(options),
                 "rule-catalog" => RunRuleCatalog(options),
@@ -43,6 +52,9 @@ internal static class Program
                 "metrics" => RunMetrics(options),
                 "deliverability" => RunDeliverability(options),
                 "plan-integrity" => RunPlanIntegrity(options),
+                "writeup-capture" => RunWriteUpCapture(options),
+                "writeup-verify" => RunWriteUpVerify(options),
+                "esapi-snapshot-validate" => RunEsapiSnapshotValidate(options),
                 "normalize-structures" => RunNormalizeStructures(options),
                 "qa" => RunQa(options),
                 "readiness" => RunReadiness(),
@@ -69,6 +81,85 @@ internal static class Program
 
         WriteOutput(output, options.OutputPath);
         return HasBlockingResult(results) ? 2 : 0;
+    }
+
+    private static int RunCheck(CliOptions options)
+    {
+        var plan = LoadPlan(options);
+        var rulePack = LoadRulePack(options);
+        var timestamp = TimeProvider.System.GetUtcNow();
+        var request = new BeamKitCheckRequest(
+            plan,
+            rulePack,
+            CreateExplicitReadinessInput(options, plan),
+            options.CaptureWriteUp,
+            options.ExportRecords.Select(record => ParseExportRecord(record, timestamp)),
+            options.DocumentRecords.Select(record => ParseDocumentRecord(record, timestamp)),
+            options.Attestations.Select(record => ParseAttestation(record, timestamp)),
+            DescribePlanInput(options));
+        var report = new BeamKitCheckEngine().Evaluate(request);
+        var output = BeamKitCheckReportWriter.Write(report, ToCheckReportFormat(options.Format));
+
+        WriteOutput(output, options.OutputPath);
+        return report.HasBlockingIssues ? 2 : 0;
+    }
+
+    private static int RunRulePackValidate(CliOptions options)
+    {
+        var rulePack = LoadRulePack(options);
+        var report = new RulePackPolicyValidator().Validate(rulePack);
+        var output = WriteRulePackValidationReport(report, options.Format);
+
+        WriteOutput(output, options.OutputPath);
+        return report.IsValid ? 0 : 2;
+    }
+
+    private static int RunRulePackTest(CliOptions options)
+    {
+        var rulePack = LoadRulePack(options);
+        var testCases = LoadRulePackTestCases(options);
+        var report = new RulePackTestRunner().Run(rulePack, testCases);
+        var output = WriteRulePackTestReport(report, options.Format);
+
+        WriteOutput(output, options.OutputPath);
+        return report.Passed ? 0 : 2;
+    }
+
+    private static int RunCiRun(CliOptions options)
+    {
+        var plan = LoadPlan(options);
+        var rulePack = LoadRulePack(options);
+        var request = new BeamKitCiRunRequest(
+            plan,
+            rulePack,
+            DescribePlanInput(options),
+            options.Branch,
+            options.Commit,
+            options.BuildId);
+        var record = new BeamKitCiRunner().Run(request);
+        var output = WriteCiRunRecord(record, options.Format);
+
+        WriteOutput(output, options.OutputPath);
+        return record.ExitCode;
+    }
+
+    private static int RunAssignmentRecommend(CliOptions options)
+    {
+        var request = CreateAssignmentRequest(options);
+        var recommendation = new PlannerAssignmentEngine().Recommend(request);
+        var output = WriteAssignmentRecommendation(recommendation, options.Format);
+
+        WriteOutput(output, options.OutputPath);
+        return recommendation.RecommendedPlanner is null ? 2 : 0;
+    }
+
+    private static int RunCases(CliOptions options)
+    {
+        var cases = SyntheticClinicalCaseLibrary.All();
+        var output = WriteCasesReport(cases, options.Format);
+
+        WriteOutput(output, options.OutputPath);
+        return 0;
     }
 
     private static int RunDoseCalculation(CliOptions options)
@@ -250,6 +341,54 @@ internal static class Program
         return report.Changes.Count == 0 ? 0 : 2;
     }
 
+    private static int RunWriteUpCapture(CliOptions options)
+    {
+        var plan = LoadPlan(options);
+        var timestamp = TimeProvider.System.GetUtcNow();
+        var readinessInput = new PlanReadinessInput(plan)
+        {
+            CtImported = options.CtImported,
+            OptimizationFinished = options.OptimizationFinished,
+            PhysicsQaComplete = options.PhysicsQaComplete,
+            PhysicianApprovalComplete = options.PhysicianApprovalComplete,
+            TreatmentReady = options.TreatmentReady
+        };
+        var exports = options.ExportRecords.Select(record => ParseExportRecord(record, timestamp)).ToArray();
+        var documents = options.DocumentRecords.Select(record => ParseDocumentRecord(record, timestamp)).ToArray();
+        var attestations = options.Attestations.Select(record => ParseAttestation(record, timestamp)).ToArray();
+        var manifest = new WriteUpManifestBuilder(TimeProvider.System).Capture(readinessInput, exports, documents, attestations);
+        var output = WriteUpReportWriter.WriteManifest(manifest, ToWriteUpReportFormat(options.Format));
+
+        WriteOutput(output, options.OutputPath);
+        return manifest.HasOutstandingChecklistItems ? 2 : 0;
+    }
+
+    private static int RunWriteUpVerify(CliOptions options)
+    {
+        var manifest = LoadWriteUpManifest(options);
+        var currentPlan = LoadPlan(options);
+        var report = new WriteUpVerifier().Verify(manifest, currentPlan);
+        var output = WriteUpReportWriter.WriteVerification(report, ToWriteUpReportFormat(options.Format));
+
+        WriteOutput(output, options.OutputPath);
+        return report.HasBlockingIssues ? 2 : 0;
+    }
+
+    private static int RunEsapiSnapshotValidate(CliOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.EsapiSnapshotPath))
+        {
+            throw new ArgumentException("ESAPI snapshot validation requires --esapi-snapshot.");
+        }
+
+        var snapshot = EsapiPlanSnapshotJson.FromFile(options.EsapiSnapshotPath);
+        var report = new EsapiSnapshotValidator().Validate(snapshot);
+        var output = WriteEsapiSnapshotValidationReport(report, options.Format);
+
+        WriteOutput(output, options.OutputPath);
+        return report.HasErrors ? 2 : 0;
+    }
+
     private static int RunQa(CliOptions options)
     {
         var plan = LoadPlan(options);
@@ -276,9 +415,217 @@ internal static class Program
 
     private static BeamKit.Core.Domain.Plan LoadPlan(CliOptions options)
     {
+        var suppliedInputs = new[]
+        {
+            !string.IsNullOrWhiteSpace(options.PlanPath),
+            !string.IsNullOrWhiteSpace(options.EsapiSnapshotPath),
+            !string.IsNullOrWhiteSpace(options.SyntheticCaseId)
+        }.Count(value => value);
+        if (suppliedInputs > 1)
+        {
+            throw new ArgumentException("Use only one of --plan, --esapi-snapshot, or --case.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.EsapiSnapshotPath))
+        {
+            return new EsapiPlanConverter().Convert(EsapiPlanSnapshotJson.FromFile(options.EsapiSnapshotPath));
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.SyntheticCaseId))
+        {
+            return SyntheticClinicalCaseLibrary.Find(options.SyntheticCaseId).Plan;
+        }
+
         return string.IsNullOrWhiteSpace(options.PlanPath)
             ? SyntheticPlanFactory.CreateHeadAndNeckPlan()
             : PlanJsonLoader.FromFile(options.PlanPath);
+    }
+
+    private static IReadOnlyList<RulePackTestCase> LoadRulePackTestCases(CliOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.SyntheticCaseId))
+        {
+            return new[] { CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find(options.SyntheticCaseId)) };
+        }
+
+        return new[]
+        {
+            CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find("head-neck-pass")),
+            CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find("head-neck-cord-fail")),
+            CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find("head-neck-missing-structure"))
+        };
+    }
+
+    private static RulePackTestCase CreateRulePackTestCase(SyntheticClinicalCase clinicalCase)
+    {
+        return new RulePackTestCase(
+            clinicalCase.Id,
+            clinicalCase.Description,
+            clinicalCase.Plan,
+            clinicalCase.ExpectedToPass ? BeamKitCheckStatus.Pass : BeamKitCheckStatus.Fail,
+            ExpectedFindingIdsForCase(clinicalCase.Id));
+    }
+
+    private static IReadOnlyList<string> ExpectedFindingIdsForCase(string caseId)
+    {
+        return caseId.ToLowerInvariant() switch
+        {
+            "head-neck-cord-fail" => new[] { "cord.max" },
+            "head-neck-missing-structure" => new[] { "lung.l.v20" },
+            _ => Array.Empty<string>()
+        };
+    }
+
+    private static PlannerAssignmentRequest CreateAssignmentRequest(CliOptions options)
+    {
+        var assignmentDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        var syntheticCase = string.IsNullOrWhiteSpace(options.SyntheticCaseId)
+            ? null
+            : SyntheticClinicalCaseLibrary.Find(options.SyntheticCaseId);
+        var diseaseSite = options.DiseaseSite ?? syntheticCase?.DiseaseSite ?? "Head and Neck";
+        var requiredSkills = options.RequiredSkills.Count == 0
+            ? new[] { "VMAT" }
+            : options.RequiredSkills;
+
+        return new PlannerAssignmentRequest(
+            syntheticCase?.Id ?? "synthetic-assignment",
+            diseaseSite,
+            options.DueDate ?? assignmentDate.AddDays(3),
+            CreateSyntheticPlannerProfiles(assignmentDate),
+            requiredSkills,
+            options.ComplexityScore ?? 3,
+            options.Priority ?? 3,
+            options.Physician,
+            assignmentDate);
+    }
+
+    private static IReadOnlyList<PlannerProfile> CreateSyntheticPlannerProfiles(DateOnly assignmentDate)
+    {
+        return new[]
+        {
+            new PlannerProfile(
+                "planner-jane",
+                "Jane Doe",
+                new[] { "VMAT", "SBRT", "Head and Neck" },
+                new[] { "Head and Neck", "Lung" },
+                activeCaseCount: 2,
+                maxActiveCaseCount: 8),
+            new PlannerProfile(
+                "planner-alex",
+                "Alex Kim",
+                new[] { "VMAT", "Prostate" },
+                new[] { "Prostate" },
+                activeCaseCount: 6,
+                maxActiveCaseCount: 8),
+            new PlannerProfile(
+                "planner-priya",
+                "Priya Shah",
+                new[] { "VMAT", "SRS", "Head and Neck" },
+                new[] { "Head and Neck", "Brain" },
+                activeCaseCount: 4,
+                maxActiveCaseCount: 8,
+                ptoUntil: assignmentDate.AddDays(1)),
+            new PlannerProfile(
+                "planner-sam",
+                "Sam Rivera",
+                new[] { "3D", "Breast" },
+                new[] { "Breast" },
+                activeCaseCount: 1,
+                maxActiveCaseCount: 8)
+        };
+    }
+
+    private static BeamKitRulePack LoadRulePack(CliOptions options)
+    {
+        var queryOverride = CreateOptionalCatalogQuery(options);
+        if (!string.IsNullOrWhiteSpace(options.RulePackPath))
+        {
+            return BeamKitRulePackLoader.FromFile(options.RulePackPath, queryOverride);
+        }
+
+        var query = queryOverride ?? CreateSyntheticCheckCatalogQuery();
+        return new BeamKitRulePack(
+            "Synthetic head-and-neck check pack",
+            "2026.1",
+            SyntheticClinicalRuleCatalogFactory.CreateHeadAndNeckCatalog().ToRuleSet(query),
+            PlanCheckCatalog.CreateSyntheticBaseline(),
+            SyntheticStructureNameDictionaryFactory.CreateTg263Subset(),
+            MachineConstraintProfile.CreateSynthetic(),
+            new RulePackReadinessDefaults
+            {
+                CtImported = true,
+                OptimizationFinished = true,
+                PhysicsQaComplete = true,
+                PhysicianApprovalComplete = true,
+                TreatmentReady = true
+            },
+            query,
+            owner: "BeamKit",
+            description: "Synthetic default rule pack for BeamKit Check demos.",
+            diseaseSite: "Head and Neck",
+            tags: new[] { "synthetic", "head-neck", "beamkit-check" });
+    }
+
+    private static ClinicalRuleCatalogQuery? CreateOptionalCatalogQuery(CliOptions options)
+    {
+        var explicitQuery = !string.IsNullOrWhiteSpace(options.DiseaseSite)
+            || !string.IsNullOrWhiteSpace(options.Institution)
+            || !string.IsNullOrWhiteSpace(options.Physician)
+            || options.Tags.Count > 0;
+
+        return explicitQuery ? CreateCatalogQuery(options) : null;
+    }
+
+    private static ClinicalRuleCatalogQuery CreateSyntheticCheckCatalogQuery()
+    {
+        return new ClinicalRuleCatalogQuery
+        {
+            DiseaseSite = "Head and Neck",
+            Institution = "Synthetic",
+            Tags = new[] { "baseline" }
+        };
+    }
+
+    private static PlanReadinessInput? CreateExplicitReadinessInput(CliOptions options, BeamKit.Core.Domain.Plan plan)
+    {
+        var hasExplicitReadiness = options.CtImported
+            || options.OptimizationFinished
+            || options.PhysicsQaComplete
+            || options.PhysicianApprovalComplete
+            || options.TreatmentReady;
+        if (!hasExplicitReadiness)
+        {
+            return null;
+        }
+
+        return new PlanReadinessInput(plan)
+        {
+            CtImported = options.CtImported,
+            OptimizationFinished = options.OptimizationFinished,
+            PhysicsQaComplete = options.PhysicsQaComplete,
+            PhysicianApprovalComplete = options.PhysicianApprovalComplete,
+            TreatmentReady = options.TreatmentReady
+        };
+    }
+
+    private static string DescribePlanInput(CliOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.PlanPath))
+        {
+            return $"plan:{options.PlanPath}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.EsapiSnapshotPath))
+        {
+            return $"esapi-snapshot:{options.EsapiSnapshotPath}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.SyntheticCaseId))
+        {
+            return $"case:{options.SyntheticCaseId}";
+        }
+
+        return "synthetic:head-neck-pass";
     }
 
     private static BeamKit.Core.Domain.Plan LoadQaPlan(CliOptions options)
@@ -286,6 +633,13 @@ internal static class Program
         return string.IsNullOrWhiteSpace(options.QaPlanPath)
             ? throw new ArgumentException("Plan integrity requires --qa-plan.")
             : PlanJsonLoader.FromFile(options.QaPlanPath);
+    }
+
+    private static WriteUpManifest LoadWriteUpManifest(CliOptions options)
+    {
+        return string.IsNullOrWhiteSpace(options.ManifestPath)
+            ? throw new ArgumentException("Write-up verification requires --manifest.")
+            : WriteUpManifestStore.FromFile(options.ManifestPath);
     }
 
     private static PlanRuleSet LoadRuleSet(CliOptions options)
@@ -430,6 +784,28 @@ internal static class Program
         };
     }
 
+    private static WriteUpReportFormat ToWriteUpReportFormat(ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => WriteUpReportFormat.Json,
+            ReportFormat.Markdown => WriteUpReportFormat.Markdown,
+            ReportFormat.Html => WriteUpReportFormat.Html,
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static BeamKitCheckReportFormat ToCheckReportFormat(ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => BeamKitCheckReportFormat.Json,
+            ReportFormat.Markdown => BeamKitCheckReportFormat.Markdown,
+            ReportFormat.Html => BeamKitCheckReportFormat.Html,
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
     private static bool HasBlockingResult(IEnumerable<EvaluationResult> results)
     {
         return results.Any(result =>
@@ -453,6 +829,63 @@ internal static class Program
         File.WriteAllText(outputPath, output);
     }
 
+    private static ExportRecord ParseExportRecord(string value, DateTimeOffset timestamp)
+    {
+        var parts = value.Split(':', StringSplitOptions.TrimEntries);
+        if (parts.Length < 2 || parts.Length > 5)
+        {
+            throw new ArgumentException("Export records must use kind:destination[:externalPlanId[:externalVersionId[:performedBy]]].");
+        }
+
+        return new ExportRecord(
+            parts[1],
+            ParseDestinationKind(parts[0]),
+            timestamp,
+            parts.Length > 2 ? parts[2] : null,
+            parts.Length > 3 ? parts[3] : null,
+            performedBy: parts.Length > 4 ? parts[4] : null);
+    }
+
+    private static WriteUpDocument ParseDocumentRecord(string value, DateTimeOffset timestamp)
+    {
+        var parts = value.Split(':', StringSplitOptions.TrimEntries);
+        if (parts.Length < 1 || parts.Length > 3)
+        {
+            throw new ArgumentException("Document records must use name[:format[:fingerprint]].");
+        }
+
+        return new WriteUpDocument(
+            parts[0],
+            parts.Length > 1 ? parts[1] : null,
+            timestamp,
+            parts.Length > 2 ? parts[2] : null);
+    }
+
+    private static Attestation ParseAttestation(string value, DateTimeOffset timestamp)
+    {
+        var parts = value.Split('=', 2, StringSplitOptions.TrimEntries);
+        if (parts.Length != 2)
+        {
+            throw new ArgumentException("Attestations must use key=value.");
+        }
+
+        return new Attestation(parts[0], parts[1], attestedAtUtc: timestamp);
+    }
+
+    private static DestinationKind ParseDestinationKind(string value)
+    {
+        return value.ToLowerInvariant() switch
+        {
+            "record-and-verify" or "recordandverify" or "rv" or "ois" => DestinationKind.RecordAndVerify,
+            "qa" or "qa-system" or "qasystem" => DestinationKind.QaSystem,
+            "pacs" => DestinationKind.Pacs,
+            "secondary-dose-check" or "secondarydosecheck" or "sdc" => DestinationKind.SecondaryDoseCheck,
+            "document-archive" or "documentarchive" or "document" => DestinationKind.DocumentArchive,
+            "other" => DestinationKind.Other,
+            _ => throw new ArgumentException($"Unsupported destination kind '{value}'.")
+        };
+    }
+
     private static int UnknownCommand(string command)
     {
         Console.Error.WriteLine($"beamkit: unknown command '{command}'.");
@@ -465,6 +898,12 @@ internal static class Program
     {
         Console.Error.WriteLine("Usage:");
         Console.Error.WriteLine("  beamkit sample-report [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit check [--plan path | --esapi-snapshot path | --case id] [--rule-pack path] [--capture-writeup] [--export kind:destination[:externalPlanId[:externalVersionId[:performedBy]]]]... [--document name[:format[:fingerprint]]]... [--attest key=value]... [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rule-pack validate [--rule-pack path] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rule-pack test [--rule-pack path] [--case id] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit ci run [--plan path | --esapi-snapshot path | --case id] [--rule-pack path] [--branch name] [--commit sha] [--build-id id] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit assignment recommend [--case id] [--disease-site name] [--required-skill skill]... [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit cases [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit dose-calc --total-dose-gy value --fractions n [--alpha-beta value] [--equivalent-fractions n] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit structure-rings --ptv name [--ring index:innerCm:thicknessCm]... [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit rule-catalog [--catalog path] [--disease-site name] [--physician name] [--tag tag]... [--format json|markdown|html] [--output path]");
@@ -472,14 +911,20 @@ internal static class Program
         Console.Error.WriteLine("  beamkit metrics [--plan path] [--metric expression] [--metric-structure name] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit deliverability [--plan path] [--machine-profile path] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit plan-integrity --plan treatment.json --qa-plan qa.json [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit writeup capture [--plan path] [--export kind:destination[:externalPlanId[:externalVersionId[:performedBy]]]]... [--document name[:format[:fingerprint]]]... [--attest key=value]... [--ct-imported] [--optimization-finished] [--physics-qa-complete] [--physician-approved] [--treatment-ready] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit writeup verify --manifest writeup.json [--plan path] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit esapi-snapshot validate --esapi-snapshot snapshot.json [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit normalize-structures [--dictionary path] [--structure name]... [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit qa [--plan path] [--template path | --catalog path] [--dictionary path] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit readiness");
         Console.Error.WriteLine();
+        Console.Error.WriteLine("Plan input:");
+        Console.Error.WriteLine("  Most plan-based commands accept --plan BeamKitPlan.json, --esapi-snapshot EsapiPlanSnapshot.json, or --case synthetic-case-id.");
+        Console.Error.WriteLine();
         Console.Error.WriteLine("Exit codes:");
         Console.Error.WriteLine("  0 success");
         Console.Error.WriteLine("  1 command line or output error");
-        Console.Error.WriteLine("  2 clinical, workflow, naming, QA, plan-check, metric, or deliverability gate did not pass");
+        Console.Error.WriteLine("  2 clinical, workflow, naming, QA, plan-check, metric, deliverability, policy, CI, or write-up consistency gate did not pass");
     }
 
     private static void WriteDisclaimer()
@@ -912,6 +1357,418 @@ internal static class Program
         return builder.ToString();
     }
 
+    private static string WriteRulePackValidationReport(RulePackValidationReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteRulePackValidationMarkdown(report),
+            ReportFormat.Html => WriteRulePackValidationHtml(report),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackValidationMarkdown(RulePackValidationReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Rule-Pack Validation");
+        builder.AppendLine();
+        builder.AppendLine($"- Rule pack: {report.RulePackName} ({report.RulePackVersion})");
+        builder.AppendLine($"- Fingerprint: `{report.Fingerprint}`");
+        builder.AppendLine($"- Valid: {(report.IsValid ? "Yes" : "No")}");
+        builder.AppendLine($"- Info: {report.InfoCount}");
+        builder.AppendLine($"- Warnings: {report.WarningCount}");
+        builder.AppendLine($"- Errors: {report.ErrorCount}");
+        builder.AppendLine();
+
+        if (report.Issues.Count == 0)
+        {
+            builder.AppendLine("No policy-as-code validation issues were detected.");
+            return builder.ToString();
+        }
+
+        builder.AppendLine("| Severity | Code | Subject | Message |");
+        builder.AppendLine("| --- | --- | --- | --- |");
+        foreach (var issue in report.Issues)
+        {
+            builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {issue.Message} |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackValidationHtml(RulePackValidationReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("<!doctype html>");
+        builder.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\"><title>BeamKit Rule-Pack Validation</title></head><body>");
+        builder.AppendLine("<h1>BeamKit Rule-Pack Validation</h1>");
+        builder.AppendLine($"<p>Rule pack: {WebUtility.HtmlEncode(report.RulePackName)} ({WebUtility.HtmlEncode(report.RulePackVersion)})</p>");
+        builder.AppendLine($"<p>Fingerprint: <code>{WebUtility.HtmlEncode(report.Fingerprint)}</code></p>");
+        builder.AppendLine($"<p>Valid: {(report.IsValid ? "Yes" : "No")}; Info: {report.InfoCount}; Warnings: {report.WarningCount}; Errors: {report.ErrorCount}</p>");
+        if (report.Issues.Count == 0)
+        {
+            builder.AppendLine("<p>No policy-as-code validation issues were detected.</p>");
+        }
+        else
+        {
+            builder.AppendLine("<table><thead><tr><th>Severity</th><th>Code</th><th>Subject</th><th>Message</th></tr></thead><tbody>");
+            foreach (var issue in report.Issues)
+            {
+                builder.AppendLine("<tr>"
+                    + $"<td>{issue.Severity}</td>"
+                    + $"<td><code>{WebUtility.HtmlEncode(issue.Code)}</code></td>"
+                    + $"<td><code>{WebUtility.HtmlEncode(issue.Subject ?? string.Empty)}</code></td>"
+                    + $"<td>{WebUtility.HtmlEncode(issue.Message)}</td>"
+                    + "</tr>");
+            }
+
+            builder.AppendLine("</tbody></table>");
+        }
+
+        builder.AppendLine("</body></html>");
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackTestReport(RulePackTestReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteRulePackTestMarkdown(report),
+            ReportFormat.Html => WriteRulePackTestHtml(report),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteRulePackTestMarkdown(RulePackTestReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Rule-Pack Tests");
+        builder.AppendLine();
+        builder.AppendLine($"- Rule pack: {report.RulePackName} ({report.RulePackVersion})");
+        builder.AppendLine($"- Passed: {report.PassedCount}");
+        builder.AppendLine($"- Failed: {report.FailedCount}");
+        builder.AppendLine();
+        builder.AppendLine("| Test | Expected | Actual | Passed | Missing Findings |");
+        builder.AppendLine("| --- | --- | --- | --- | --- |");
+        foreach (var result in report.Results)
+        {
+            builder.AppendLine(
+                $"| `{result.TestId}` | {result.ExpectedStatus} | {result.ActualStatus} | {(result.Passed ? "Yes" : "No")} | {FormatTags(result.MissingExpectedFindingIds)} |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteRulePackTestHtml(RulePackTestReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("<!doctype html>");
+        builder.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\"><title>BeamKit Rule-Pack Tests</title></head><body>");
+        builder.AppendLine("<h1>BeamKit Rule-Pack Tests</h1>");
+        builder.AppendLine($"<p>Rule pack: {WebUtility.HtmlEncode(report.RulePackName)} ({WebUtility.HtmlEncode(report.RulePackVersion)})</p>");
+        builder.AppendLine($"<p>Passed: {report.PassedCount}; Failed: {report.FailedCount}</p>");
+        builder.AppendLine("<table><thead><tr><th>Test</th><th>Expected</th><th>Actual</th><th>Passed</th><th>Missing Findings</th></tr></thead><tbody>");
+        foreach (var result in report.Results)
+        {
+            builder.AppendLine("<tr>"
+                + $"<td><code>{WebUtility.HtmlEncode(result.TestId)}</code></td>"
+                + $"<td>{result.ExpectedStatus}</td>"
+                + $"<td>{result.ActualStatus}</td>"
+                + $"<td>{(result.Passed ? "Yes" : "No")}</td>"
+                + $"<td>{WebUtility.HtmlEncode(FormatTags(result.MissingExpectedFindingIds))}</td>"
+                + "</tr>");
+        }
+
+        builder.AppendLine("</tbody></table>");
+        builder.AppendLine("</body></html>");
+        return builder.ToString();
+    }
+
+    private static string WriteCiRunRecord(BeamKitCiRunRecord record, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(record, CliJsonOptions),
+            ReportFormat.Markdown => WriteCiRunMarkdown(record),
+            ReportFormat.Html => WriteCiRunHtml(record),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteCiRunMarkdown(BeamKitCiRunRecord record)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit CI Run");
+        builder.AppendLine();
+        builder.AppendLine($"- Status: `{record.Status}`");
+        builder.AppendLine($"- Exit code: {record.ExitCode}");
+        builder.AppendLine($"- Run ID: `{record.Provenance.RunId}`");
+        builder.AppendLine($"- Plan: `{record.Provenance.PlanId}`");
+        builder.AppendLine($"- Rule pack: {record.Provenance.RulePackName} ({record.Provenance.RulePackVersion})");
+        builder.AppendLine($"- Plan fingerprint: `{record.Provenance.PlanFingerprint}`");
+        builder.AppendLine($"- Prescription fingerprint: `{record.Provenance.PrescriptionFingerprint}`");
+        builder.AppendLine($"- Rule-pack fingerprint: `{record.Provenance.RulePackFingerprint}`");
+        AppendOptionalMarkdown(builder, "Input source", record.Provenance.InputSource);
+        AppendOptionalMarkdown(builder, "Branch", record.Provenance.Branch);
+        AppendOptionalMarkdown(builder, "Commit", record.Provenance.Commit);
+        AppendOptionalMarkdown(builder, "Build ID", record.Provenance.BuildId);
+        builder.AppendLine();
+        builder.AppendLine("## Gates");
+        builder.AppendLine();
+        builder.AppendLine($"- Policy valid: {(record.PolicyValidation.IsValid ? "Yes" : "No")}");
+        builder.AppendLine($"- Policy errors: {record.PolicyValidation.ErrorCount}");
+        builder.AppendLine($"- Policy warnings: {record.PolicyValidation.WarningCount}");
+        builder.AppendLine($"- Check status: `{record.CheckReport.Status}`");
+        builder.AppendLine($"- Blocking check issues: {record.CheckReport.BlockingIssueCount}");
+        builder.AppendLine();
+
+        if (record.PolicyValidation.Issues.Count > 0)
+        {
+            builder.AppendLine("## Policy Issues");
+            builder.AppendLine();
+            builder.AppendLine("| Severity | Code | Subject | Message |");
+            builder.AppendLine("| --- | --- | --- | --- |");
+            foreach (var issue in record.PolicyValidation.Issues)
+            {
+                builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {issue.Message} |");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteCiRunHtml(BeamKitCiRunRecord record)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("<!doctype html>");
+        builder.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\"><title>BeamKit CI Run</title></head><body>");
+        builder.AppendLine("<h1>BeamKit CI Run</h1>");
+        builder.AppendLine($"<p>Status: <code>{record.Status}</code>; Exit code: {record.ExitCode}</p>");
+        builder.AppendLine($"<p>Run ID: <code>{WebUtility.HtmlEncode(record.Provenance.RunId)}</code></p>");
+        builder.AppendLine($"<p>Plan: <code>{WebUtility.HtmlEncode(record.Provenance.PlanId)}</code></p>");
+        builder.AppendLine($"<p>Rule pack: {WebUtility.HtmlEncode(record.Provenance.RulePackName)} ({WebUtility.HtmlEncode(record.Provenance.RulePackVersion)})</p>");
+        builder.AppendLine($"<p>Plan fingerprint: <code>{WebUtility.HtmlEncode(record.Provenance.PlanFingerprint)}</code></p>");
+        builder.AppendLine($"<p>Rule-pack fingerprint: <code>{WebUtility.HtmlEncode(record.Provenance.RulePackFingerprint)}</code></p>");
+        builder.AppendLine($"<p>Policy valid: {(record.PolicyValidation.IsValid ? "Yes" : "No")}; Policy errors: {record.PolicyValidation.ErrorCount}; Blocking check issues: {record.CheckReport.BlockingIssueCount}</p>");
+        if (record.PolicyValidation.Issues.Count > 0)
+        {
+            builder.AppendLine("<table><thead><tr><th>Severity</th><th>Code</th><th>Subject</th><th>Message</th></tr></thead><tbody>");
+            foreach (var issue in record.PolicyValidation.Issues)
+            {
+                builder.AppendLine("<tr>"
+                    + $"<td>{issue.Severity}</td>"
+                    + $"<td><code>{WebUtility.HtmlEncode(issue.Code)}</code></td>"
+                    + $"<td><code>{WebUtility.HtmlEncode(issue.Subject ?? string.Empty)}</code></td>"
+                    + $"<td>{WebUtility.HtmlEncode(issue.Message)}</td>"
+                    + "</tr>");
+            }
+
+            builder.AppendLine("</tbody></table>");
+        }
+
+        builder.AppendLine("</body></html>");
+        return builder.ToString();
+    }
+
+    private static string WriteAssignmentRecommendation(PlannerAssignmentRecommendation recommendation, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(recommendation, CliJsonOptions),
+            ReportFormat.Markdown => WriteAssignmentRecommendationMarkdown(recommendation),
+            ReportFormat.Html => WriteAssignmentRecommendationHtml(recommendation),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteAssignmentRecommendationMarkdown(PlannerAssignmentRecommendation recommendation)
+    {
+        var recommended = recommendation.RecommendedPlanner;
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Assignment Recommendation");
+        builder.AppendLine();
+        builder.AppendLine($"- Case: `{recommendation.CaseId}`");
+        if (recommended is not null)
+        {
+            builder.AppendLine($"- Recommended planner: {recommended.Planner.DisplayName}");
+            builder.AppendLine($"- Score: {recommended.Score}");
+            builder.AppendLine($"- Reason: {FormatTags(recommended.Reasons)}");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("| Rank | Planner | Available | Score | Reasons |");
+        builder.AppendLine("| ---: | --- | --- | ---: | --- |");
+        var rank = 1;
+        foreach (var candidate in recommendation.Candidates)
+        {
+            builder.AppendLine(
+                $"| {rank++} | {candidate.Planner.DisplayName} | {(candidate.IsAvailable ? "Yes" : "No")} | {candidate.Score} | {FormatTags(candidate.Reasons)} |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteAssignmentRecommendationHtml(PlannerAssignmentRecommendation recommendation)
+    {
+        var recommended = recommendation.RecommendedPlanner;
+        var builder = new StringBuilder();
+        builder.AppendLine("<!doctype html>");
+        builder.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\"><title>BeamKit Assignment Recommendation</title></head><body>");
+        builder.AppendLine("<h1>BeamKit Assignment Recommendation</h1>");
+        builder.AppendLine($"<p>Case: <code>{WebUtility.HtmlEncode(recommendation.CaseId)}</code></p>");
+        if (recommended is not null)
+        {
+            builder.AppendLine($"<p>Recommended planner: {WebUtility.HtmlEncode(recommended.Planner.DisplayName)}; Score: {recommended.Score}</p>");
+        }
+
+        builder.AppendLine("<table><thead><tr><th>Rank</th><th>Planner</th><th>Available</th><th>Score</th><th>Reasons</th></tr></thead><tbody>");
+        var rank = 1;
+        foreach (var candidate in recommendation.Candidates)
+        {
+            builder.AppendLine("<tr>"
+                + $"<td>{rank++}</td>"
+                + $"<td>{WebUtility.HtmlEncode(candidate.Planner.DisplayName)}</td>"
+                + $"<td>{(candidate.IsAvailable ? "Yes" : "No")}</td>"
+                + $"<td>{candidate.Score}</td>"
+                + $"<td>{WebUtility.HtmlEncode(FormatTags(candidate.Reasons))}</td>"
+                + "</tr>");
+        }
+
+        builder.AppendLine("</tbody></table>");
+        builder.AppendLine("</body></html>");
+        return builder.ToString();
+    }
+
+    private static string WriteCasesReport(IReadOnlyList<SyntheticClinicalCase> cases, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(cases.Select(ToCaseSummary), CliJsonOptions),
+            ReportFormat.Markdown => WriteCasesMarkdown(cases),
+            ReportFormat.Html => WriteCasesHtml(cases),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteCasesMarkdown(IReadOnlyList<SyntheticClinicalCase> cases)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit Synthetic Cases");
+        builder.AppendLine();
+        builder.AppendLine("| Case | Disease Site | Expected | Description |");
+        builder.AppendLine("| --- | --- | --- | --- |");
+        foreach (var clinicalCase in cases)
+        {
+            builder.AppendLine($"| `{clinicalCase.Id}` | {clinicalCase.DiseaseSite} | {(clinicalCase.ExpectedToPass ? "Pass" : "Fail")} | {clinicalCase.Description} |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteCasesHtml(IReadOnlyList<SyntheticClinicalCase> cases)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("<!doctype html>");
+        builder.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\"><title>BeamKit Synthetic Cases</title></head><body>");
+        builder.AppendLine("<h1>BeamKit Synthetic Cases</h1>");
+        builder.AppendLine("<table><thead><tr><th>Case</th><th>Disease Site</th><th>Expected</th><th>Description</th></tr></thead><tbody>");
+        foreach (var clinicalCase in cases)
+        {
+            builder.AppendLine("<tr>"
+                + $"<td><code>{WebUtility.HtmlEncode(clinicalCase.Id)}</code></td>"
+                + $"<td>{WebUtility.HtmlEncode(clinicalCase.DiseaseSite)}</td>"
+                + $"<td>{(clinicalCase.ExpectedToPass ? "Pass" : "Fail")}</td>"
+                + $"<td>{WebUtility.HtmlEncode(clinicalCase.Description)}</td>"
+                + "</tr>");
+        }
+
+        builder.AppendLine("</tbody></table>");
+        builder.AppendLine("</body></html>");
+        return builder.ToString();
+    }
+
+    private static CaseSummary ToCaseSummary(SyntheticClinicalCase clinicalCase)
+    {
+        return new CaseSummary(
+            clinicalCase.Id,
+            clinicalCase.Name,
+            clinicalCase.DiseaseSite,
+            clinicalCase.Description,
+            clinicalCase.ExpectedToPass,
+            clinicalCase.ExpectedFindings);
+    }
+
+    private static string WriteEsapiSnapshotValidationReport(EsapiSnapshotValidationReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteEsapiSnapshotValidationMarkdown(report),
+            ReportFormat.Html => WriteEsapiSnapshotValidationHtml(report),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteEsapiSnapshotValidationMarkdown(EsapiSnapshotValidationReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit ESAPI Snapshot Validation");
+        builder.AppendLine();
+        builder.AppendLine($"- Plan: `{report.PlanId}`");
+        builder.AppendLine($"- Info: {report.InfoCount}");
+        builder.AppendLine($"- Warnings: {report.WarningCount}");
+        builder.AppendLine($"- Errors: {report.ErrorCount}");
+        builder.AppendLine();
+        if (report.Issues.Count == 0)
+        {
+            builder.AppendLine("No snapshot validation issues were detected.");
+            return builder.ToString();
+        }
+
+        builder.AppendLine("| Severity | Code | Subject | Message |");
+        builder.AppendLine("| --- | --- | --- | --- |");
+        foreach (var issue in report.Issues)
+        {
+            builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {issue.Message} |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteEsapiSnapshotValidationHtml(EsapiSnapshotValidationReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("<!doctype html>");
+        builder.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\"><title>BeamKit ESAPI Snapshot Validation</title></head><body>");
+        builder.AppendLine("<h1>BeamKit ESAPI Snapshot Validation</h1>");
+        builder.AppendLine($"<p>Plan: <code>{WebUtility.HtmlEncode(report.PlanId)}</code></p>");
+        builder.AppendLine($"<p>Info: {report.InfoCount}; Warnings: {report.WarningCount}; Errors: {report.ErrorCount}</p>");
+        if (report.Issues.Count == 0)
+        {
+            builder.AppendLine("<p>No snapshot validation issues were detected.</p>");
+        }
+        else
+        {
+            builder.AppendLine("<table><thead><tr><th>Severity</th><th>Code</th><th>Subject</th><th>Message</th></tr></thead><tbody>");
+            foreach (var issue in report.Issues)
+            {
+                builder.AppendLine("<tr>"
+                    + $"<td>{issue.Severity}</td>"
+                    + $"<td><code>{WebUtility.HtmlEncode(issue.Code)}</code></td>"
+                    + $"<td><code>{WebUtility.HtmlEncode(issue.Subject ?? string.Empty)}</code></td>"
+                    + $"<td>{WebUtility.HtmlEncode(issue.Message)}</td>"
+                    + "</tr>");
+            }
+
+            builder.AppendLine("</tbody></table>");
+        }
+
+        builder.AppendLine("</body></html>");
+        return builder.ToString();
+    }
+
     private static string WritePlanIntegrityReport(PlanChangeReport report, ReportFormat format)
     {
         return format switch
@@ -1108,4 +1965,12 @@ internal static class Program
 
         public int InactiveGoalCount => TemplateSets.Sum(set => set.Goals.Count(goal => !goal.IsActive));
     }
+
+    private sealed record CaseSummary(
+        string Id,
+        string Name,
+        string DiseaseSite,
+        string Description,
+        bool ExpectedToPass,
+        IReadOnlyList<string> ExpectedFindings);
 }

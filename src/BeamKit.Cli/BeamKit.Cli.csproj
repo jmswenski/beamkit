@@ -9,12 +9,15 @@
   <ItemGroup>
     <ProjectReference Include="..\BeamKit.Calculations\BeamKit.Calculations.csproj" />
     <ProjectReference Include="..\BeamKit.ChangeDetection\BeamKit.ChangeDetection.csproj" />
+    <ProjectReference Include="..\BeamKit.Check\BeamKit.Check.csproj" />
     <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
     <ProjectReference Include="..\BeamKit.Deliverability\BeamKit.Deliverability.csproj" />
+    <ProjectReference Include="..\BeamKit.Esapi\BeamKit.Esapi.csproj" />
     <ProjectReference Include="..\BeamKit.Metrics\BeamKit.Metrics.csproj" />
     <ProjectReference Include="..\BeamKit.Naming\BeamKit.Naming.csproj" />
     <ProjectReference Include="..\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
     <ProjectReference Include="..\BeamKit.Qa\BeamKit.Qa.csproj" />
+    <ProjectReference Include="..\BeamKit.Release\BeamKit.Release.csproj" />
     <ProjectReference Include="..\BeamKit.Reporting\BeamKit.Reporting.csproj" />
     <ProjectReference Include="..\BeamKit.Rules\BeamKit.Rules.csproj" />
     <ProjectReference Include="..\BeamKit.Samples\BeamKit.Samples.csproj" />

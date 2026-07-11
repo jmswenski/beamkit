@@ -12,6 +12,59 @@ dotnet run --project src/BeamKit.Cli -- sample-report --format json --output art
 dotnet run --project src/BeamKit.Cli -- sample-report --format html --output artifacts/sample-report.html
 ```
 
+Run the flagship BeamKit Check workflow:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- check --format markdown
+dotnet run --project src/BeamKit.Cli -- check \
+  --plan samples/synthetic-plan.json \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json \
+  --format html \
+  --output artifacts/head-neck-check.html
+```
+
+List and run synthetic clinical cases:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- cases
+dotnet run --project src/BeamKit.Cli -- check --case head-neck-pass
+dotnet run --project src/BeamKit.Cli -- check --case head-neck-cord-fail
+```
+
+Validate and regression-test a rule pack:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rule-pack validate \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+
+dotnet run --project src/BeamKit.Cli -- rule-pack test \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+```
+
+Run a CI/CD-style plan gate with provenance metadata:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- ci run \
+  --case head-neck-pass \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json \
+  --branch main \
+  --commit abc123 \
+  --build-id local-demo \
+  --format markdown
+```
+
+Recommend a planner assignment from workload, skills, PTO, and due-date context:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- assignment recommend \
+  --disease-site "Head and Neck" \
+  --required-skill VMAT \
+  --required-skill SBRT \
+  --complexity 4 \
+  --priority 4 \
+  --due-date 2026-07-10
+```
+
 Show synthetic plan readiness:
 
 ```bash
@@ -50,6 +103,16 @@ dotnet run --project src/BeamKit.Cli -- plan-check \
   --format json
 ```
 
+Run from a locally extracted ESAPI snapshot:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- check \
+  --esapi-snapshot samples/esapi-smoke/artifacts/esapi-plan-snapshot.json \
+  --rule-pack samples/rule-packs/head-neck-v1/beamkit-rule-pack.json
+dotnet run --project src/BeamKit.Cli -- esapi-snapshot validate \
+  --esapi-snapshot samples/esapi-smoke/artifacts/esapi-plan-snapshot.json
+```
+
 Calculate plan-quality metrics:
 
 ```bash
@@ -71,6 +134,28 @@ Verify a QA plan still matches its treatment plan:
 dotnet run --project src/BeamKit.Cli -- plan-integrity \
   --plan samples/synthetic-plan.json \
   --qa-plan samples/synthetic-plan.json
+```
+
+Capture and verify plan write-up evidence:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- writeup capture \
+  --plan samples/synthetic-plan.json \
+  --export record-and-verify:ARIA:HN-SYN-001:V1:dosimetry \
+  --document "Plan write-up:html" \
+  --attest documents-printed=true \
+  --ct-imported \
+  --optimization-finished \
+  --physics-qa-complete \
+  --physician-approved \
+  --treatment-ready \
+  --format json \
+  --output artifacts/writeup.json
+
+dotnet run --project src/BeamKit.Cli -- writeup verify \
+  --manifest artifacts/writeup.json \
+  --plan samples/synthetic-plan.json \
+  --format markdown
 ```
 
 Run combined synthetic QA:
@@ -113,6 +198,6 @@ dotnet run --project src/BeamKit.Cli -- normalize-structures --format json --out
 
 - `0`: command completed and no failing, error, or not-evaluable rule results were produced.
 - `1`: invalid arguments or output failure.
-- `2`: clinical, workflow, structure-naming, catalog filter, plan-check, metric, or deliverability gate did not pass.
+- `2`: clinical, workflow, structure-naming, catalog filter, plan-check, metric, deliverability, policy validation, CI gate, ESAPI snapshot validation, or write-up consistency gate did not pass.
 
 The CLI is for development and demonstration only until BeamKit has a validated clinical deployment model.

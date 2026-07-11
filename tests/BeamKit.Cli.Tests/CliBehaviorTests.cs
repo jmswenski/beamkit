@@ -52,6 +52,105 @@ public sealed class CliBehaviorTests
     }
 
     [Fact]
+    public void ParserReadsCheckRulePackAndCaseOptions()
+    {
+        var options = CliOptions.Parse(new[]
+        {
+            "check",
+            "--case",
+            "head-neck-pass",
+            "--rule-pack",
+            "pack.json",
+            "--capture-writeup"
+        });
+
+        Assert.Equal("check", options.Command);
+        Assert.Equal("head-neck-pass", options.SyntheticCaseId);
+        Assert.Equal("pack.json", options.RulePackPath);
+        Assert.True(options.CaptureWriteUp);
+    }
+
+    [Fact]
+    public void ParserReadsRulePackSubcommands()
+    {
+        var validate = CliOptions.Parse(new[] { "rule-pack", "validate", "--rule-pack", "pack.json" });
+        var test = CliOptions.Parse(new[] { "rule-pack", "test", "--case", "head-neck-pass" });
+
+        Assert.Equal("rule-pack-validate", validate.Command);
+        Assert.Equal("pack.json", validate.RulePackPath);
+        Assert.Equal("rule-pack-test", test.Command);
+        Assert.Equal("head-neck-pass", test.SyntheticCaseId);
+    }
+
+    [Fact]
+    public void ParserReadsCiRunOptions()
+    {
+        var options = CliOptions.Parse(new[]
+        {
+            "ci",
+            "run",
+            "--case",
+            "head-neck-pass",
+            "--branch",
+            "main",
+            "--commit",
+            "abc123",
+            "--build-id",
+            "build-1"
+        });
+
+        Assert.Equal("ci-run", options.Command);
+        Assert.Equal("head-neck-pass", options.SyntheticCaseId);
+        Assert.Equal("main", options.Branch);
+        Assert.Equal("abc123", options.Commit);
+        Assert.Equal("build-1", options.BuildId);
+    }
+
+    [Fact]
+    public void ParserReadsAssignmentRecommendationOptions()
+    {
+        var options = CliOptions.Parse(new[]
+        {
+            "assignment",
+            "recommend",
+            "--disease-site",
+            "Head and Neck",
+            "--required-skill",
+            "VMAT",
+            "--required-skill",
+            "SBRT",
+            "--complexity",
+            "5",
+            "--priority",
+            "4",
+            "--due-date",
+            "2026-07-10"
+        });
+
+        Assert.Equal("assignment-recommend", options.Command);
+        Assert.Equal("Head and Neck", options.DiseaseSite);
+        Assert.Equal(new[] { "VMAT", "SBRT" }, options.RequiredSkills);
+        Assert.Equal(5, options.ComplexityScore);
+        Assert.Equal(4, options.Priority);
+        Assert.Equal(new DateOnly(2026, 7, 10), options.DueDate);
+    }
+
+    [Fact]
+    public void ParserReadsEsapiSnapshotValidateSubcommand()
+    {
+        var options = CliOptions.Parse(new[]
+        {
+            "esapi-snapshot",
+            "validate",
+            "--esapi-snapshot",
+            "snapshot.json"
+        });
+
+        Assert.Equal("esapi-snapshot-validate", options.Command);
+        Assert.Equal("snapshot.json", options.EsapiSnapshotPath);
+    }
+
+    [Fact]
     public void ParserReadsStructureRingOptions()
     {
         var options = CliOptions.Parse(new[]
@@ -115,6 +214,20 @@ public sealed class CliBehaviorTests
     }
 
     [Fact]
+    public void ParserReadsEsapiSnapshotPlanInput()
+    {
+        var options = CliOptions.Parse(new[]
+        {
+            "plan-check",
+            "--esapi-snapshot",
+            "snapshot.json"
+        });
+
+        Assert.Equal("plan-check", options.Command);
+        Assert.Equal("snapshot.json", options.EsapiSnapshotPath);
+    }
+
+    [Fact]
     public void ParserReadsMetricOptions()
     {
         var options = CliOptions.Parse(new[]
@@ -146,6 +259,46 @@ public sealed class CliBehaviorTests
         Assert.Equal("plan-integrity", options.Command);
         Assert.Equal("treatment.json", options.PlanPath);
         Assert.Equal("qa.json", options.QaPlanPath);
+    }
+
+    [Fact]
+    public void ParserReadsWriteUpCaptureOptions()
+    {
+        var options = CliOptions.Parse(new[]
+        {
+            "writeup",
+            "capture",
+            "--export",
+            "record-and-verify:ARIA:PLAN-1:V1:dosimetry",
+            "--document",
+            "Plan packet:html",
+            "--attest",
+            "documents-printed=true",
+            "--ct-imported",
+            "--optimization-finished",
+            "--physics-qa-complete",
+            "--physician-approved",
+            "--treatment-ready"
+        });
+
+        Assert.Equal("writeup-capture", options.Command);
+        Assert.Equal("record-and-verify:ARIA:PLAN-1:V1:dosimetry", Assert.Single(options.ExportRecords));
+        Assert.Equal("Plan packet:html", Assert.Single(options.DocumentRecords));
+        Assert.Equal("documents-printed=true", Assert.Single(options.Attestations));
+        Assert.True(options.CtImported);
+        Assert.True(options.OptimizationFinished);
+        Assert.True(options.PhysicsQaComplete);
+        Assert.True(options.PhysicianApprovalComplete);
+        Assert.True(options.TreatmentReady);
+    }
+
+    [Fact]
+    public void ParserReadsWriteUpVerifyManifestPath()
+    {
+        var options = CliOptions.Parse(new[] { "writeup", "verify", "--manifest", "writeup.json" });
+
+        Assert.Equal("writeup-verify", options.Command);
+        Assert.Equal("writeup.json", options.ManifestPath);
     }
 
     [Fact]
@@ -253,6 +406,211 @@ public sealed class CliBehaviorTests
     }
 
     [Fact]
+    public void ProgramRunsCheckCommand()
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "check", "--case", "head-neck-pass" });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("BeamKit Check Report", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Status: `Pass`", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsRulePackValidateCommand()
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "rule-pack", "validate" });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("BeamKit Rule-Pack Validation", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("sha256:", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsRulePackTestCommand()
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "rule-pack", "test" });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("BeamKit Rule-Pack Tests", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("head-neck-cord-fail", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsCiRunCommand()
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[]
+            {
+                "ci",
+                "run",
+                "--case",
+                "head-neck-pass",
+                "--branch",
+                "main",
+                "--commit",
+                "abc123",
+                "--build-id",
+                "build-1"
+            });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("BeamKit CI Run", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("sha256:", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Build ID: build-1", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsAssignmentRecommendCommand()
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[]
+            {
+                "assignment",
+                "recommend",
+                "--disease-site",
+                "Head and Neck",
+                "--required-skill",
+                "VMAT",
+                "--complexity",
+                "4"
+            });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("BeamKit Assignment Recommendation", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Jane Doe", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void ProgramReturnsTwoForFailingCheckCase()
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "check", "--case", "head-neck-cord-fail" });
+
+            Assert.Equal(2, exitCode);
+            Assert.Contains("BeamKit Check Report", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("cord.max", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void ProgramListsSyntheticCases()
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "cases" });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("head-neck-pass", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("lung-sbrt-pass", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
     public void ProgramRunsMetricsCommand()
     {
         var originalOut = Console.Out;
@@ -330,6 +688,158 @@ public sealed class CliBehaviorTests
             Console.SetOut(originalOut);
             Console.SetError(originalError);
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsWriteUpCaptureAndVerifyCommands()
+    {
+        var manifestPath = Path.GetTempFileName();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var captureOutput = new StringWriter();
+            using var captureError = new StringWriter();
+            Console.SetOut(captureOutput);
+            Console.SetError(captureError);
+
+            var captureExitCode = Program.Main(new[]
+            {
+                "writeup",
+                "capture",
+                "--format",
+                "json",
+                "--output",
+                manifestPath,
+                "--export",
+                "record-and-verify:ARIA:HN-SYN-001:V1:dosimetry",
+                "--document",
+                "Plan write-up:html",
+                "--attest",
+                "documents-printed=true",
+                "--ct-imported",
+                "--optimization-finished",
+                "--physics-qa-complete",
+                "--physician-approved",
+                "--treatment-ready"
+            });
+
+            Assert.Equal(0, captureExitCode);
+            Assert.Contains("planFingerprint", File.ReadAllText(manifestPath), StringComparison.Ordinal);
+
+            using var verifyOutput = new StringWriter();
+            using var verifyError = new StringWriter();
+            Console.SetOut(verifyOutput);
+            Console.SetError(verifyError);
+
+            var verifyExitCode = Program.Main(new[]
+            {
+                "writeup",
+                "verify",
+                "--manifest",
+                manifestPath
+            });
+
+            Assert.Equal(0, verifyExitCode);
+            Assert.Contains("BeamKit Write-Up Verification", verifyOutput.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Status: `Current`", verifyOutput.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            File.Delete(manifestPath);
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsMetricsFromEsapiSnapshot()
+    {
+        var path = Path.GetTempFileName();
+        File.WriteAllText(path, TestEsapiSnapshotJson);
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "metrics", "--esapi-snapshot", path });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("BeamKit Metrics", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("HN-SYN-001", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ProgramValidatesEsapiSnapshot()
+    {
+        var path = Path.GetTempFileName();
+        File.WriteAllText(path, TestEsapiSnapshotJson);
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "esapi-snapshot", "validate", "--esapi-snapshot", path });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("BeamKit ESAPI Snapshot Validation", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Errors: 0", output.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ProgramRejectsBothPlanAndEsapiSnapshotInputs()
+    {
+        var planPath = Path.GetTempFileName();
+        var snapshotPath = Path.GetTempFileName();
+        File.WriteAllText(planPath, TestPlanJson);
+        File.WriteAllText(snapshotPath, TestEsapiSnapshotJson);
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "plan-check", "--plan", planPath, "--esapi-snapshot", snapshotPath });
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Use only one of --plan, --esapi-snapshot, or --case", error.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            File.Delete(planPath);
+            File.Delete(snapshotPath);
         }
     }
 
@@ -430,6 +940,62 @@ public sealed class CliBehaviorTests
             ],
             "clinicalGoals": [ { "id": "goal", "structureName": "PTV", "metricKey": "MaxDoseGy", "comparison": "LessThanOrEqual", "threshold": 55, "unit": "Gy" } ]
           }
+        }
+        """;
+
+    private const string TestEsapiSnapshotJson = """
+        {
+          "patientId": "SYN-0001",
+          "patientDisplayName": "Synthetic Patient",
+          "courseId": "C1",
+          "planId": "HN-SYN-001",
+          "diseaseSite": "Head and Neck",
+          "prescription": {
+            "totalDoseGy": 70,
+            "fractionCount": 35,
+            "targetStructureId": "PTV_7000",
+            "isSigned": true,
+            "requestedEnergy": "6X",
+            "requestedTechniqueId": "VMAT"
+          },
+          "structures": [
+            { "id": "BODY", "name": "Body", "type": "External", "volumeCc": 31500, "hasContours": true },
+            { "id": "PTV_7000", "name": "PTV_7000", "type": "Target", "volumeCc": 164.2, "hasContours": true },
+            { "id": "CORD", "name": "SpinalCord", "type": "OrganAtRisk", "volumeCc": 42.1, "hasContours": true },
+            { "id": "HEART", "name": "Heart", "type": "OrganAtRisk", "volumeCc": 611.4, "hasContours": true },
+            { "id": "LUNG_R", "name": "Lung_R", "type": "OrganAtRisk", "volumeCc": 1820.5, "hasContours": true }
+          ],
+          "doseGrid": {
+            "spacingXMm": 2.5,
+            "spacingYMm": 2.5,
+            "spacingZMm": 2.5,
+            "calculationModel": "AAA",
+            "calculationModelVersion": "16.1"
+          },
+          "doseStatistics": [
+            { "structureId": "PTV_7000", "metrics": { "D95PercentDoseGy": 67.2, "MaxDoseGy": 74.1, "MeanDoseGy": 70.8, "V95GyPercent": 99 } },
+            { "structureId": "CORD", "metrics": { "MaxDoseGy": 42.5 } },
+            { "structureId": "HEART", "metrics": { "MeanDoseGy": 8.1 } },
+            { "structureId": "LUNG_R", "metrics": { "V20GyPercent": 18.2 } }
+          ],
+          "beams": [
+            {
+              "id": "B1",
+              "name": "Arc 1",
+              "modality": "Photon",
+              "energy": "6X",
+              "monitorUnits": 410,
+              "treatmentUnitId": "TB1",
+              "techniqueId": "VMAT",
+              "isSetupField": false,
+              "beamModelId": "SYN-AAA-6X",
+              "jawTrackingEnabled": true,
+              "controlPoints": [
+                { "index": 0, "gantryAngleDegrees": 179, "cumulativeMetersetWeight": 0, "jawPositions": { "x1Cm": -5, "x2Cm": 5, "y1Cm": -6, "y2Cm": 6 } },
+                { "index": 1, "gantryAngleDegrees": 181, "cumulativeMetersetWeight": 1, "jawPositions": { "x1Cm": -5, "x2Cm": 5, "y1Cm": -6, "y2Cm": 6 } }
+              ]
+            }
+          ]
         }
         """;
 }

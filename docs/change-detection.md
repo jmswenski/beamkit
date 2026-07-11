@@ -2,6 +2,8 @@
 
 `BeamKit.ChangeDetection` compares two vendor-neutral `BeamKit.Core.Plan` instances and reports workflow-relevant changes.
 
+It also provides deterministic SHA-256 plan and prescription fingerprints for exact snapshot identity checks. Fingerprints are stricter than tolerant change reports: a fingerprint can change even when no configured tolerance threshold produces a human-facing change entry.
+
 Detected categories include:
 
 - Prescription dose, fraction, target, signature, and intent changes.
@@ -35,6 +37,8 @@ dotnet run --project src/BeamKit.Cli -- plan-integrity \
 ```
 
 The package depends only on `BeamKit.Core`. It does not read DICOM, call ESAPI, send notifications, or decide institution-specific escalation rules.
+
+`BeamKit.Release` uses fingerprints to mark write-up evidence stale, then uses `PlanChangeDetector` to explain prescription, structure, dose, and beam drift where possible.
 
 ## Severity
 

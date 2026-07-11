@@ -4,12 +4,37 @@ obj/
 .vscode/
 TestResults/
 coverage/
+artifacts/
+reports/
+manifests/
 *.user
 *.suo
 *.nupkg
 *.snupkg
+*.dll
+*.exe
+*.pdb
 
 # OS/editor noise
 .DS_Store
 Thumbs.db
 *.swp
+
+# Proprietary treatment-planning SDKs and local adapter harnesses
+VMS*.dll
+Varian*.dll
+Eclipse*.dll
+ESAPI*.dll
+samples/esapi-smoke/artifacts/
+samples/esapi-smoke/local/
+
+# Clinical data exports. Commit only explicitly synthetic data.
+*.dcm
+*.dicom
+*.rtstruct
+*.rtplan
+*.rtdose
+*.dose
+*.dvh
+*.hl7
+*.fhir.json

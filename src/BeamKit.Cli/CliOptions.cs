@@ -13,7 +13,15 @@ internal sealed record CliOptions
 
     public string? PlanPath { get; init; }
 
+    public string? EsapiSnapshotPath { get; init; }
+
+    public string? SyntheticCaseId { get; init; }
+
     public string? QaPlanPath { get; init; }
+
+    public string? ManifestPath { get; init; }
+
+    public string? RulePackPath { get; init; }
 
     public string? TemplatePath { get; init; }
 
@@ -37,6 +45,12 @@ internal sealed record CliOptions
 
     public string? Physician { get; init; }
 
+    public string? Branch { get; init; }
+
+    public string? Commit { get; init; }
+
+    public string? BuildId { get; init; }
+
     public decimal? TotalDoseGy { get; init; }
 
     public decimal? TotalDoseCGy { get; init; }
@@ -51,11 +65,37 @@ internal sealed record CliOptions
 
     public int? EquivalentFractions { get; init; }
 
+    public DateOnly? DueDate { get; init; }
+
+    public int? ComplexityScore { get; init; }
+
+    public int? Priority { get; init; }
+
     public IReadOnlyList<string> StructureNames { get; init; } = Array.Empty<string>();
 
     public IReadOnlyList<string> RingDefinitions { get; init; } = Array.Empty<string>();
 
     public IReadOnlyList<string> Tags { get; init; } = Array.Empty<string>();
+
+    public IReadOnlyList<string> RequiredSkills { get; init; } = Array.Empty<string>();
+
+    public IReadOnlyList<string> ExportRecords { get; init; } = Array.Empty<string>();
+
+    public IReadOnlyList<string> DocumentRecords { get; init; } = Array.Empty<string>();
+
+    public IReadOnlyList<string> Attestations { get; init; } = Array.Empty<string>();
+
+    public bool CtImported { get; init; }
+
+    public bool OptimizationFinished { get; init; }
+
+    public bool PhysicsQaComplete { get; init; }
+
+    public bool PhysicianApprovalComplete { get; init; }
+
+    public bool TreatmentReady { get; init; }
+
+    public bool CaptureWriteUp { get; init; }
 
     public bool ShowHelp { get; init; }
 
@@ -65,12 +105,54 @@ internal sealed record CliOptions
         var structureNames = new List<string>();
         var ringDefinitions = new List<string>();
         var tags = new List<string>();
+        var requiredSkills = new List<string>();
+        var exportRecords = new List<string>();
+        var documentRecords = new List<string>();
+        var attestations = new List<string>();
         var index = 0;
 
         if (args.Count > 0 && !args[0].StartsWith("--", StringComparison.Ordinal))
         {
-            options = options with { Command = args[0] };
-            index = 1;
+            if (string.Equals(args[0], "writeup", StringComparison.OrdinalIgnoreCase)
+                && args.Count > 1
+                && !args[1].StartsWith("--", StringComparison.Ordinal))
+            {
+                options = options with { Command = $"writeup-{args[1]}" };
+                index = 2;
+            }
+            else if (string.Equals(args[0], "esapi-snapshot", StringComparison.OrdinalIgnoreCase)
+                && args.Count > 1
+                && !args[1].StartsWith("--", StringComparison.Ordinal))
+            {
+                options = options with { Command = $"esapi-snapshot-{args[1]}" };
+                index = 2;
+            }
+            else if (string.Equals(args[0], "rule-pack", StringComparison.OrdinalIgnoreCase)
+                && args.Count > 1
+                && !args[1].StartsWith("--", StringComparison.Ordinal))
+            {
+                options = options with { Command = $"rule-pack-{args[1]}" };
+                index = 2;
+            }
+            else if (string.Equals(args[0], "ci", StringComparison.OrdinalIgnoreCase)
+                && args.Count > 1
+                && !args[1].StartsWith("--", StringComparison.Ordinal))
+            {
+                options = options with { Command = $"ci-{args[1]}" };
+                index = 2;
+            }
+            else if (string.Equals(args[0], "assignment", StringComparison.OrdinalIgnoreCase)
+                && args.Count > 1
+                && !args[1].StartsWith("--", StringComparison.Ordinal))
+            {
+                options = options with { Command = $"assignment-{args[1]}" };
+                index = 2;
+            }
+            else
+            {
+                options = options with { Command = args[0] };
+                index = 1;
+            }
         }
 
         while (index < args.Count)
@@ -96,8 +178,25 @@ internal sealed record CliOptions
                     options = options with { PlanPath = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
+                case "--esapi-snapshot":
+                    options = options with { EsapiSnapshotPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--case":
+                case "--synthetic-case":
+                    options = options with { SyntheticCaseId = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
                 case "--qa-plan":
                     options = options with { QaPlanPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--manifest":
+                    options = options with { ManifestPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--rule-pack":
+                    options = options with { RulePackPath = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
                 case "--template":
@@ -152,8 +251,61 @@ internal sealed record CliOptions
                     options = options with { Physician = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
+                case "--branch":
+                    options = options with { Branch = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--commit":
+                    options = options with { Commit = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--build-id":
+                    options = options with { BuildId = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
                 case "--tag":
                     tags.Add(ReadRequiredValue(args, ++index, arg));
+                    index++;
+                    break;
+                case "--required-skill":
+                    requiredSkills.Add(ReadRequiredValue(args, ++index, arg));
+                    index++;
+                    break;
+                case "--export":
+                    exportRecords.Add(ReadRequiredValue(args, ++index, arg));
+                    index++;
+                    break;
+                case "--document":
+                    documentRecords.Add(ReadRequiredValue(args, ++index, arg));
+                    index++;
+                    break;
+                case "--attest":
+                    attestations.Add(ReadRequiredValue(args, ++index, arg));
+                    index++;
+                    break;
+                case "--ct-imported":
+                    options = options with { CtImported = true };
+                    index++;
+                    break;
+                case "--optimization-finished":
+                    options = options with { OptimizationFinished = true };
+                    index++;
+                    break;
+                case "--physics-qa-complete":
+                    options = options with { PhysicsQaComplete = true };
+                    index++;
+                    break;
+                case "--physician-approved":
+                    options = options with { PhysicianApprovalComplete = true };
+                    index++;
+                    break;
+                case "--treatment-ready":
+                    options = options with { TreatmentReady = true };
+                    index++;
+                    break;
+                case "--capture-writeup":
+                case "--capture-write-up":
+                    options = options with { CaptureWriteUp = true };
                     index++;
                     break;
                 case "--structure":
@@ -191,6 +343,19 @@ internal sealed record CliOptions
                     options = options with { EquivalentFractions = ParseInt(ReadRequiredValue(args, ++index, arg), arg) };
                     index++;
                     break;
+                case "--due-date":
+                    options = options with { DueDate = ParseDate(ReadRequiredValue(args, ++index, arg), arg) };
+                    index++;
+                    break;
+                case "--complexity":
+                case "--complexity-score":
+                    options = options with { ComplexityScore = ParseInt(ReadRequiredValue(args, ++index, arg), arg) };
+                    index++;
+                    break;
+                case "--priority":
+                    options = options with { Priority = ParseInt(ReadRequiredValue(args, ++index, arg), arg) };
+                    index++;
+                    break;
                 default:
                     throw new ArgumentException($"Unknown option '{arg}'.");
             }
@@ -200,7 +365,11 @@ internal sealed record CliOptions
         {
             StructureNames = structureNames.ToArray(),
             RingDefinitions = ringDefinitions.ToArray(),
-            Tags = tags.ToArray()
+            Tags = tags.ToArray(),
+            RequiredSkills = requiredSkills.ToArray(),
+            ExportRecords = exportRecords.ToArray(),
+            DocumentRecords = documentRecords.ToArray(),
+            Attestations = attestations.ToArray()
         };
     }
 
@@ -238,5 +407,17 @@ internal sealed record CliOptions
         return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
             ? parsed
             : throw new ArgumentException($"Option '{optionName}' requires an integer value.");
+    }
+
+    private static DateOnly ParseDate(string value, string optionName)
+    {
+        if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var exact))
+        {
+            return exact;
+        }
+
+        return DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
+            ? parsed
+            : throw new ArgumentException($"Option '{optionName}' requires a date value such as 2026-07-08.");
     }
 }

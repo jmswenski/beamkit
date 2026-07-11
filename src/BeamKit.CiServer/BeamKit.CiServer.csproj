@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <Description>Self-hosted BeamKit CI server for radiation oncology plan gates.</Description>
+    <PackageId>BeamKit.CiServer</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.Check\BeamKit.Check.csproj" />
+    <ProjectReference Include="..\BeamKit.Samples\BeamKit.Samples.csproj" />
+    <ProjectReference Include="..\BeamKit.Sdk\BeamKit.Sdk.csproj" />
+    <ProjectReference Include="..\BeamKit.Workflow\BeamKit.Workflow.csproj" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

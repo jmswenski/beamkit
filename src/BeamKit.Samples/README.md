@@ -11,5 +11,6 @@ Current fixtures:
 - `SyntheticStructureNameDictionaryFactory.CreateTg263Subset()`: a small TG-263-inspired dictionary for normalization examples.
 - `SyntheticClinicalGoalTemplateSetFactory.CreateHeadAndNeckBaseline()`: a template-driven rule set for combined QA examples.
 - `SyntheticClinicalRuleCatalogFactory.CreateHeadAndNeckCatalog()`: a versioned rule catalog with baseline and physician-specific template sets.
+- `SyntheticClinicalCaseLibrary`: PHI-free passing and failing synthetic clinical cases for BeamKit Check demos and regression tests.
 
 The JSON files under `samples/` are illustrative and should be kept aligned with these factories until formal sample packaging exists.

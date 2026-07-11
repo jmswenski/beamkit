@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://beamkit.dev/schemas/writeup-manifest.schema.json",
+  "title": "BeamKit write-up manifest",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "planId",
+    "patientId",
+    "courseId",
+    "planFingerprint",
+    "prescriptionFingerprint",
+    "capturedAtUtc",
+    "capturedPlanSnapshot",
+    "checklist",
+    "exports",
+    "documents",
+    "attestations"
+  ],
+  "properties": {
+    "planId": { "type": "string", "minLength": 1 },
+    "patientId": { "type": "string", "minLength": 1 },
+    "courseId": { "type": "string", "minLength": 1 },
+    "diseaseSite": { "type": [ "string", "null" ] },
+    "planFingerprint": { "$ref": "#/$defs/fingerprint" },
+    "prescriptionFingerprint": { "$ref": "#/$defs/fingerprint" },
+    "capturedAtUtc": { "type": "string", "format": "date-time" },
+    "capturedPlanSnapshot": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "checklist": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/checklistItem" }
+    },
+    "exports": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/exportRecord" }
+    },
+    "documents": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/documentRecord" }
+    },
+    "attestations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/attestation" }
+    },
+    "hasOutstandingChecklistItems": { "type": "boolean" },
+    "outstandingChecklistItems": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/checklistItem" }
+    }
+  },
+  "$defs": {
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "checklistItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "key", "label", "status" ],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "status": {
+          "type": "string",
+          "enum": [ "Pending", "Complete", "Blocked", "NotApplicable" ]
+        },
+        "details": { "type": [ "string", "null" ] }
+      }
+    },
+    "exportRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "destinationSystem", "kind", "exportedAtUtc" ],
+      "properties": {
+        "destinationSystem": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": [ "Other", "RecordAndVerify", "QaSystem", "Pacs", "SecondaryDoseCheck", "DocumentArchive" ]
+        },
+        "exportedAtUtc": { "type": "string", "format": "date-time" },
+        "externalPlanId": { "type": [ "string", "null" ] },
+        "externalVersionId": { "type": [ "string", "null" ] },
+        "fingerprint": { "type": [ "string", "null" ] },
+        "performedBy": { "type": [ "string", "null" ] },
+        "notes": { "type": [ "string", "null" ] }
+      }
+    },
+    "documentRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "name" ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "format": { "type": [ "string", "null" ] },
+        "generatedAtUtc": { "type": [ "string", "null" ], "format": "date-time" },
+        "fingerprint": { "type": [ "string", "null" ] },
+        "notes": { "type": [ "string", "null" ] }
+      }
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [ "key", "value" ],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "value": { "type": "string", "minLength": 1 },
+        "performedBy": { "type": [ "string", "null" ] },
+        "attestedAtUtc": { "type": [ "string", "null" ], "format": "date-time" },
+        "notes": { "type": [ "string", "null" ] }
+      }
+    }
+  }
+}

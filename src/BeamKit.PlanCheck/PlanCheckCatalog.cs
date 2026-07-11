@@ -97,6 +97,12 @@ public sealed record PlanCheckCatalog
         IReadOnlyDictionary<string, string>? parameters = null,
         PlanCheckSeverity severity = PlanCheckSeverity.Failure)
     {
-        return new PlanCheckDefinition(id, title, type, severity, parameters: parameters);
+        return new PlanCheckDefinition(
+            id,
+            title,
+            type,
+            severity,
+            reference: "Synthetic institutional plan-check baseline",
+            parameters: parameters);
     }
 }

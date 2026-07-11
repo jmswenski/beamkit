@@ -15,6 +15,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BeamKit.Calculations\BeamKit.Calculations.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.ChangeDetection\BeamKit.ChangeDetection.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Check\BeamKit.Check.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.CiServer\BeamKit.CiServer.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Core\BeamKit.Core.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Deliverability\BeamKit.Deliverability.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Dicom\BeamKit.Dicom.csproj" />
@@ -23,8 +25,10 @@
     <ProjectReference Include="..\..\src\BeamKit.Naming\BeamKit.Naming.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Qa\BeamKit.Qa.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Release\BeamKit.Release.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Reporting\BeamKit.Reporting.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Rules\BeamKit.Rules.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Sdk\BeamKit.Sdk.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Structures\BeamKit.Structures.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Templates\BeamKit.Templates.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Workflow\BeamKit.Workflow.csproj" />
