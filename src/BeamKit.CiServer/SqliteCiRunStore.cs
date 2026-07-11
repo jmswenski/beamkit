@@ -38,7 +38,11 @@ public sealed class SqliteCiRunStore : ICiRunStore
             Directory.CreateDirectory(directory);
         }
 
-        connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+        connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Pooling = false
+        }.ToString();
         Initialize();
     }
 
