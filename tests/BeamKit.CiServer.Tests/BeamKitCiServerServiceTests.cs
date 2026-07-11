@@ -53,6 +53,23 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void CreateRunWritesAuditEvent()
+    {
+        var store = new CiRunStore();
+        var service = CreateService(store);
+
+        var record = service.CreateRun(
+            new HostedCiRunRequest { SyntheticCaseId = "head-neck-pass" },
+            new CiServerAuditContext("physics-key", "/api/runs", "POST", "127.0.0.1"));
+
+        var auditEvent = Assert.Single(store.ListAuditEvents(new CiServerAuditQuery { Action = "run.created" }));
+        Assert.Equal("physics-key", auditEvent.Actor);
+        Assert.Equal(record.Id, auditEvent.RunId);
+        Assert.Equal(record.CaseId, auditEvent.CaseId);
+        Assert.Equal("Pass", auditEvent.Status);
+    }
+
+    [Fact]
     public void CreateRunStoresFailingCiArtifact()
     {
         var service = CreateService();
@@ -229,6 +246,34 @@ public sealed class BeamKitCiServerServiceTests
 
         Assert.True(report.IsValid);
         Assert.Equal(0, report.ErrorCount);
+        Assert.StartsWith("sha256:", report.Fingerprint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ListRulePacksIncludesBuiltInSyntheticPack()
+    {
+        var service = CreateService();
+
+        var rulePacks = service.ListRulePacks();
+
+        var rulePack = Assert.Single(rulePacks);
+        Assert.Equal(CiServerRulePackRegistry.BuiltInRulePackId, rulePack.Id);
+        Assert.True(rulePack.IsLoadable);
+        Assert.True(rulePack.IsValid);
+        Assert.StartsWith("sha256:", rulePack.Fingerprint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRulePackCanUseRegisteredRulePackId()
+    {
+        var service = CreateService();
+
+        var report = service.ValidateRulePack(new RulePackValidationServerRequest
+        {
+            RulePackId = CiServerRulePackRegistry.BuiltInRulePackId
+        });
+
+        Assert.True(report.IsValid);
         Assert.StartsWith("sha256:", report.Fingerprint, StringComparison.Ordinal);
     }
 

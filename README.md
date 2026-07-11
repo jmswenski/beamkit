@@ -56,7 +56,7 @@ What is usable today:
 - Rule-pack policy-as-code validation with deterministic fingerprints.
 - Rule-pack regression testing against PHI-free synthetic cases.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with JSON APIs, SQLite run history, provenance artifacts, internal plan-snapshot retention, synthetic and uploaded plan/snapshot gates, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, registered rule packs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -86,7 +86,7 @@ What is not complete yet:
 - RayStation integration.
 - Aria/Mosaiq workflow integration.
 - Actual export execution and destination read-back for plan write-up manifests.
-- Production database deployment guidance, authentication, upload hardening, PHI policy, and audit-retention policy for the CI server.
+- Production database deployment guidance, role-based access control, identity-provider integration, PHI policy, and audit-retention policy for the CI server.
 - Production notification adapters for email, Teams, EHR inboxes, or task systems.
 - External case-assignment data connectors, persisted work queues, workload dashboards, and peer-review dashboard applications.
 - Research warehouse/export tooling.
@@ -143,7 +143,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.Core`](src/BeamKit.Core/README.md) | Vendor-neutral models for patients, plans, structures, dose, beams, prescriptions, and clinical goals. | Active |
 | [`BeamKit.ChangeDetection`](src/BeamKit.ChangeDetection/README.md) | Vendor-neutral plan change detection and treatment-vs-QA plan integrity verification. | Active |
 | [`BeamKit.Check`](src/BeamKit.Check/README.md) | Flagship rule-pack workflow for CI/CD-style plan QA, polished reports, readiness, metrics, naming, and write-up evidence. | Active |
-| [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for plan gates, policy validation, rule-pack tests, provenance artifacts, baseline comparisons, and assignment recommendations. | Initial |
+| [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for API-key protected plan gates, registered rule packs, audit events, provenance artifacts, baseline comparisons, and assignment recommendations. | Initial |
 | [`BeamKit.Deliverability`](src/BeamKit.Deliverability/README.md) | Beam deliverability and machine-profile checks for MU, MU/degree, jaw policy, beam model, and calculation model constraints. | Active |
 | [`BeamKit.Metrics`](src/BeamKit.Metrics/README.md) | Standardized DVH metric expressions and target plan-quality summaries. | Active |
 | [`BeamKit.Naming`](src/BeamKit.Naming/README.md) | Structure name normalization, aliases, regex mappings, ambiguity, and missing-structure checks. | Active |
@@ -282,25 +282,34 @@ dotnet run --project src/BeamKit.Cli -- assignment recommend \
 Start the self-hosted BeamKit CI server:
 
 ```bash
+export BeamKit__CiServer__Security__ApiKeys__0__Label=local-admin
+export BeamKit__CiServer__Security__ApiKeys__0__Key=dev-secret
+
 dotnet run --project src/BeamKit.CiServer --urls http://localhost:5088
 ```
 
 Then open `http://localhost:5088` or call the JSON API:
 
 ```bash
-curl -s http://localhost:5088/api/runs \
+export API=http://localhost:5088
+export BEAMKIT_API_KEY=dev-secret
+
+curl -s "$API/api/runs" \
   -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
   -d '{"syntheticCaseId":"head-neck-pass","branch":"main","commit":"abc123","buildId":"local-demo"}'
 ```
 
 Promote a run as the baseline and compare later runs against it:
 
 ```bash
-curl -s http://localhost:5088/api/runs/{id}/baseline \
+curl -s "$API/api/runs/{id}/baseline" \
   -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
   -d '{"promotedBy":"physics","note":"Approved baseline"}'
 
-curl -s http://localhost:5088/api/runs/{laterId}/baseline-comparison
+curl -s "$API/api/runs/{laterId}/baseline-comparison" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
 When both runs have retained BeamKit plan snapshots, the baseline comparison response includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes in addition to provenance fingerprints.
@@ -310,8 +319,9 @@ Submit a locally extracted ESAPI snapshot or BeamKit plan JSON to the server:
 ```bash
 jq -n --rawfile snapshot path/to/esapi-plan-snapshot.json \
   '{format:"esapi-snapshot-json", esapiSnapshotJson:$snapshot, branch:"main", buildId:"local-esapi"}' \
-  | curl -s http://localhost:5088/api/runs/from-plan-snapshot \
+  | curl -s "$API/api/runs/from-plan-snapshot" \
       -H 'content-type: application/json' \
+      -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
       -d @-
 ```
 
@@ -601,6 +611,7 @@ BeamKit rule packs are intended to be reviewed like software:
 - `ci run` emits a single record containing policy validation, plan check results, and provenance fingerprints.
 - Fingerprints make it possible to prove which plan, prescription, and rule pack produced a report.
 - The CI server can promote a run as a baseline and compare later runs against it using both exact fingerprints and field-level plan changes when snapshots are available.
+- The CI server can protect plan-gate APIs with API keys, record audit events, enforce upload-size limits, and run registered rule packs by stable id.
 
 This is the open-source foundation for treating radiation plans like reproducible clinical build artifacts: every rule change can be reviewed, tested, and traced.
 
@@ -735,7 +746,7 @@ Near-term:
 - Expand machine profiles for institutional beam models, algorithms, energies, and delivery-technique policies.
 - Expand write-up manifest schemas, packet templates, and adapter-backed export verification.
 - Add file-backed planner rosters and assignment inputs for CLI and SDK workflows.
-- Add CI-server authentication, role-based access control, production database deployment guidance, PHI handling guidance, and artifact-retention policy documentation.
+- Add CI-server role-based access control, identity-provider integration, production database deployment guidance, PHI handling guidance, and artifact-retention policy documentation.
 
 Medium-term:
 

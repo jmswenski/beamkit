@@ -185,6 +185,34 @@ public sealed class SqliteCiRunStoreTests
         Assert.Contains("plan-1", store.FindPlanSnapshotJson(saved.Id), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AuditEventsSurviveNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        firstStore.SaveAuditEvent(new CiServerAuditEvent(
+            "audit-1",
+            new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero),
+            "physics-key",
+            "baseline.promoted",
+            "/api/runs/run-1/baseline",
+            "POST",
+            "run-1",
+            "case-1",
+            "Pass",
+            "127.0.0.1",
+            "physics"));
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var events = secondStore.ListAuditEvents(new CiServerAuditQuery { CaseId = "case-1" });
+
+        var auditEvent = Assert.Single(events);
+        Assert.Equal("audit-1", auditEvent.Id);
+        Assert.Equal("physics-key", auditEvent.Actor);
+        Assert.Equal("baseline.promoted", auditEvent.Action);
+        Assert.Equal("run-1", auditEvent.RunId);
+    }
+
     private static BeamKitCiServerService CreateService(ICiRunStore store)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store, new FixedTimeProvider());

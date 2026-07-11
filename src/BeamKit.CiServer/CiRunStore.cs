@@ -10,6 +10,7 @@ public sealed class CiRunStore : ICiRunStore
 {
     private readonly ConcurrentDictionary<string, HostedCiRunRecord> records = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiRunBaseline> baselines = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CiServerAuditEvent> auditEvents = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Adds or replaces a run record.
@@ -110,6 +111,37 @@ public sealed class CiRunStore : ICiRunStore
     {
         return baselines.Values
             .OrderBy(baseline => baseline.CaseId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Adds an audit event.
+    /// </summary>
+    public CiServerAuditEvent SaveAuditEvent(CiServerAuditEvent auditEvent)
+    {
+        ArgumentNullException.ThrowIfNull(auditEvent);
+
+        auditEvents[auditEvent.Id] = auditEvent;
+        return auditEvent;
+    }
+
+    /// <summary>
+    /// Lists stored audit events.
+    /// </summary>
+    public IReadOnlyList<CiServerAuditEvent> ListAuditEvents(CiServerAuditQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        return auditEvents.Values
+            .Where(auditEvent => string.IsNullOrWhiteSpace(query.Action)
+                || string.Equals(auditEvent.Action, query.Action, StringComparison.OrdinalIgnoreCase))
+            .Where(auditEvent => string.IsNullOrWhiteSpace(query.RunId)
+                || string.Equals(auditEvent.RunId, query.RunId, StringComparison.OrdinalIgnoreCase))
+            .Where(auditEvent => string.IsNullOrWhiteSpace(query.CaseId)
+                || string.Equals(auditEvent.CaseId, query.CaseId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(auditEvent => auditEvent.OccurredAtUtc)
+            .ThenBy(auditEvent => auditEvent.Id, StringComparer.OrdinalIgnoreCase)
+            .Take(query.ClampedLimit)
             .ToArray();
     }
 }

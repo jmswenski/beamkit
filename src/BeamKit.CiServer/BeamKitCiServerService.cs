@@ -3,12 +3,9 @@ using BeamKit.ChangeDetection;
 using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
-using BeamKit.Deliverability;
 using BeamKit.Esapi;
-using BeamKit.PlanCheck;
 using BeamKit.Samples;
 using BeamKit.Sdk;
-using BeamKit.Templates;
 using BeamKit.Workflow;
 
 namespace BeamKit.CiServer;
@@ -21,15 +18,21 @@ public sealed class BeamKitCiServerService
     private readonly BeamKitClient client;
     private readonly ICiRunStore store;
     private readonly TimeProvider timeProvider;
+    private readonly CiServerRulePackRegistry rulePacks;
 
     /// <summary>
     /// Creates a hosted CI server service.
     /// </summary>
-    public BeamKitCiServerService(BeamKitClient client, ICiRunStore store, TimeProvider? timeProvider = null)
+    public BeamKitCiServerService(
+        BeamKitClient client,
+        ICiRunStore store,
+        TimeProvider? timeProvider = null,
+        CiServerRulePackRegistry? rulePacks = null)
     {
         this.client = client ?? throw new ArgumentNullException(nameof(client));
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.rulePacks = rulePacks ?? new CiServerRulePackRegistry(new CiServerRulePackRegistryOptions());
     }
 
     /// <summary>
@@ -51,13 +54,13 @@ public sealed class BeamKitCiServerService
     /// <summary>
     /// Creates and stores a BeamKit CI run.
     /// </summary>
-    public HostedCiRunRecord CreateRun(HostedCiRunRequest request)
+    public HostedCiRunRecord CreateRun(HostedCiRunRequest request, CiServerAuditContext? auditContext = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         var caseId = CiServerText.Optional(request.SyntheticCaseId) ?? "head-neck-pass";
         var clinicalCase = SyntheticClinicalCaseLibrary.Find(caseId);
-        var rulePack = LoadRulePack(request.RulePackPath);
+        var rulePack = rulePacks.Load(request.RulePackId, request.RulePackPath);
         return CreateRunForPlan(
             clinicalCase.Plan,
             rulePack,
@@ -66,26 +69,36 @@ public sealed class BeamKitCiServerService
             inputSource: $"case:{clinicalCase.Id}",
             request.Branch,
             request.Commit,
-            request.BuildId);
+            request.BuildId,
+            auditContext);
     }
 
     /// <summary>
     /// Creates and stores a BeamKit CI run from uploaded vendor-neutral plan content.
     /// </summary>
-    public HostedCiRunRecord CreateRunFromPlanSnapshot(HostedCiRunUploadRequest request)
+    public HostedCiRunRecord CreateRunFromPlanSnapshot(HostedCiRunUploadRequest request, CiServerAuditContext? auditContext = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         var uploaded = LoadUploadedPlan(request);
-        return CreateRunForPlan(
+        var record = CreateRunForPlan(
             uploaded.Plan,
-            LoadRulePack(request.RulePackPath),
+            rulePacks.Load(request.RulePackId, request.RulePackPath),
             caseId: uploaded.Plan.Id,
             uploaded.InputKind,
             CiServerText.Optional(request.InputSource) ?? uploaded.DefaultInputSource,
             request.Branch,
             request.Commit,
-            request.BuildId);
+            request.BuildId,
+            auditContext);
+        Audit(
+            "plan-snapshot.uploaded",
+            auditContext,
+            record.Id,
+            record.CaseId,
+            record.Status.ToString(),
+            record.InputKind.ToString());
+        return record;
     }
 
     private HostedCiRunRecord CreateRunForPlan(
@@ -96,7 +109,8 @@ public sealed class BeamKitCiServerService
         string? inputSource,
         string? branch,
         string? commit,
-        string? buildId)
+        string? buildId,
+        CiServerAuditContext? auditContext)
     {
         var artifact = client.RunCiGate(new BeamKitCiRunRequest(
             plan,
@@ -112,7 +126,15 @@ public sealed class BeamKitCiServerService
             artifact,
             inputKind,
             BeamKitPlanJson.ToJson(plan));
-        return store.Save(record);
+        var saved = store.Save(record);
+        Audit(
+            "run.created",
+            auditContext,
+            saved.Id,
+            saved.CaseId,
+            saved.Status.ToString(),
+            saved.Artifact.Provenance.RulePackFingerprint);
+        return saved;
     }
 
     /// <summary>
@@ -150,7 +172,7 @@ public sealed class BeamKitCiServerService
     /// <summary>
     /// Promotes a stored CI run as the baseline for its case key.
     /// </summary>
-    public CiRunBaseline PromoteBaseline(string runId, PromoteCiRunBaselineRequest request)
+    public CiRunBaseline PromoteBaseline(string runId, PromoteCiRunBaselineRequest request, CiServerAuditContext? auditContext = null)
     {
         if (string.IsNullOrWhiteSpace(runId))
         {
@@ -165,7 +187,9 @@ public sealed class BeamKitCiServerService
             timeProvider.GetUtcNow(),
             request.PromotedBy,
             request.Note);
-        return store.SaveBaseline(baseline);
+        var saved = store.SaveBaseline(baseline);
+        Audit("baseline.promoted", auditContext, saved.BaselineRunId, saved.CaseId, saved.Status.ToString(), saved.PromotedBy);
+        return saved;
     }
 
     /// <summary>
@@ -187,7 +211,7 @@ public sealed class BeamKitCiServerService
     /// <summary>
     /// Compares a stored CI run to the promoted baseline for its case key.
     /// </summary>
-    public CiRunBaselineComparisonReport CompareToBaseline(string runId)
+    public CiRunBaselineComparisonReport CompareToBaseline(string runId, CiServerAuditContext? auditContext = null)
     {
         if (string.IsNullOrWhiteSpace(runId))
         {
@@ -198,7 +222,9 @@ public sealed class BeamKitCiServerService
         var baseline = store.FindBaseline(run.CaseId)
             ?? throw new InvalidOperationException($"No baseline has been promoted for case '{run.CaseId}'.");
         var planChanges = CompareStoredPlanSnapshots(baseline.BaselineRunId, run.Id);
-        return CiRunBaselineComparisonReport.Create(baseline, run, timeProvider.GetUtcNow(), planChanges);
+        var report = CiRunBaselineComparisonReport.Create(baseline, run, timeProvider.GetUtcNow(), planChanges);
+        Audit("baseline.compared", auditContext, run.Id, run.CaseId, report.MatchesBaseline ? "Match" : "Changed", report.BlockingCount.ToString(CultureInfo.InvariantCulture));
+        return report;
     }
 
     private PlanChangeReport? CompareStoredPlanSnapshots(string baselineRunId, string comparisonRunId)
@@ -218,27 +244,31 @@ public sealed class BeamKitCiServerService
     /// <summary>
     /// Validates a rule pack as policy-as-code.
     /// </summary>
-    public RulePackValidationReport ValidateRulePack(RulePackValidationServerRequest request)
+    public RulePackValidationReport ValidateRulePack(RulePackValidationServerRequest request, CiServerAuditContext? auditContext = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return client.ValidateRulePack(LoadRulePack(request.RulePackPath));
+        var report = client.ValidateRulePack(rulePacks.Load(request.RulePackId, request.RulePackPath));
+        Audit("rule-pack.validated", auditContext, status: report.IsValid ? "Valid" : "Invalid", details: report.Fingerprint);
+        return report;
     }
 
     /// <summary>
     /// Runs rule-pack regression tests.
     /// </summary>
-    public RulePackTestReport TestRulePack(RulePackTestServerRequest request)
+    public RulePackTestReport TestRulePack(RulePackTestServerRequest request, CiServerAuditContext? auditContext = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        return client.TestRulePack(LoadRulePack(request.RulePackPath), LoadRulePackTestCases(request.SyntheticCaseId));
+        var report = client.TestRulePack(rulePacks.Load(request.RulePackId, request.RulePackPath), LoadRulePackTestCases(request.SyntheticCaseId));
+        Audit("rule-pack.tested", auditContext, status: report.Passed ? "Passed" : "Failed", details: report.RulePackVersion);
+        return report;
     }
 
     /// <summary>
     /// Creates a planner assignment recommendation.
     /// </summary>
-    public PlannerAssignmentRecommendation RecommendAssignment(AssignmentServerRequest request)
+    public PlannerAssignmentRecommendation RecommendAssignment(AssignmentServerRequest request, CiServerAuditContext? auditContext = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -258,45 +288,92 @@ public sealed class BeamKitCiServerService
             request.Physician,
             assignmentDate);
 
-        return client.RecommendPlanner(assignmentRequest);
+        var recommendation = client.RecommendPlanner(assignmentRequest);
+        Audit(
+            "assignment.recommended",
+            auditContext,
+            caseId: assignmentRequest.CaseId,
+            status: recommendation.RecommendedPlanner is null ? "NoRecommendation" : "Recommended",
+            details: recommendation.RecommendedPlanner?.Planner.Id);
+        return recommendation;
     }
 
-    private static BeamKitRulePack LoadRulePack(string? rulePackPath)
+    /// <summary>
+    /// Lists registered rule packs.
+    /// </summary>
+    public IReadOnlyList<CiServerRulePackSummary> ListRulePacks()
     {
-        return string.IsNullOrWhiteSpace(rulePackPath)
-            ? CreateDefaultRulePack()
-            : BeamKitRulePackLoader.FromFile(rulePackPath);
+        return rulePacks.List();
     }
 
-    private static BeamKitRulePack CreateDefaultRulePack()
+    /// <summary>
+    /// Finds one registered rule pack.
+    /// </summary>
+    public CiServerRulePackDetail? FindRulePack(string id)
     {
-        var query = new ClinicalRuleCatalogQuery
-        {
-            DiseaseSite = "Head and Neck",
-            Institution = "Synthetic",
-            Tags = new[] { "baseline" }
-        };
+        return rulePacks.Find(id);
+    }
 
-        return new BeamKitRulePack(
-            "Synthetic head-and-neck check pack",
-            "2026.1",
-            SyntheticClinicalRuleCatalogFactory.CreateHeadAndNeckCatalog().ToRuleSet(query),
-            PlanCheckCatalog.CreateSyntheticBaseline(),
-            SyntheticStructureNameDictionaryFactory.CreateTg263Subset(),
-            MachineConstraintProfile.CreateSynthetic(),
-            new RulePackReadinessDefaults
-            {
-                CtImported = true,
-                OptimizationFinished = true,
-                PhysicsQaComplete = true,
-                PhysicianApprovalComplete = true,
-                TreatmentReady = true
-            },
-            query,
-            owner: "BeamKit",
-            description: "Synthetic default rule pack for hosted BeamKit CI server demos.",
-            diseaseSite: "Head and Neck",
-            tags: new[] { "synthetic", "head-neck", "ci-server" });
+    /// <summary>
+    /// Validates a registered rule pack.
+    /// </summary>
+    public RulePackValidationReport ValidateRulePack(string id, CiServerAuditContext? auditContext = null)
+    {
+        var report = client.ValidateRulePack(rulePacks.Load(id));
+        Audit("rule-pack.validated", auditContext, status: report.IsValid ? "Valid" : "Invalid", details: $"{id}:{report.Fingerprint}");
+        return report;
+    }
+
+    /// <summary>
+    /// Runs regression tests for a registered rule pack.
+    /// </summary>
+    public RulePackTestReport TestRulePack(string id, RulePackTestServerRequest request, CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var report = client.TestRulePack(rulePacks.Load(id), LoadRulePackTestCases(request.SyntheticCaseId));
+        Audit("rule-pack.tested", auditContext, status: report.Passed ? "Passed" : "Failed", details: $"{id}:{report.RulePackVersion}");
+        return report;
+    }
+
+    /// <summary>
+    /// Records artifact download audit evidence.
+    /// </summary>
+    public void RecordArtifactDownloaded(string runId, CiServerAuditContext? auditContext = null)
+    {
+        var run = store.Find(runId);
+        Audit("artifact.downloaded", auditContext, run?.Id ?? runId, run?.CaseId, run?.Status.ToString(), run?.PlanFingerprint);
+    }
+
+    /// <summary>
+    /// Lists stored audit events.
+    /// </summary>
+    public IReadOnlyList<CiServerAuditEvent> ListAuditEvents(CiServerAuditQuery query)
+    {
+        return store.ListAuditEvents(query);
+    }
+
+    private void Audit(
+        string action,
+        CiServerAuditContext? auditContext = null,
+        string? runId = null,
+        string? caseId = null,
+        string? status = null,
+        string? details = null)
+    {
+        var context = auditContext ?? CiServerAuditContext.Service;
+        store.SaveAuditEvent(new CiServerAuditEvent(
+            CreateAuditEventId(),
+            timeProvider.GetUtcNow(),
+            context.Actor,
+            action,
+            context.Endpoint,
+            context.Method,
+            runId,
+            caseId,
+            status,
+            context.SourceIp,
+            details));
     }
 
     private static IReadOnlyList<RulePackTestCase> LoadRulePackTestCases(string? syntheticCaseId)
@@ -469,6 +546,11 @@ public sealed class BeamKitCiServerService
     private string CreateServerRunId()
     {
         return $"run-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..37];
+    }
+
+    private string CreateAuditEventId()
+    {
+        return $"audit-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..39];
     }
 
     private static DateOnly? ParseDueDate(string? value)

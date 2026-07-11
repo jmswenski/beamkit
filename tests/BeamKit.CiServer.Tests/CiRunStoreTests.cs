@@ -68,6 +68,40 @@ public sealed class CiRunStoreTests
         Assert.Single(store.ListBaselines());
     }
 
+    [Fact]
+    public void SaveAuditEventStoresQueryableAuditHistory()
+    {
+        var store = new CiRunStore();
+        store.SaveAuditEvent(new CiServerAuditEvent(
+            "audit-1",
+            new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero),
+            "physics",
+            "run.created",
+            "/api/runs",
+            "POST",
+            "run-1",
+            "case-1",
+            "Pass",
+            "127.0.0.1",
+            "sha256:pack"));
+        store.SaveAuditEvent(new CiServerAuditEvent(
+            "audit-2",
+            new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero),
+            "physics",
+            "baseline.promoted",
+            "/api/runs/run-1/baseline",
+            "POST",
+            "run-1",
+            "case-1"));
+
+        var events = store.ListAuditEvents(new CiServerAuditQuery { Action = "run.created" });
+
+        var auditEvent = Assert.Single(events);
+        Assert.Equal("physics", auditEvent.Actor);
+        Assert.Equal("run-1", auditEvent.RunId);
+        Assert.Equal("case-1", auditEvent.CaseId);
+    }
+
     private static BeamKitCiRunRecord CreateArtifact(BeamKitCheckStatus status)
     {
         return new BeamKitCiRunRecord(

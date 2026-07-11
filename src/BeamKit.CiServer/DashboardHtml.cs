@@ -138,6 +138,14 @@ internal static class DashboardHtml
           <main>
             <aside class="stack">
               <section>
+                <h2>Access</h2>
+                <div class="stack" style="margin-top:12px">
+                  <label>API key
+                    <input id="apiKey" type="password" autocomplete="off" oninput="saveApiKey()">
+                  </label>
+                </div>
+              </section>
+              <section>
                 <h2>Run Gate</h2>
                 <div class="stack" style="margin-top:12px">
                   <label>Synthetic case
@@ -212,9 +220,23 @@ internal static class DashboardHtml
             </section>
           </main>
           <script>
+            const apiKeyInput = document.getElementById("apiKey");
+            apiKeyInput.value = localStorage.getItem("beamkitApiKey") || "";
+
+            function saveApiKey() {
+              localStorage.setItem("beamkitApiKey", apiKeyInput.value);
+            }
+
+            function requestHeaders() {
+              const headers = { "content-type": "application/json" };
+              const apiKey = apiKeyInput.value.trim();
+              if (apiKey) headers["X-BeamKit-Api-Key"] = apiKey;
+              return headers;
+            }
+
             async function api(path, options) {
               const response = await fetch(path, {
-                headers: { "content-type": "application/json" },
+                headers: requestHeaders(),
                 ...options
               });
               const text = await response.text();
@@ -273,6 +295,23 @@ internal static class DashboardHtml
               await api(`/api/runs/${runId}/baseline-comparison`);
             }
 
+            async function downloadArtifact(runId) {
+              const response = await fetch(`/api/runs/${runId}/artifact/download`, { headers: requestHeaders() });
+              if (!response.ok) {
+                const text = await response.text();
+                document.getElementById("output").textContent = text;
+                return;
+              }
+
+              const blob = await response.blob();
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = `${runId}.beamkit-ci-artifact.json`;
+              link.click();
+              URL.revokeObjectURL(url);
+            }
+
             async function loadRuns() {
               const params = new URLSearchParams();
               const status = document.getElementById("filterStatus").value;
@@ -283,7 +322,14 @@ internal static class DashboardHtml
               if (caseId) params.set("caseId", caseId);
               if (branch) params.set("branch", branch);
               if (limit) params.set("limit", limit);
-              const response = await fetch(`/api/runs?${params}`);
+              const response = await fetch(`/api/runs?${params}`, { headers: requestHeaders() });
+              if (!response.ok) {
+                const text = await response.text();
+                document.getElementById("output").textContent = text;
+                document.getElementById("runs").innerHTML = "";
+                return;
+              }
+
               const runs = await response.json();
               document.getElementById("runs").innerHTML = runs.map(run => {
                 const status = String(run.status).toLowerCase();
@@ -296,7 +342,7 @@ internal static class DashboardHtml
                   <td>${run.exitCode}</td>
                   <td>${new Date(run.createdAtUtc).toLocaleString()}</td>
                   <td>
-                    <a href="/api/runs/${run.id}/artifact/download">JSON</a>
+                    <button class="secondary" style="min-height:28px; padding:0 8px" onclick="downloadArtifact('${run.id}')">JSON</button>
                     <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="promoteBaseline('${run.id}')">Baseline</button>
                     <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="compareBaseline('${run.id}')">Compare</button>
                   </td>

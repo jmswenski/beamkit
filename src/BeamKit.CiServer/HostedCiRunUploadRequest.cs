@@ -33,6 +33,11 @@ public sealed record HostedCiRunUploadRequest
     public string? EsapiSnapshotJson { get; init; }
 
     /// <summary>
+    /// Optional registered rule-pack id. The built-in synthetic rule pack is used when omitted.
+    /// </summary>
+    public string? RulePackId { get; init; }
+
+    /// <summary>
     /// Optional server-local rule-pack manifest path.
     /// </summary>
     public string? RulePackPath { get; init; }

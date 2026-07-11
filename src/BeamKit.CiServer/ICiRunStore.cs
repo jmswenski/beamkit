@@ -44,4 +44,14 @@ public interface ICiRunStore
     /// Lists promoted baselines.
     /// </summary>
     IReadOnlyList<CiRunBaseline> ListBaselines();
+
+    /// <summary>
+    /// Adds an audit event.
+    /// </summary>
+    CiServerAuditEvent SaveAuditEvent(CiServerAuditEvent auditEvent);
+
+    /// <summary>
+    /// Lists stored audit events.
+    /// </summary>
+    IReadOnlyList<CiServerAuditEvent> ListAuditEvents(CiServerAuditQuery query);
 }

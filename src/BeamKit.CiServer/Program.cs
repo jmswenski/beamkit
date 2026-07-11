@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 using BeamKit.CiServer;
 using BeamKit.Sdk;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -11,9 +13,12 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.WriteIndented = true;
 });
 builder.Services.Configure<CiServerStorageOptions>(builder.Configuration.GetSection("BeamKit:CiServer:Storage"));
+builder.Services.Configure<CiServerSecurityOptions>(builder.Configuration.GetSection("BeamKit:CiServer:Security"));
+builder.Services.Configure<CiServerRulePackRegistryOptions>(builder.Configuration.GetSection("BeamKit:CiServer:RulePackRegistry"));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<BeamKitClient>();
 builder.Services.AddSingleton<ICiRunStore, SqliteCiRunStore>();
+builder.Services.AddSingleton<CiServerRulePackRegistry>();
 builder.Services.AddSingleton<BeamKitCiServerService>();
 
 var app = builder.Build();
@@ -31,6 +36,34 @@ app.UseExceptionHandler(errorApp =>
             statusCode: statusCode)
             .ExecuteAsync(context);
     });
+});
+
+app.Use(async (context, next) =>
+{
+    var security = context.RequestServices.GetRequiredService<IOptions<CiServerSecurityOptions>>().Value;
+    if (CiServerSecurity.IsPlanSnapshotUploadPath(context.Request.Path))
+    {
+        var maxBytes = security.ClampedMaxPlanSnapshotUploadBytes;
+        var maxBodyFeature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (maxBodyFeature is { IsReadOnly: false })
+        {
+            maxBodyFeature.MaxRequestBodySize = maxBytes;
+        }
+
+        if (context.Request.ContentLength > maxBytes)
+        {
+            await CiServerSecurity.PayloadTooLarge(maxBytes).ExecuteAsync(context);
+            return;
+        }
+    }
+
+    if (!CiServerSecurity.TryAuthenticate(context, security, out var failure))
+    {
+        await failure!.ExecuteAsync(context);
+        return;
+    }
+
+    await next(context);
 });
 
 app.MapGet("/", () => Results.Content(DashboardHtml.Content, "text/html"));
@@ -59,7 +92,7 @@ app.MapGet("/api/runs/{id}/artifact", (string id, BeamKitCiServerService service
     var artifactJson = service.FindArtifactJson(id);
     return artifactJson is null ? Results.NotFound() : Results.Text(artifactJson, "application/json");
 });
-app.MapGet("/api/runs/{id}/artifact/download", (string id, BeamKitCiServerService service) =>
+app.MapGet("/api/runs/{id}/artifact/download", (string id, HttpContext context, BeamKitCiServerService service) =>
 {
     var artifactJson = service.FindArtifactJson(id);
     if (artifactJson is null)
@@ -67,28 +100,29 @@ app.MapGet("/api/runs/{id}/artifact/download", (string id, BeamKitCiServerServic
         return Results.NotFound();
     }
 
+    service.RecordArtifactDownloaded(id, CiServerAuditContext.FromHttpContext(context));
     return Results.File(
         Encoding.UTF8.GetBytes(artifactJson),
         "application/json",
         $"{id}.beamkit-ci-artifact.json");
 });
-app.MapGet("/api/runs/{id}/baseline-comparison", (string id, BeamKitCiServerService service) =>
+app.MapGet("/api/runs/{id}/baseline-comparison", (string id, HttpContext context, BeamKitCiServerService service) =>
 {
-    return Results.Ok(service.CompareToBaseline(id));
+    return Results.Ok(service.CompareToBaseline(id, CiServerAuditContext.FromHttpContext(context)));
 });
-app.MapPost("/api/runs", (HostedCiRunRequest request, BeamKitCiServerService service) =>
+app.MapPost("/api/runs", (HostedCiRunRequest request, HttpContext context, BeamKitCiServerService service) =>
 {
-    var record = service.CreateRun(request);
+    var record = service.CreateRun(request, CiServerAuditContext.FromHttpContext(context));
     return Results.Created($"/api/runs/{record.Id}", record);
 });
-app.MapPost("/api/runs/{id}/baseline", (string id, PromoteCiRunBaselineRequest request, BeamKitCiServerService service) =>
+app.MapPost("/api/runs/{id}/baseline", (string id, PromoteCiRunBaselineRequest request, HttpContext context, BeamKitCiServerService service) =>
 {
-    var baseline = service.PromoteBaseline(id, request);
+    var baseline = service.PromoteBaseline(id, request, CiServerAuditContext.FromHttpContext(context));
     return Results.Created($"/api/baselines/{baseline.CaseId}", baseline);
 });
-app.MapPost("/api/runs/from-plan-snapshot", (HostedCiRunUploadRequest request, BeamKitCiServerService service) =>
+app.MapPost("/api/runs/from-plan-snapshot", (HostedCiRunUploadRequest request, HttpContext context, BeamKitCiServerService service) =>
 {
-    var record = service.CreateRunFromPlanSnapshot(request);
+    var record = service.CreateRunFromPlanSnapshot(request, CiServerAuditContext.FromHttpContext(context));
     return Results.Created($"/api/runs/{record.Id}", record);
 });
 app.MapGet("/api/baselines", (BeamKitCiServerService service) => Results.Ok(service.ListBaselines()));
@@ -97,17 +131,51 @@ app.MapGet("/api/baselines/{caseId}", (string caseId, BeamKitCiServerService ser
     var baseline = service.FindBaseline(caseId);
     return baseline is null ? Results.NotFound() : Results.Ok(baseline);
 });
-app.MapPost("/api/rule-packs/validate", (RulePackValidationServerRequest request, BeamKitCiServerService service) =>
+app.MapGet("/api/rule-packs", (BeamKitCiServerService service) => Results.Ok(service.ListRulePacks()));
+app.MapGet("/api/rule-packs/{id}", (string id, BeamKitCiServerService service) =>
 {
-    return Results.Ok(service.ValidateRulePack(request));
+    var rulePack = service.FindRulePack(id);
+    return rulePack is null ? Results.NotFound() : Results.Ok(rulePack);
 });
-app.MapPost("/api/rule-packs/test", (RulePackTestServerRequest request, BeamKitCiServerService service) =>
+app.MapPost("/api/rule-packs/validate", (RulePackValidationServerRequest request, HttpContext context, BeamKitCiServerService service) =>
 {
-    return Results.Ok(service.TestRulePack(request));
+    return Results.Ok(service.ValidateRulePack(request, CiServerAuditContext.FromHttpContext(context)));
 });
-app.MapPost("/api/assignments/recommend", (AssignmentServerRequest request, BeamKitCiServerService service) =>
+app.MapPost("/api/rule-packs/test", (RulePackTestServerRequest request, HttpContext context, BeamKitCiServerService service) =>
 {
-    return Results.Ok(service.RecommendAssignment(request));
+    return Results.Ok(service.TestRulePack(request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/rule-packs/{id}/validate", (string id, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ValidateRulePack(id, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/rule-packs/{id}/test", (string id, RulePackTestServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.TestRulePack(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/assignments/recommend", (AssignmentServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.RecommendAssignment(request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapGet("/api/audit-events", (
+    BeamKitCiServerService service,
+    int? limit,
+    string? action,
+    string? runId,
+    string? caseId) =>
+{
+    return Results.Ok(service.ListAuditEvents(new CiServerAuditQuery
+    {
+        Limit = limit ?? 100,
+        Action = action,
+        RunId = runId,
+        CaseId = caseId
+    }));
 });
 
 app.Run();
+
+/// <summary>
+/// ASP.NET Core entrypoint marker used by integration tests.
+/// </summary>
+public partial class Program;

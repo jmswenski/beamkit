@@ -6,6 +6,11 @@ namespace BeamKit.CiServer;
 public sealed record RulePackValidationServerRequest
 {
     /// <summary>
+    /// Optional registered rule-pack id. The built-in synthetic rule pack is used when omitted.
+    /// </summary>
+    public string? RulePackId { get; init; }
+
+    /// <summary>
     /// Optional server-local rule-pack path. The built-in synthetic rule pack is used when omitted.
     /// </summary>
     public string? RulePackPath { get; init; }
@@ -16,6 +21,11 @@ public sealed record RulePackValidationServerRequest
 /// </summary>
 public sealed record RulePackTestServerRequest
 {
+    /// <summary>
+    /// Optional registered rule-pack id. The built-in synthetic rule pack is used when omitted.
+    /// </summary>
+    public string? RulePackId { get; init; }
+
     /// <summary>
     /// Optional server-local rule-pack path. The built-in synthetic rule pack is used when omitted.
     /// </summary>

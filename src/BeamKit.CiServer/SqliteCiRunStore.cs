@@ -430,6 +430,130 @@ public sealed class SqliteCiRunStore : ICiRunStore
         }
     }
 
+    /// <summary>
+    /// Adds an audit event.
+    /// </summary>
+    public CiServerAuditEvent SaveAuditEvent(CiServerAuditEvent auditEvent)
+    {
+        ArgumentNullException.ThrowIfNull(auditEvent);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ci_audit_events (
+                    id,
+                    occurred_at_utc,
+                    actor,
+                    action,
+                    endpoint,
+                    method,
+                    run_id,
+                    case_id,
+                    status,
+                    source_ip,
+                    details
+                )
+                VALUES (
+                    $id,
+                    $occurred_at_utc,
+                    $actor,
+                    $action,
+                    $endpoint,
+                    $method,
+                    $run_id,
+                    $case_id,
+                    $status,
+                    $source_ip,
+                    $details
+                )
+                ON CONFLICT(id) DO UPDATE SET
+                    occurred_at_utc = excluded.occurred_at_utc,
+                    actor = excluded.actor,
+                    action = excluded.action,
+                    endpoint = excluded.endpoint,
+                    method = excluded.method,
+                    run_id = excluded.run_id,
+                    case_id = excluded.case_id,
+                    status = excluded.status,
+                    source_ip = excluded.source_ip,
+                    details = excluded.details;
+                """;
+            AddAuditParameters(command, auditEvent);
+            command.ExecuteNonQuery();
+        }
+
+        return auditEvent;
+    }
+
+    /// <summary>
+    /// Lists stored audit events.
+    /// </summary>
+    public IReadOnlyList<CiServerAuditEvent> ListAuditEvents(CiServerAuditQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            var where = new List<string>();
+
+            if (!string.IsNullOrWhiteSpace(query.Action))
+            {
+                where.Add("action = $action");
+                command.Parameters.AddWithValue("$action", query.Action.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(query.RunId))
+            {
+                where.Add("run_id = $run_id");
+                command.Parameters.AddWithValue("$run_id", query.RunId.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(query.CaseId))
+            {
+                where.Add("case_id = $case_id");
+                command.Parameters.AddWithValue("$case_id", query.CaseId.Trim());
+            }
+
+            command.Parameters.AddWithValue("$limit", query.ClampedLimit);
+            var sql = new StringBuilder("""
+                SELECT
+                    id,
+                    occurred_at_utc,
+                    actor,
+                    action,
+                    endpoint,
+                    method,
+                    run_id,
+                    case_id,
+                    status,
+                    source_ip,
+                    details
+                FROM ci_audit_events
+                """);
+            if (where.Count > 0)
+            {
+                sql.Append(" WHERE ");
+                sql.Append(string.Join(" AND ", where));
+            }
+
+            sql.Append(" ORDER BY occurred_at_utc DESC, id ASC LIMIT $limit;");
+            command.CommandText = sql.ToString();
+
+            var events = new List<CiServerAuditEvent>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                events.Add(ReadAuditEvent(reader));
+            }
+
+            return events;
+        }
+    }
+
     private static string ResolveDatabasePath(string path)
     {
         var normalized = string.IsNullOrWhiteSpace(path)
@@ -493,6 +617,25 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 );
 
                 CREATE INDEX IF NOT EXISTS ix_ci_run_baselines_run_id ON ci_run_baselines(baseline_run_id);
+
+                CREATE TABLE IF NOT EXISTS ci_audit_events (
+                    id TEXT PRIMARY KEY,
+                    occurred_at_utc TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    endpoint TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    run_id TEXT NULL,
+                    case_id TEXT NULL,
+                    status TEXT NULL,
+                    source_ip TEXT NULL,
+                    details TEXT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_ci_audit_events_occurred_at ON ci_audit_events(occurred_at_utc);
+                CREATE INDEX IF NOT EXISTS ix_ci_audit_events_action ON ci_audit_events(action);
+                CREATE INDEX IF NOT EXISTS ix_ci_audit_events_run_id ON ci_audit_events(run_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_audit_events_case_id ON ci_audit_events(case_id);
                 """;
             command.ExecuteNonQuery();
             EnsureInputKindColumn(connection);
@@ -552,6 +695,21 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$plan_fingerprint", baseline.PlanFingerprint);
         command.Parameters.AddWithValue("$prescription_fingerprint", baseline.PrescriptionFingerprint);
         command.Parameters.AddWithValue("$rule_pack_fingerprint", baseline.RulePackFingerprint);
+    }
+
+    private static void AddAuditParameters(SqliteCommand command, CiServerAuditEvent auditEvent)
+    {
+        command.Parameters.AddWithValue("$id", auditEvent.Id);
+        command.Parameters.AddWithValue("$occurred_at_utc", ToStoredTimestamp(auditEvent.OccurredAtUtc));
+        command.Parameters.AddWithValue("$actor", auditEvent.Actor);
+        command.Parameters.AddWithValue("$action", auditEvent.Action);
+        command.Parameters.AddWithValue("$endpoint", auditEvent.Endpoint);
+        command.Parameters.AddWithValue("$method", auditEvent.Method);
+        command.Parameters.AddWithValue("$run_id", ToDbValue(auditEvent.RunId));
+        command.Parameters.AddWithValue("$case_id", ToDbValue(auditEvent.CaseId));
+        command.Parameters.AddWithValue("$status", ToDbValue(auditEvent.Status));
+        command.Parameters.AddWithValue("$source_ip", ToDbValue(auditEvent.SourceIp));
+        command.Parameters.AddWithValue("$details", ToDbValue(auditEvent.Details));
     }
 
     private static object ToDbValue(string? value)
@@ -638,6 +796,22 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.GetString(17),
             GetNullableString(reader, 3),
             GetNullableString(reader, 4));
+    }
+
+    private static CiServerAuditEvent ReadAuditEvent(SqliteDataReader reader)
+    {
+        return new CiServerAuditEvent(
+            reader.GetString(0),
+            DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            GetNullableString(reader, 6),
+            GetNullableString(reader, 7),
+            GetNullableString(reader, 8),
+            GetNullableString(reader, 9),
+            GetNullableString(reader, 10));
     }
 
     private void Prune(SqliteConnection connection)
