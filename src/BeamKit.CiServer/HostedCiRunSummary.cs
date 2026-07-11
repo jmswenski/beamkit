@@ -26,7 +26,8 @@ public sealed record HostedCiRunSummary
         string rulePackVersion,
         string planFingerprint,
         string prescriptionFingerprint,
-        string rulePackFingerprint)
+        string rulePackFingerprint,
+        bool hasPlanSnapshot = false)
     {
         Id = CiServerText.Required(id, nameof(id));
         CreatedAtUtc = createdAtUtc;
@@ -44,6 +45,7 @@ public sealed record HostedCiRunSummary
         PlanFingerprint = CiServerText.Required(planFingerprint, nameof(planFingerprint));
         PrescriptionFingerprint = CiServerText.Required(prescriptionFingerprint, nameof(prescriptionFingerprint));
         RulePackFingerprint = CiServerText.Required(rulePackFingerprint, nameof(rulePackFingerprint));
+        HasPlanSnapshot = hasPlanSnapshot;
     }
 
     /// <summary>
@@ -132,6 +134,11 @@ public sealed record HostedCiRunSummary
     public string RulePackFingerprint { get; init; }
 
     /// <summary>
+    /// Indicates whether the server retained a vendor-neutral plan snapshot for field-level comparisons.
+    /// </summary>
+    public bool HasPlanSnapshot { get; init; }
+
+    /// <summary>
     /// Creates a summary from a full hosted run record.
     /// </summary>
     public static HostedCiRunSummary FromRecord(HostedCiRunRecord record)
@@ -155,6 +162,7 @@ public sealed record HostedCiRunSummary
             provenance.RulePackVersion,
             provenance.PlanFingerprint,
             provenance.PrescriptionFingerprint,
-            provenance.RulePackFingerprint);
+            provenance.RulePackFingerprint,
+            record.HasPlanSnapshot);
     }
 }

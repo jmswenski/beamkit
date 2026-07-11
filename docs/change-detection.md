@@ -6,10 +6,12 @@ It also provides deterministic SHA-256 plan and prescription fingerprints for ex
 
 Detected categories include:
 
+- Plan id, patient id, course id, and disease-site metadata changes.
 - Prescription dose, fraction, target, signature, and intent changes.
 - Structure additions, removals, renames, volume changes, and contour-state changes.
 - Dose additions, removals, grid-spacing changes, calculation model/version changes, and dose-metric changes.
 - Beam additions, removals, beam model changes, jaw-tracking changes, control-point changes, jaw-position changes, and other property changes.
+- Clinical-goal additions, removals, and property changes.
 
 Example:
 
@@ -38,7 +40,7 @@ dotnet run --project src/BeamKit.Cli -- plan-integrity \
 
 The package depends only on `BeamKit.Core`. It does not read DICOM, call ESAPI, send notifications, or decide institution-specific escalation rules.
 
-`BeamKit.Release` uses fingerprints to mark write-up evidence stale, then uses `PlanChangeDetector` to explain prescription, structure, dose, and beam drift where possible.
+`BeamKit.Release` uses fingerprints to mark write-up evidence stale, then uses `PlanChangeDetector` to explain plan metadata, prescription, structure, dose, beam, and clinical-goal drift where possible.
 
 ## Severity
 
@@ -46,4 +48,4 @@ The package depends only on `BeamKit.Core`. It does not read DICOM, call ESAPI, 
 - `Warning`: should be reviewed before downstream workflow continues.
 - `Blocking`: should invalidate readiness or approval state until reviewed.
 
-Default change-detection policy treats prescription changes, removed structures, removed dose, dose-grid changes, dose calculation metadata changes, and contour-state changes as blocking. QA-plan integrity verification promotes every detected difference to blocking.
+Default change-detection policy treats plan id, patient id, course id, prescription changes, removed structures, removed dose, dose-grid changes, dose calculation metadata changes, contour-state changes, and removed clinical goals as blocking. QA-plan integrity verification promotes every detected difference to blocking.

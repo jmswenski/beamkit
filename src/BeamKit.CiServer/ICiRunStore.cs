@@ -21,6 +21,11 @@ public interface ICiRunStore
     string? FindArtifactJson(string id);
 
     /// <summary>
+    /// Finds the stored vendor-neutral BeamKit plan snapshot JSON for a run.
+    /// </summary>
+    string? FindPlanSnapshotJson(string id);
+
+    /// <summary>
     /// Lists runs matching the supplied query.
     /// </summary>
     IReadOnlyList<HostedCiRunSummary> List(CiRunQuery query);

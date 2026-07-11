@@ -1,4 +1,5 @@
 using System.Globalization;
+using BeamKit.ChangeDetection;
 using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
@@ -104,7 +105,13 @@ public sealed class BeamKitCiServerService
             branch: branch,
             commit: commit,
             buildId: buildId));
-        var record = new HostedCiRunRecord(CreateServerRunId(), timeProvider.GetUtcNow(), caseId, artifact, inputKind);
+        var record = new HostedCiRunRecord(
+            CreateServerRunId(),
+            timeProvider.GetUtcNow(),
+            caseId,
+            artifact,
+            inputKind,
+            BeamKitPlanJson.ToJson(plan));
         return store.Save(record);
     }
 
@@ -190,7 +197,22 @@ public sealed class BeamKitCiServerService
         var run = store.Find(runId) ?? throw new InvalidOperationException($"Run '{runId}' was not found.");
         var baseline = store.FindBaseline(run.CaseId)
             ?? throw new InvalidOperationException($"No baseline has been promoted for case '{run.CaseId}'.");
-        return CiRunBaselineComparisonReport.Create(baseline, run, timeProvider.GetUtcNow());
+        var planChanges = CompareStoredPlanSnapshots(baseline.BaselineRunId, run.Id);
+        return CiRunBaselineComparisonReport.Create(baseline, run, timeProvider.GetUtcNow(), planChanges);
+    }
+
+    private PlanChangeReport? CompareStoredPlanSnapshots(string baselineRunId, string comparisonRunId)
+    {
+        var baselineJson = store.FindPlanSnapshotJson(baselineRunId);
+        var comparisonJson = store.FindPlanSnapshotJson(comparisonRunId);
+        if (string.IsNullOrWhiteSpace(baselineJson) || string.IsNullOrWhiteSpace(comparisonJson))
+        {
+            return null;
+        }
+
+        var baselinePlan = BeamKitPlanJson.FromJson(baselineJson);
+        var comparisonPlan = BeamKitPlanJson.FromJson(comparisonJson);
+        return new PlanChangeDetector().Compare(baselinePlan, comparisonPlan);
     }
 
     /// <summary>

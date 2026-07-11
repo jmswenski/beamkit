@@ -40,12 +40,16 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Equal(BeamKitCheckStatus.Pass, record.Status);
         Assert.Equal(0, record.ExitCode);
         Assert.Equal("main", record.Artifact.Provenance.Branch);
+        Assert.True(record.HasPlanSnapshot);
         var summary = store.Find(record.Id);
         Assert.NotNull(summary);
         Assert.Equal(record.Id, summary.Id);
         Assert.Equal("main", summary.Branch);
+        Assert.True(summary.HasPlanSnapshot);
         var artifactJson = store.FindArtifactJson(record.Id) ?? throw new InvalidOperationException("Artifact JSON was not stored.");
         Assert.Contains("planFingerprint", artifactJson, StringComparison.Ordinal);
+        var planSnapshotJson = store.FindPlanSnapshotJson(record.Id) ?? throw new InvalidOperationException("Plan snapshot JSON was not stored.");
+        Assert.Contains("\"plan\"", planSnapshotJson, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -82,6 +86,8 @@ public sealed class BeamKitCiServerServiceTests
         var summary = store.Find(record.Id) ?? throw new InvalidOperationException("Run summary was not stored.");
         Assert.Equal(CiRunInputKind.BeamKitPlanJson, summary.InputKind);
         Assert.Equal("HN-SYN-001", summary.CaseId);
+        Assert.True(summary.HasPlanSnapshot);
+        Assert.Contains("HN-SYN-001", store.FindPlanSnapshotJson(record.Id), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -156,6 +162,9 @@ public sealed class BeamKitCiServerServiceTests
 
         Assert.True(report.MatchesBaseline);
         Assert.Empty(report.Findings);
+        Assert.True(report.UsedPlanSnapshotComparison);
+        Assert.NotNull(report.PlanChanges);
+        Assert.Empty(report.PlanChanges.Changes);
         Assert.Equal(run.Id, report.BaselineRunId);
         Assert.Equal(run.Id, report.ComparisonRunId);
     }
@@ -185,9 +194,30 @@ public sealed class BeamKitCiServerServiceTests
         var report = service.CompareToBaseline(comparison.Id);
 
         Assert.False(report.MatchesBaseline);
-        Assert.Contains(report.Findings, finding => finding.Code == "plan-fingerprint.changed" && finding.Severity == CiRunBaselineFindingSeverity.Blocking);
-        Assert.Contains(report.Findings, finding => finding.Code == "prescription-fingerprint.changed" && finding.Severity == CiRunBaselineFindingSeverity.Blocking);
+        Assert.True(report.UsedPlanSnapshotComparison);
+        Assert.NotNull(report.PlanChanges);
+        Assert.Contains(report.PlanChanges.Changes, change => change.Subject == "Prescription.TotalDoseGy");
+        Assert.Contains(report.Findings, finding => finding.Code == "plan-fingerprint.changed" && finding.Severity == CiRunBaselineFindingSeverity.Informational);
+        Assert.Contains(report.Findings, finding => finding.Code == "prescription-fingerprint.changed" && finding.Severity == CiRunBaselineFindingSeverity.Informational);
+        Assert.Contains(report.Findings, finding => finding.Code == "plan-change.prescriptionchanged" && finding.Severity == CiRunBaselineFindingSeverity.Blocking);
         Assert.Contains(report.Findings, finding => finding.Code == "status.changed");
+    }
+
+    [Fact]
+    public void CompareToBaselineFallsBackToMetadataWhenSnapshotsAreMissing()
+    {
+        var store = new CiRunStore();
+        var service = CreateService(store);
+        var run = service.CreateRun(new HostedCiRunRequest { SyntheticCaseId = "head-neck-pass" });
+        store.Save(run with { PlanSnapshotJson = null });
+        service.PromoteBaseline(run.Id, new PromoteCiRunBaselineRequest());
+
+        var report = service.CompareToBaseline(run.Id);
+
+        Assert.True(report.MatchesBaseline);
+        Assert.False(report.UsedPlanSnapshotComparison);
+        Assert.Null(report.PlanChanges);
+        Assert.False(store.Find(run.Id)!.HasPlanSnapshot);
     }
 
     [Fact]

@@ -30,9 +30,12 @@ public sealed class SqliteCiRunStoreTests
         Assert.Equal(BeamKitCheckStatus.Pass, found.Status);
         Assert.Equal(CiRunInputKind.SyntheticCase, found.InputKind);
         Assert.Equal("main", found.Branch);
+        Assert.True(found.HasPlanSnapshot);
         Assert.StartsWith("sha256:", found.PlanFingerprint, StringComparison.Ordinal);
         var artifactJson = secondStore.FindArtifactJson(saved.Id) ?? throw new InvalidOperationException("Artifact JSON was not stored.");
         Assert.Contains(saved.Artifact.Provenance.PlanFingerprint, artifactJson, StringComparison.Ordinal);
+        var planSnapshotJson = secondStore.FindPlanSnapshotJson(saved.Id) ?? throw new InvalidOperationException("Plan snapshot JSON was not stored.");
+        Assert.Contains("HN-SYN-001", planSnapshotJson, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -126,6 +129,26 @@ public sealed class SqliteCiRunStoreTests
     }
 
     [Fact]
+    public void RetentionPreservesPromotedBaselinePlanSnapshot()
+    {
+        using var database = TemporaryDatabase.Create();
+        var store = new SqliteCiRunStore(new CiServerStorageOptions
+        {
+            DatabasePath = database.Path,
+            EnableRetention = true,
+            RetentionLimit = 1
+        });
+        var service = CreateService(store);
+        var baselineRun = service.CreateRun(new HostedCiRunRequest { SyntheticCaseId = "head-neck-pass" });
+        service.PromoteBaseline(baselineRun.Id, new PromoteCiRunBaselineRequest());
+
+        service.CreateRun(new HostedCiRunRequest { SyntheticCaseId = "head-neck-cord-fail" });
+
+        Assert.NotNull(store.Find(baselineRun.Id));
+        Assert.NotNull(store.FindPlanSnapshotJson(baselineRun.Id));
+    }
+
+    [Fact]
     public void ExistingDatabaseWithoutInputKindColumnIsUpgraded()
     {
         using var database = TemporaryDatabase.Create();
@@ -140,6 +163,26 @@ public sealed class SqliteCiRunStoreTests
 
         var found = store.Find("uploaded") ?? throw new InvalidOperationException("Run was not stored.");
         Assert.Equal(CiRunInputKind.BeamKitPlanJson, found.InputKind);
+        Assert.False(found.HasPlanSnapshot);
+        Assert.Null(store.FindPlanSnapshotJson("uploaded"));
+    }
+
+    [Fact]
+    public void ExistingDatabaseWithoutPlanSnapshotColumnIsUpgraded()
+    {
+        using var database = TemporaryDatabase.Create();
+        CreateDatabaseWithoutPlanSnapshotColumn(database.Path);
+        var store = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+
+        var saved = store.Save(CreateRecord(
+            "upgraded",
+            new DateTimeOffset(2026, 7, 9, 12, 4, 0, TimeSpan.Zero),
+            BeamKitCheckStatus.Pass,
+            planSnapshotJson: """{"patient":{"id":"P1"},"plan":{"id":"plan-1"}}"""));
+
+        var found = store.Find(saved.Id) ?? throw new InvalidOperationException("Run was not stored.");
+        Assert.True(found.HasPlanSnapshot);
+        Assert.Contains("plan-1", store.FindPlanSnapshotJson(saved.Id), StringComparison.Ordinal);
     }
 
     private static BeamKitCiServerService CreateService(ICiRunStore store)
@@ -151,7 +194,8 @@ public sealed class SqliteCiRunStoreTests
         string id,
         DateTimeOffset createdAtUtc,
         BeamKitCheckStatus status,
-        CiRunInputKind inputKind = CiRunInputKind.SyntheticCase)
+        CiRunInputKind inputKind = CiRunInputKind.SyntheticCase,
+        string? planSnapshotJson = null)
     {
         var service = CreateService(new CiRunStore());
         var source = status == BeamKitCheckStatus.Fail
@@ -166,7 +210,7 @@ public sealed class SqliteCiRunStoreTests
                 artifact.CheckReport);
         }
 
-        return new HostedCiRunRecord(id, createdAtUtc, source.CaseId, artifact, inputKind);
+        return new HostedCiRunRecord(id, createdAtUtc, source.CaseId, artifact, inputKind, planSnapshotJson);
     }
 
     private static void CreateLegacyDatabase(string path)
@@ -179,6 +223,35 @@ public sealed class SqliteCiRunStoreTests
                 id TEXT PRIMARY KEY,
                 created_at_utc TEXT NOT NULL,
                 synthetic_case_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                exit_code INTEGER NOT NULL,
+                input_source TEXT NULL,
+                branch TEXT NULL,
+                commit_sha TEXT NULL,
+                build_id TEXT NULL,
+                plan_id TEXT NOT NULL,
+                rule_pack_name TEXT NOT NULL,
+                rule_pack_version TEXT NOT NULL,
+                plan_fingerprint TEXT NOT NULL,
+                prescription_fingerprint TEXT NOT NULL,
+                rule_pack_fingerprint TEXT NOT NULL,
+                artifact_json TEXT NOT NULL
+            );
+            """;
+        command.ExecuteNonQuery();
+    }
+
+    private static void CreateDatabaseWithoutPlanSnapshotColumn(string path)
+    {
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE ci_runs (
+                id TEXT PRIMARY KEY,
+                created_at_utc TEXT NOT NULL,
+                synthetic_case_id TEXT NOT NULL,
+                input_kind TEXT NOT NULL DEFAULT 'SyntheticCase',
                 status TEXT NOT NULL,
                 exit_code INTEGER NOT NULL,
                 input_source TEXT NULL,

@@ -16,7 +16,8 @@ public sealed class CiRunStoreTests
             "run-1",
             new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero),
             "head-neck-pass",
-            CreateArtifact(BeamKitCheckStatus.Pass));
+            CreateArtifact(BeamKitCheckStatus.Pass),
+            planSnapshotJson: """{"patient":{"id":"P1"},"plan":{"id":"plan-1"}}""");
 
         store.Save(record);
 
@@ -27,6 +28,8 @@ public sealed class CiRunStoreTests
         Assert.Equal(record.Status, summary.Status);
         var artifactJson = store.FindArtifactJson("RUN-1") ?? throw new InvalidOperationException("Artifact JSON was not stored.");
         Assert.Contains("planFingerprint", artifactJson, StringComparison.Ordinal);
+        Assert.True(summary.HasPlanSnapshot);
+        Assert.Contains("plan-1", store.FindPlanSnapshotJson("RUN-1"), StringComparison.Ordinal);
     }
 
     [Fact]

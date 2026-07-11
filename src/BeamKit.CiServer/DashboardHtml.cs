@@ -203,7 +203,7 @@ internal static class DashboardHtml
               </div>
               <table>
                 <thead>
-                  <tr><th>Run</th><th>Source</th><th>Case</th><th>Status</th><th>Exit</th><th>Created</th><th>Actions</th></tr>
+                  <tr><th>Run</th><th>Source</th><th>Case</th><th>Status</th><th>Snapshot</th><th>Exit</th><th>Created</th><th>Actions</th></tr>
                 </thead>
                 <tbody id="runs"></tbody>
               </table>
@@ -292,6 +292,7 @@ internal static class DashboardHtml
                   <td>${formatInputKind(run.inputKind)}</td>
                   <td>${run.caseId || run.syntheticCaseId}</td>
                   <td class="status-${status}">${run.status}</td>
+                  <td>${run.hasPlanSnapshot ? "Plan" : "Metadata"}</td>
                   <td>${run.exitCode}</td>
                   <td>${new Date(run.createdAtUtc).toLocaleString()}</td>
                   <td>

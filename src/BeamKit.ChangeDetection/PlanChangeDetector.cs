@@ -17,11 +17,21 @@ public sealed class PlanChangeDetector
 
         options ??= new PlanChangeDetectionOptions();
         var changes = new List<PlanChange>();
+        ComparePlanMetadata(baseline, comparison, changes);
         ComparePrescription(baseline.Prescription, comparison.Prescription, options, changes);
         CompareStructures(baseline.Structures, comparison.Structures, options, changes);
         CompareDose(baseline.Dose, comparison.Dose, options, changes);
         CompareBeams(baseline.Beams, comparison.Beams, options, changes);
+        CompareClinicalGoals(baseline.ClinicalGoals, comparison.ClinicalGoals, changes);
         return new PlanChangeReport(baseline.Id, comparison.Id, changes);
+    }
+
+    private static void ComparePlanMetadata(Plan before, Plan after, ICollection<PlanChange> changes)
+    {
+        AddMetadataChangeIfDifferent(changes, "Plan.Id", before.Id, after.Id, PlanChangeSeverity.Blocking);
+        AddMetadataChangeIfDifferent(changes, "Patient.Id", before.Patient.Id, after.Patient.Id, PlanChangeSeverity.Blocking);
+        AddMetadataChangeIfDifferent(changes, "Plan.CourseId", before.CourseId, after.CourseId, PlanChangeSeverity.Blocking);
+        AddMetadataChangeIfDifferent(changes, "Plan.DiseaseSite", before.DiseaseSite, after.DiseaseSite, PlanChangeSeverity.Warning);
     }
 
     private static void ComparePrescription(Prescription before, Prescription after, PlanChangeDetectionOptions options, ICollection<PlanChange> changes)
@@ -198,6 +208,34 @@ public sealed class PlanChangeDetector
         }
     }
 
+    private static void CompareClinicalGoals(IReadOnlyList<ClinicalGoal> before, IReadOnlyList<ClinicalGoal> after, ICollection<PlanChange> changes)
+    {
+        var beforeById = before.ToDictionary(goal => goal.Id, StringComparer.OrdinalIgnoreCase);
+        var afterById = after.ToDictionary(goal => goal.Id, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var removed in beforeById.Keys.Except(afterById.Keys, StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            changes.Add(new PlanChange(PlanChangeType.ClinicalGoalRemoved, PlanChangeSeverity.Blocking, removed, "Clinical goal was removed."));
+        }
+
+        foreach (var added in afterById.Keys.Except(beforeById.Keys, StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            changes.Add(new PlanChange(PlanChangeType.ClinicalGoalAdded, PlanChangeSeverity.Warning, added, "Clinical goal was added."));
+        }
+
+        foreach (var id in beforeById.Keys.Intersect(afterById.Keys, StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+        {
+            var beforeGoal = beforeById[id];
+            var afterGoal = afterById[id];
+            AddClinicalGoalChangeIfDifferent(changes, id, "StructureName", beforeGoal.StructureName, afterGoal.StructureName);
+            AddClinicalGoalChangeIfDifferent(changes, id, "MetricKey", beforeGoal.MetricKey, afterGoal.MetricKey);
+            AddClinicalGoalChangeIfDifferent(changes, id, "Comparison", beforeGoal.Comparison.ToString(), afterGoal.Comparison.ToString());
+            AddClinicalGoalChangeIfDifferent(changes, id, "Threshold", FormatDecimal(beforeGoal.Threshold), FormatDecimal(afterGoal.Threshold));
+            AddClinicalGoalChangeIfDifferent(changes, id, "Unit", beforeGoal.Unit, afterGoal.Unit);
+            AddClinicalGoalChangeIfDifferent(changes, id, "Severity", beforeGoal.Severity.ToString(), afterGoal.Severity.ToString());
+        }
+    }
+
     private static void CompareDoseText(string subject, string? before, string? after, ICollection<PlanChange> changes)
     {
         if (!string.Equals(before, after, StringComparison.Ordinal))
@@ -357,6 +395,38 @@ public sealed class PlanChangeDetector
     private static void AddChange(ICollection<PlanChange> changes, string subject, string? before, string? after)
     {
         changes.Add(new PlanChange(PlanChangeType.PrescriptionChanged, PlanChangeSeverity.Blocking, subject, "Prescription changed.", before, after));
+    }
+
+    private static void AddMetadataChangeIfDifferent(
+        ICollection<PlanChange> changes,
+        string subject,
+        string? before,
+        string? after,
+        PlanChangeSeverity severity)
+    {
+        if (!string.Equals(before, after, StringComparison.Ordinal))
+        {
+            changes.Add(new PlanChange(PlanChangeType.PlanMetadataChanged, severity, subject, "Plan metadata changed.", before, after));
+        }
+    }
+
+    private static void AddClinicalGoalChangeIfDifferent(
+        ICollection<PlanChange> changes,
+        string goalId,
+        string propertyName,
+        string? before,
+        string? after)
+    {
+        if (!string.Equals(before, after, StringComparison.Ordinal))
+        {
+            changes.Add(new PlanChange(
+                PlanChangeType.ClinicalGoalChanged,
+                PlanChangeSeverity.Warning,
+                $"ClinicalGoal.{goalId}.{propertyName}",
+                "Clinical goal property changed.",
+                before,
+                after));
+        }
     }
 
     private static string FormatDecimal(decimal value)

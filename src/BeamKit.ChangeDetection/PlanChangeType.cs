@@ -6,6 +6,11 @@ namespace BeamKit.ChangeDetection;
 public enum PlanChangeType
 {
     /// <summary>
+    /// Plan, patient, course, or disease-site metadata changed.
+    /// </summary>
+    PlanMetadataChanged,
+
+    /// <summary>
     /// Prescription dose, fractionation, target, signature, or intent changed.
     /// </summary>
     PrescriptionChanged,
@@ -73,5 +78,20 @@ public enum PlanChangeType
     /// <summary>
     /// Beam control-point geometry or meterset changed.
     /// </summary>
-    BeamControlPointChanged
+    BeamControlPointChanged,
+
+    /// <summary>
+    /// A clinical goal was added.
+    /// </summary>
+    ClinicalGoalAdded,
+
+    /// <summary>
+    /// A clinical goal was removed.
+    /// </summary>
+    ClinicalGoalRemoved,
+
+    /// <summary>
+    /// A clinical goal property changed.
+    /// </summary>
+    ClinicalGoalChanged
 }

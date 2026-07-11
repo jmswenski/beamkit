@@ -1,3 +1,5 @@
+using BeamKit.ChangeDetection;
+
 namespace BeamKit.CiServer;
 
 /// <summary>
@@ -15,6 +17,8 @@ public sealed record CiRunBaselineComparisonReport
         DateTimeOffset comparedAtUtc,
         CiRunBaseline baseline,
         HostedCiRunSummary comparison,
+        bool usedPlanSnapshotComparison = false,
+        PlanChangeReport? planChanges = null,
         IEnumerable<CiRunBaselineFinding>? findings = null)
     {
         CaseId = CiServerText.Required(caseId, nameof(caseId));
@@ -23,6 +27,8 @@ public sealed record CiRunBaselineComparisonReport
         ComparedAtUtc = comparedAtUtc;
         Baseline = baseline ?? throw new ArgumentNullException(nameof(baseline));
         Comparison = comparison ?? throw new ArgumentNullException(nameof(comparison));
+        UsedPlanSnapshotComparison = usedPlanSnapshotComparison;
+        PlanChanges = planChanges;
         Findings = findings?.ToArray() ?? Array.Empty<CiRunBaselineFinding>();
     }
 
@@ -57,6 +63,16 @@ public sealed record CiRunBaselineComparisonReport
     public HostedCiRunSummary Comparison { get; init; }
 
     /// <summary>
+    /// Indicates whether the comparison included field-level plan snapshot analysis.
+    /// </summary>
+    public bool UsedPlanSnapshotComparison { get; init; }
+
+    /// <summary>
+    /// Field-level plan changes when both runs had stored vendor-neutral snapshots.
+    /// </summary>
+    public PlanChangeReport? PlanChanges { get; init; }
+
+    /// <summary>
     /// Baseline comparison findings.
     /// </summary>
     public IReadOnlyList<CiRunBaselineFinding> Findings { get; init; }
@@ -79,7 +95,11 @@ public sealed record CiRunBaselineComparisonReport
     /// <summary>
     /// Compares a run summary to a promoted baseline.
     /// </summary>
-    public static CiRunBaselineComparisonReport Create(CiRunBaseline baseline, HostedCiRunSummary comparison, DateTimeOffset comparedAtUtc)
+    public static CiRunBaselineComparisonReport Create(
+        CiRunBaseline baseline,
+        HostedCiRunSummary comparison,
+        DateTimeOffset comparedAtUtc,
+        PlanChangeReport? planChanges = null)
     {
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentNullException.ThrowIfNull(comparison);
@@ -90,6 +110,7 @@ public sealed record CiRunBaselineComparisonReport
         }
 
         var findings = new List<CiRunBaselineFinding>();
+        var usedPlanSnapshotComparison = planChanges is not null;
         AddIfChanged(
             findings,
             "input-kind.changed",
@@ -117,17 +138,21 @@ public sealed record CiRunBaselineComparisonReport
         AddIfChanged(
             findings,
             "plan-fingerprint.changed",
-            CiRunBaselineFindingSeverity.Blocking,
+            usedPlanSnapshotComparison ? CiRunBaselineFindingSeverity.Informational : CiRunBaselineFindingSeverity.Blocking,
             "PlanFingerprint",
-            "Plan fingerprint changed from the promoted baseline.",
+            usedPlanSnapshotComparison
+                ? "Exact plan fingerprint changed; field-level plan snapshot changes are included in this report."
+                : "Plan fingerprint changed from the promoted baseline.",
             baseline.PlanFingerprint,
             comparison.PlanFingerprint);
         AddIfChanged(
             findings,
             "prescription-fingerprint.changed",
-            CiRunBaselineFindingSeverity.Blocking,
+            usedPlanSnapshotComparison ? CiRunBaselineFindingSeverity.Informational : CiRunBaselineFindingSeverity.Blocking,
             "PrescriptionFingerprint",
-            "Prescription fingerprint changed from the promoted baseline.",
+            usedPlanSnapshotComparison
+                ? "Exact prescription fingerprint changed; field-level prescription changes are included in this report."
+                : "Prescription fingerprint changed from the promoted baseline.",
             baseline.PrescriptionFingerprint,
             comparison.PrescriptionFingerprint);
         AddIfChanged(
@@ -147,6 +172,20 @@ public sealed record CiRunBaselineComparisonReport
             baseline.RulePackVersion,
             comparison.RulePackVersion);
 
+        if (planChanges is not null)
+        {
+            foreach (var change in planChanges.Changes)
+            {
+                findings.Add(new CiRunBaselineFinding(
+                    $"plan-change.{change.Type.ToString().ToLowerInvariant()}",
+                    MapPlanChangeSeverity(change.Severity),
+                    change.Subject,
+                    change.Description,
+                    change.BeforeValue,
+                    change.AfterValue));
+            }
+        }
+
         return new CiRunBaselineComparisonReport(
             baseline.CaseId,
             baseline.BaselineRunId,
@@ -154,6 +193,8 @@ public sealed record CiRunBaselineComparisonReport
             comparedAtUtc,
             baseline,
             comparison,
+            usedPlanSnapshotComparison,
+            planChanges,
             findings);
     }
 
@@ -170,5 +211,15 @@ public sealed record CiRunBaselineComparisonReport
         {
             findings.Add(new CiRunBaselineFinding(code, severity, subject, message, baselineValue, comparisonValue));
         }
+    }
+
+    private static CiRunBaselineFindingSeverity MapPlanChangeSeverity(PlanChangeSeverity severity)
+    {
+        return severity switch
+        {
+            PlanChangeSeverity.Blocking => CiRunBaselineFindingSeverity.Blocking,
+            PlanChangeSeverity.Warning => CiRunBaselineFindingSeverity.Warning,
+            _ => CiRunBaselineFindingSeverity.Informational
+        };
     }
 }

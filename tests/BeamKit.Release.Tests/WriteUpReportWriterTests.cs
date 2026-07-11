@@ -23,7 +23,13 @@ public sealed class WriteUpReportWriterTests
     public void VerificationMarkdownIncludesStaleFingerprintMessage()
     {
         var manifest = CreateManifest();
-        var changed = manifest.CapturedPlanSnapshot with { DiseaseSite = "Different label" };
+        var changed = manifest.CapturedPlanSnapshot with
+        {
+            Prescription = manifest.CapturedPlanSnapshot.Prescription with
+            {
+                TotalDoseGy = manifest.CapturedPlanSnapshot.Prescription.TotalDoseGy + 0.001m
+            }
+        };
         var report = new WriteUpVerifier(new FixedTimeProvider(manifest.CapturedAtUtc.AddHours(1))).Verify(manifest, changed);
 
         var markdown = WriteUpReportWriter.WriteVerification(report, WriteUpReportFormat.Markdown);

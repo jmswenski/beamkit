@@ -12,7 +12,8 @@ This first slice supports:
 - SQLite-backed run metadata and artifact persistence.
 - Run history filters for status, case id, branch, and date ranges.
 - Exact artifact JSON download.
-- Baseline promotion and fingerprint comparison for later runs.
+- Internal BeamKit plan snapshot retention for field-level baseline comparison.
+- Baseline promotion with fingerprint and plan-change comparison for later runs.
 - Assignment recommendations from workflow inputs.
 - A compact local dashboard.
 
@@ -73,6 +74,8 @@ curl -s http://localhost:5088/api/runs/{id}/baseline \
 
 curl -s http://localhost:5088/api/runs/{laterId}/baseline-comparison
 ```
+
+Baseline comparison uses stored metadata and provenance fingerprints for every run. When both runs have retained BeamKit plan snapshots, the response also includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes from `BeamKit.ChangeDetection`. Older rows without snapshots fall back to metadata and fingerprint comparison.
 
 Create a run from uploaded BeamKit plan JSON:
 
@@ -150,6 +153,6 @@ Configure it under `BeamKit:CiServer:Storage`:
 
 ## Current Boundaries
 
-This server persists local run history and artifacts and can run checks from synthetic cases, BeamKit plan JSON, or ESAPI snapshot JSON. It is suitable for local demos, API shape validation, and future dashboard development.
+This server persists local run history, artifacts, and internal BeamKit plan snapshots, and can run checks from synthetic cases, BeamKit plan JSON, or ESAPI snapshot JSON. It is suitable for local demos, API shape validation, and future dashboard development.
 
-Before clinical or production use, BeamKit still needs authenticated uploads, production database deployment guidance, formal audit retention policy, role-based access control, network hardening, deployment documentation, PHI handling guidance, clinical validation, and full plan-snapshot retention for tolerant field-by-field baseline diffs.
+Before clinical or production use, BeamKit still needs authenticated uploads, production database deployment guidance, formal audit retention policy, role-based access control, network hardening, deployment documentation, PHI handling guidance, and clinical validation.

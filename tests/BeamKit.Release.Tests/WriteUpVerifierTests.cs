@@ -44,7 +44,10 @@ public sealed class WriteUpVerifierTests
     {
         var timestamp = new DateTimeOffset(2026, 2, 3, 4, 5, 6, TimeSpan.Zero);
         var plan = SyntheticPlanFactory.CreateHeadAndNeckPlan();
-        var changed = plan with { DiseaseSite = "Different label" };
+        var changed = plan with
+        {
+            Prescription = plan.Prescription with { TotalDoseGy = plan.Prescription.TotalDoseGy + 0.001m }
+        };
         var manifest = CreateManifest(plan, timestamp);
 
         var report = new WriteUpVerifier(new FixedTimeProvider(timestamp.AddHours(1))).Verify(manifest, changed);

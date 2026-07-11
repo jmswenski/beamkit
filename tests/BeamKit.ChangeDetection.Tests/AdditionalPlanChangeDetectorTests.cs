@@ -161,6 +161,52 @@ public sealed class AdditionalPlanChangeDetectorTests
     }
 
     [Fact]
+    public void DetectsPlanMetadataChanges()
+    {
+        var baseline = SyntheticPlanFactory.CreateHeadAndNeckPlan();
+        var comparison = baseline with
+        {
+            Patient = baseline.Patient with { Id = "SYN-OTHER" },
+            CourseId = "C2",
+            DiseaseSite = "Lung"
+        };
+
+        var report = new PlanChangeDetector().Compare(baseline, comparison);
+
+        Assert.Contains(report.Changes, change => change.Type == PlanChangeType.PlanMetadataChanged && change.Subject == "Patient.Id" && change.Severity == PlanChangeSeverity.Blocking);
+        Assert.Contains(report.Changes, change => change.Type == PlanChangeType.PlanMetadataChanged && change.Subject == "Plan.CourseId" && change.Severity == PlanChangeSeverity.Blocking);
+        Assert.Contains(report.Changes, change => change.Type == PlanChangeType.PlanMetadataChanged && change.Subject == "Plan.DiseaseSite" && change.Severity == PlanChangeSeverity.Warning);
+    }
+
+    [Fact]
+    public void DetectsClinicalGoalChanges()
+    {
+        var source = SyntheticPlanFactory.CreateHeadAndNeckPlan();
+        var baseline = source with
+        {
+            ClinicalGoals = new[]
+            {
+                new ClinicalGoal("goal-1", "CORD", DoseMetricKeys.MaximumDoseGy, GoalComparison.LessThan, 45m, "Gy"),
+                new ClinicalGoal("goal-2", "HEART", DoseMetricKeys.MeanDoseGy, GoalComparison.LessThan, 10m, "Gy")
+            }
+        };
+        var comparison = baseline with
+        {
+            ClinicalGoals = new[]
+            {
+                new ClinicalGoal("goal-1", "CORD", DoseMetricKeys.MaximumDoseGy, GoalComparison.LessThan, 44m, "Gy"),
+                new ClinicalGoal("goal-3", "LUNG_R", "V20GyPercent", GoalComparison.LessThan, 35m, "%", GoalSeverity.Warning)
+            }
+        };
+
+        var report = new PlanChangeDetector().Compare(baseline, comparison);
+
+        Assert.Contains(report.Changes, change => change.Type == PlanChangeType.ClinicalGoalChanged && change.Subject == "ClinicalGoal.goal-1.Threshold");
+        Assert.Contains(report.Changes, change => change.Type == PlanChangeType.ClinicalGoalRemoved && change.Subject == "goal-2" && change.Severity == PlanChangeSeverity.Blocking);
+        Assert.Contains(report.Changes, change => change.Type == PlanChangeType.ClinicalGoalAdded && change.Subject == "goal-3" && change.Severity == PlanChangeSeverity.Warning);
+    }
+
+    [Fact]
     public void IntegrityVerifierTreatsAnyQaPlanDifferenceAsBlocking()
     {
         var treatmentPlan = SyntheticPlanFactory.CreateHeadAndNeckPlan();

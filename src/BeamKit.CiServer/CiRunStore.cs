@@ -45,6 +45,16 @@ public sealed class CiRunStore : ICiRunStore
     }
 
     /// <summary>
+    /// Finds the stored vendor-neutral BeamKit plan snapshot JSON for a run.
+    /// </summary>
+    public string? FindPlanSnapshotJson(string id)
+    {
+        return string.IsNullOrWhiteSpace(id) || records.GetValueOrDefault(id) is not { } record
+            ? null
+            : record.PlanSnapshotJson;
+    }
+
+    /// <summary>
     /// Lists runs in reverse chronological order.
     /// </summary>
     public IReadOnlyList<HostedCiRunSummary> List(int limit = 50)

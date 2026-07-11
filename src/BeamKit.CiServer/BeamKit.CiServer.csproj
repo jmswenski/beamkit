@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\BeamKit.ChangeDetection\BeamKit.ChangeDetection.csproj" />
     <ProjectReference Include="..\BeamKit.Check\BeamKit.Check.csproj" />
     <ProjectReference Include="..\BeamKit.Esapi\BeamKit.Esapi.csproj" />
     <ProjectReference Include="..\BeamKit.Samples\BeamKit.Samples.csproj" />

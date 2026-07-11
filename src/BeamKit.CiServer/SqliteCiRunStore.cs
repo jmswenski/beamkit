@@ -75,7 +75,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     plan_fingerprint,
                     prescription_fingerprint,
                     rule_pack_fingerprint,
-                    artifact_json
+                    artifact_json,
+                    plan_snapshot_json
                 )
                 VALUES (
                     $id,
@@ -94,7 +95,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     $plan_fingerprint,
                     $prescription_fingerprint,
                     $rule_pack_fingerprint,
-                    $artifact_json
+                    $artifact_json,
+                    $plan_snapshot_json
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     created_at_utc = excluded.created_at_utc,
@@ -112,7 +114,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     plan_fingerprint = excluded.plan_fingerprint,
                     prescription_fingerprint = excluded.prescription_fingerprint,
                     rule_pack_fingerprint = excluded.rule_pack_fingerprint,
-                    artifact_json = excluded.artifact_json;
+                    artifact_json = excluded.artifact_json,
+                    plan_snapshot_json = excluded.plan_snapshot_json;
                 """;
             AddCommonParameters(command, record);
             command.ExecuteNonQuery();
@@ -157,7 +160,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     rule_pack_version,
                     plan_fingerprint,
                     prescription_fingerprint,
-                    rule_pack_fingerprint
+                    rule_pack_fingerprint,
+                    plan_snapshot_json IS NOT NULL
                 FROM ci_runs
                 WHERE id = $id;
                 """;
@@ -183,6 +187,30 @@ public sealed class SqliteCiRunStore : ICiRunStore
             using var command = connection.CreateCommand();
             command.CommandText = """
                 SELECT artifact_json
+                FROM ci_runs
+                WHERE id = $id;
+                """;
+            command.Parameters.AddWithValue("$id", id.Trim());
+            return command.ExecuteScalar() as string;
+        }
+    }
+
+    /// <summary>
+    /// Finds the stored vendor-neutral BeamKit plan snapshot JSON for a run.
+    /// </summary>
+    public string? FindPlanSnapshotJson(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT plan_snapshot_json
                 FROM ci_runs
                 WHERE id = $id;
                 """;
@@ -252,7 +280,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     rule_pack_version,
                     plan_fingerprint,
                     prescription_fingerprint,
-                    rule_pack_fingerprint
+                    rule_pack_fingerprint,
+                    plan_snapshot_json IS NOT NULL
                 FROM ci_runs
                 """);
             if (where.Count > 0)
@@ -433,7 +462,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     plan_fingerprint TEXT NOT NULL,
                     prescription_fingerprint TEXT NOT NULL,
                     rule_pack_fingerprint TEXT NOT NULL,
-                    artifact_json TEXT NOT NULL
+                    artifact_json TEXT NOT NULL,
+                    plan_snapshot_json TEXT NULL
                 );
 
                 CREATE INDEX IF NOT EXISTS ix_ci_runs_created_at ON ci_runs(created_at_utc);
@@ -466,6 +496,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 """;
             command.ExecuteNonQuery();
             EnsureInputKindColumn(connection);
+            EnsurePlanSnapshotColumn(connection);
             using var index = connection.CreateCommand();
             index.CommandText = "CREATE INDEX IF NOT EXISTS ix_ci_runs_input_kind ON ci_runs(input_kind);";
             index.ExecuteNonQuery();
@@ -498,6 +529,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$prescription_fingerprint", record.Artifact.Provenance.PrescriptionFingerprint);
         command.Parameters.AddWithValue("$rule_pack_fingerprint", record.Artifact.Provenance.RulePackFingerprint);
         command.Parameters.AddWithValue("$artifact_json", System.Text.Json.JsonSerializer.Serialize(record.Artifact, CiServerJson.Options));
+        command.Parameters.AddWithValue("$plan_snapshot_json", ToDbValue(record.PlanSnapshotJson));
     }
 
     private static void AddBaselineParameters(SqliteCommand command, CiRunBaseline baseline)
@@ -550,7 +582,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.GetString(12),
             reader.GetString(13),
             reader.GetString(14),
-            reader.GetString(15));
+            reader.GetString(15),
+            reader.GetBoolean(16));
     }
 
     private static string? GetNullableString(SqliteDataReader reader, int ordinal)
@@ -651,6 +684,33 @@ public sealed class SqliteCiRunStore : ICiRunStore
 
         using var alter = connection.CreateCommand();
         alter.CommandText = "ALTER TABLE ci_runs ADD COLUMN input_kind TEXT NOT NULL DEFAULT 'SyntheticCase';";
+        alter.ExecuteNonQuery();
+    }
+
+    private static void EnsurePlanSnapshotColumn(SqliteConnection connection)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = "PRAGMA table_info(ci_runs);";
+        var hasColumn = false;
+        using (var reader = check.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), "plan_snapshot_json", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasColumn = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasColumn)
+        {
+            return;
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE ci_runs ADD COLUMN plan_snapshot_json TEXT NULL;";
         alter.ExecuteNonQuery();
     }
 }

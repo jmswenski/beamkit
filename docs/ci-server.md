@@ -21,7 +21,8 @@ http://localhost:5088
 - Validate rule packs as policy-as-code.
 - Run rule-pack regression tests.
 - Persist run metadata and full CI artifacts in SQLite.
-- Promote stored runs as case baselines and compare later runs against baseline fingerprints.
+- Persist vendor-neutral plan snapshots internally for field-level baseline comparison.
+- Promote stored runs as case baselines and compare later runs against baseline fingerprints and plan changes.
 - Return provenance artifacts with plan, prescription, and rule-pack fingerprints.
 - Filter run history by status, case id, branch, and creation time.
 - Download exact stored artifact JSON for audit and handoff workflows.
@@ -78,7 +79,9 @@ Compare a later run against the promoted baseline:
 curl -s http://localhost:5088/api/runs/{laterId}/baseline-comparison
 ```
 
-The comparison checks CI metadata and provenance fingerprints, including plan, prescription, rule-pack, status, and source category. Baseline runs are protected from SQLite retention pruning.
+The comparison checks CI metadata and provenance fingerprints, including plan, prescription, rule-pack, status, and source category. When both runs have retained plan snapshots, the response also includes a `planChanges` report with plan metadata, prescription, structure, dose, beam, and clinical-goal differences from `BeamKit.ChangeDetection`. Exact plan and prescription fingerprint drift is then informational context; field-level plan changes carry the clinical blocking or warning severity. Older rows without snapshots fall back to metadata and fingerprint comparison.
+
+Baseline runs and their retained snapshots are protected from SQLite retention pruning.
 
 Create a run from uploaded BeamKit plan JSON:
 
@@ -162,7 +165,7 @@ The SQLite database path and retention policy are configured in `src/BeamKit.CiS
 }
 ```
 
-The `ci_runs` table stores searchable metadata separately from the full artifact JSON, so run history can be filtered without deserializing clinical report payloads.
+The `ci_runs` table stores searchable metadata separately from the full artifact JSON and internal BeamKit plan snapshot JSON, so run history can be filtered without deserializing clinical report payloads. Plan snapshots are used for baseline comparison and are not exposed through a raw download endpoint.
 
 ## Current Boundaries
 
@@ -178,4 +181,3 @@ Production hardening still needs:
 - PHI handling guidance.
 - Integration adapters for real TPS, OIS, EHR, and task-system workflows.
 - Independent clinical validation.
-- Full plan-snapshot retention for tolerant field-by-field baseline diffs.

@@ -56,7 +56,7 @@ What is usable today:
 - Rule-pack policy-as-code validation with deterministic fingerprints.
 - Rule-pack regression testing against PHI-free synthetic cases.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with JSON APIs, SQLite run history, provenance artifacts, synthetic and uploaded plan/snapshot gates, baseline promotion/comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with JSON APIs, SQLite run history, provenance artifacts, internal plan-snapshot retention, synthetic and uploaded plan/snapshot gates, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -143,7 +143,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.Core`](src/BeamKit.Core/README.md) | Vendor-neutral models for patients, plans, structures, dose, beams, prescriptions, and clinical goals. | Active |
 | [`BeamKit.ChangeDetection`](src/BeamKit.ChangeDetection/README.md) | Vendor-neutral plan change detection and treatment-vs-QA plan integrity verification. | Active |
 | [`BeamKit.Check`](src/BeamKit.Check/README.md) | Flagship rule-pack workflow for CI/CD-style plan QA, polished reports, readiness, metrics, naming, and write-up evidence. | Active |
-| [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for plan gates, policy validation, rule-pack tests, provenance artifacts, and assignment recommendations. | Initial |
+| [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for plan gates, policy validation, rule-pack tests, provenance artifacts, baseline comparisons, and assignment recommendations. | Initial |
 | [`BeamKit.Deliverability`](src/BeamKit.Deliverability/README.md) | Beam deliverability and machine-profile checks for MU, MU/degree, jaw policy, beam model, and calculation model constraints. | Active |
 | [`BeamKit.Metrics`](src/BeamKit.Metrics/README.md) | Standardized DVH metric expressions and target plan-quality summaries. | Active |
 | [`BeamKit.Naming`](src/BeamKit.Naming/README.md) | Structure name normalization, aliases, regex mappings, ambiguity, and missing-structure checks. | Active |
@@ -302,6 +302,8 @@ curl -s http://localhost:5088/api/runs/{id}/baseline \
 
 curl -s http://localhost:5088/api/runs/{laterId}/baseline-comparison
 ```
+
+When both runs have retained BeamKit plan snapshots, the baseline comparison response includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes in addition to provenance fingerprints.
 
 Submit a locally extracted ESAPI snapshot or BeamKit plan JSON to the server:
 
@@ -598,6 +600,7 @@ BeamKit rule packs are intended to be reviewed like software:
 - `rule-pack test` runs curated or synthetic cases against expected pass/fail outcomes.
 - `ci run` emits a single record containing policy validation, plan check results, and provenance fingerprints.
 - Fingerprints make it possible to prove which plan, prescription, and rule pack produced a report.
+- The CI server can promote a run as a baseline and compare later runs against it using both exact fingerprints and field-level plan changes when snapshots are available.
 
 This is the open-source foundation for treating radiation plans like reproducible clinical build artifacts: every rule change can be reviewed, tested, and traced.
 

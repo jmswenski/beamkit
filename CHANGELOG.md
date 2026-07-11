@@ -44,6 +44,7 @@ The format follows Keep a Changelog principles, and the project intends to use s
 - Self-hosted `BeamKit.CiServer` with HTTP APIs, local dashboard, synthetic case gates, rule-pack validation/testing, SQLite run history, filtered run summaries, artifact downloads, provenance artifact access, and assignment recommendations.
 - CI-server upload intake for BeamKit plan JSON and ESAPI snapshot JSON, with source labels and ESAPI snapshot validation before conversion.
 - CI-server baseline promotion and comparison using persisted provenance fingerprints, with baseline runs protected from retention pruning.
+- CI-server internal plan-snapshot retention for field-level baseline diffs across plan metadata, prescription, structure, dose, beam, and clinical-goal changes.
 - Physics QA checks for prescription energy/technique/fractionation, calculation model/version, beam model, jaw policy, and treatment-vs-QA plan integrity.
 - Deterministic plan and prescription fingerprints for release evidence and stale write-up detection.
 - Release package for plan write-up manifests, export/document attestations, JSON round-trips, and current/stale verification.
