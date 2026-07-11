@@ -126,6 +126,71 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void PromoteBaselineStoresRunMetadataForCase()
+    {
+        var service = CreateService();
+        var run = service.CreateRun(new HostedCiRunRequest { SyntheticCaseId = "head-neck-pass", Branch = "main" });
+
+        var baseline = service.PromoteBaseline(run.Id, new PromoteCiRunBaselineRequest
+        {
+            PromotedBy = "physics",
+            Note = "Approved synthetic baseline."
+        });
+
+        Assert.Equal("head-neck-pass", baseline.CaseId);
+        Assert.Equal(run.Id, baseline.BaselineRunId);
+        Assert.Equal("physics", baseline.PromotedBy);
+        Assert.Equal(run.Artifact.Provenance.PlanFingerprint, baseline.PlanFingerprint);
+        Assert.Equal(baseline, service.FindBaseline("HEAD-NECK-PASS"));
+        Assert.Single(service.ListBaselines());
+    }
+
+    [Fact]
+    public void CompareToBaselineReturnsCleanReportForPromotedRun()
+    {
+        var service = CreateService();
+        var run = service.CreateRun(new HostedCiRunRequest { SyntheticCaseId = "head-neck-pass" });
+        service.PromoteBaseline(run.Id, new PromoteCiRunBaselineRequest());
+
+        var report = service.CompareToBaseline(run.Id);
+
+        Assert.True(report.MatchesBaseline);
+        Assert.Empty(report.Findings);
+        Assert.Equal(run.Id, report.BaselineRunId);
+        Assert.Equal(run.Id, report.ComparisonRunId);
+    }
+
+    [Fact]
+    public void CompareToBaselineFlagsChangedUploadedPlan()
+    {
+        var service = CreateService();
+        var baselinePlan = SyntheticClinicalCaseLibrary.HeadAndNeckBaseline().Plan;
+        var changedPlan = baselinePlan with
+        {
+            Prescription = baselinePlan.Prescription with
+            {
+                TotalDoseGy = 66m
+            }
+        };
+        var baseline = service.CreateRunFromPlanSnapshot(new HostedCiRunUploadRequest
+        {
+            PlanJson = BeamKitPlanJson.ToJson(baselinePlan)
+        });
+        service.PromoteBaseline(baseline.Id, new PromoteCiRunBaselineRequest { PromotedBy = "physics" });
+        var comparison = service.CreateRunFromPlanSnapshot(new HostedCiRunUploadRequest
+        {
+            PlanJson = BeamKitPlanJson.ToJson(changedPlan)
+        });
+
+        var report = service.CompareToBaseline(comparison.Id);
+
+        Assert.False(report.MatchesBaseline);
+        Assert.Contains(report.Findings, finding => finding.Code == "plan-fingerprint.changed" && finding.Severity == CiRunBaselineFindingSeverity.Blocking);
+        Assert.Contains(report.Findings, finding => finding.Code == "prescription-fingerprint.changed" && finding.Severity == CiRunBaselineFindingSeverity.Blocking);
+        Assert.Contains(report.Findings, finding => finding.Code == "status.changed");
+    }
+
+    [Fact]
     public void ValidateRulePackReturnsCleanPolicyReport()
     {
         var service = CreateService();

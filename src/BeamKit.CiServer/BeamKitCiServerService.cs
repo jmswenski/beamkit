@@ -141,6 +141,59 @@ public sealed class BeamKitCiServerService
     }
 
     /// <summary>
+    /// Promotes a stored CI run as the baseline for its case key.
+    /// </summary>
+    public CiRunBaseline PromoteBaseline(string runId, PromoteCiRunBaselineRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            throw new ArgumentException("Run id is required.", nameof(runId));
+        }
+
+        ArgumentNullException.ThrowIfNull(request);
+
+        var run = store.Find(runId) ?? throw new InvalidOperationException($"Run '{runId}' was not found.");
+        var baseline = CiRunBaseline.FromRun(
+            run,
+            timeProvider.GetUtcNow(),
+            request.PromotedBy,
+            request.Note);
+        return store.SaveBaseline(baseline);
+    }
+
+    /// <summary>
+    /// Finds the promoted baseline for a case key.
+    /// </summary>
+    public CiRunBaseline? FindBaseline(string caseId)
+    {
+        return store.FindBaseline(caseId);
+    }
+
+    /// <summary>
+    /// Lists promoted baselines.
+    /// </summary>
+    public IReadOnlyList<CiRunBaseline> ListBaselines()
+    {
+        return store.ListBaselines();
+    }
+
+    /// <summary>
+    /// Compares a stored CI run to the promoted baseline for its case key.
+    /// </summary>
+    public CiRunBaselineComparisonReport CompareToBaseline(string runId)
+    {
+        if (string.IsNullOrWhiteSpace(runId))
+        {
+            throw new ArgumentException("Run id is required.", nameof(runId));
+        }
+
+        var run = store.Find(runId) ?? throw new InvalidOperationException($"Run '{runId}' was not found.");
+        var baseline = store.FindBaseline(run.CaseId)
+            ?? throw new InvalidOperationException($"No baseline has been promoted for case '{run.CaseId}'.");
+        return CiRunBaselineComparisonReport.Create(baseline, run, timeProvider.GetUtcNow());
+    }
+
+    /// <summary>
     /// Validates a rule pack as policy-as-code.
     /// </summary>
     public RulePackValidationReport ValidateRulePack(RulePackValidationServerRequest request)

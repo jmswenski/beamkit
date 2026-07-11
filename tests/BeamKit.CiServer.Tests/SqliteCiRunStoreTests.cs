@@ -83,6 +83,49 @@ public sealed class SqliteCiRunStoreTests
     }
 
     [Fact]
+    public void BaselineSurvivesNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var run = firstStore.Save(CreateRecord("run-1", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero), BeamKitCheckStatus.Pass));
+        var summary = firstStore.Find(run.Id) ?? throw new InvalidOperationException("Run summary was not stored.");
+        var baseline = firstStore.SaveBaseline(CiRunBaseline.FromRun(
+            summary,
+            new DateTimeOffset(2026, 7, 9, 12, 5, 0, TimeSpan.Zero),
+            promotedBy: "physics",
+            note: "Approved baseline."));
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var found = secondStore.FindBaseline(baseline.CaseId);
+
+        Assert.NotNull(found);
+        Assert.Equal("run-1", found.BaselineRunId);
+        Assert.Equal("physics", found.PromotedBy);
+        Assert.Equal("Approved baseline.", found.Note);
+        Assert.Single(secondStore.ListBaselines());
+    }
+
+    [Fact]
+    public void RetentionPreservesPromotedBaselineRun()
+    {
+        using var database = TemporaryDatabase.Create();
+        var store = new SqliteCiRunStore(new CiServerStorageOptions
+        {
+            DatabasePath = database.Path,
+            EnableRetention = true,
+            RetentionLimit = 1
+        });
+        var old = store.Save(CreateRecord("old", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero), BeamKitCheckStatus.Pass));
+        var oldSummary = store.Find(old.Id) ?? throw new InvalidOperationException("Run summary was not stored.");
+        store.SaveBaseline(CiRunBaseline.FromRun(oldSummary, new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero)));
+
+        store.Save(CreateRecord("new", new DateTimeOffset(2026, 7, 9, 12, 2, 0, TimeSpan.Zero), BeamKitCheckStatus.Fail));
+
+        Assert.NotNull(store.Find("old"));
+        Assert.NotNull(store.Find("new"));
+    }
+
+    [Fact]
     public void ExistingDatabaseWithoutInputKindColumnIsUpgraded()
     {
         using var database = TemporaryDatabase.Create();

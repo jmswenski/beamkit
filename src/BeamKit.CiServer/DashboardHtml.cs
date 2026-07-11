@@ -203,7 +203,7 @@ internal static class DashboardHtml
               </div>
               <table>
                 <thead>
-                  <tr><th>Run</th><th>Source</th><th>Case</th><th>Status</th><th>Exit</th><th>Created</th><th>Artifact</th></tr>
+                  <tr><th>Run</th><th>Source</th><th>Case</th><th>Status</th><th>Exit</th><th>Created</th><th>Actions</th></tr>
                 </thead>
                 <tbody id="runs"></tbody>
               </table>
@@ -259,6 +259,20 @@ internal static class DashboardHtml
               });
             }
 
+            async function promoteBaseline(runId) {
+              await api(`/api/runs/${runId}/baseline`, {
+                method: "POST",
+                body: JSON.stringify({
+                  promotedBy: "dashboard",
+                  note: "Promoted from local BeamKit CI dashboard."
+                })
+              });
+            }
+
+            async function compareBaseline(runId) {
+              await api(`/api/runs/${runId}/baseline-comparison`);
+            }
+
             async function loadRuns() {
               const params = new URLSearchParams();
               const status = document.getElementById("filterStatus").value;
@@ -280,7 +294,11 @@ internal static class DashboardHtml
                   <td class="status-${status}">${run.status}</td>
                   <td>${run.exitCode}</td>
                   <td>${new Date(run.createdAtUtc).toLocaleString()}</td>
-                  <td><a href="/api/runs/${run.id}/artifact/download">JSON</a></td>
+                  <td>
+                    <a href="/api/runs/${run.id}/artifact/download">JSON</a>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="promoteBaseline('${run.id}')">Baseline</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="compareBaseline('${run.id}')">Compare</button>
+                  </td>
                 </tr>`;
               }).join("");
             }

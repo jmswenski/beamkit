@@ -51,6 +51,20 @@ public sealed class CiRunStoreTests
         Assert.Single(store.List(0));
     }
 
+    [Fact]
+    public void SaveBaselineReplacesBaselineForCase()
+    {
+        var store = new CiRunStore();
+        var first = CreateBaseline("case-1", "run-1", DateTimeOffset.UtcNow);
+        var second = CreateBaseline("case-1", "run-2", DateTimeOffset.UtcNow.AddMinutes(1));
+
+        store.SaveBaseline(first);
+        store.SaveBaseline(second);
+
+        Assert.Equal("run-2", store.FindBaseline("CASE-1")?.BaselineRunId);
+        Assert.Single(store.ListBaselines());
+    }
+
     private static BeamKitCiRunRecord CreateArtifact(BeamKitCheckStatus status)
     {
         return new BeamKitCiRunRecord(
@@ -78,5 +92,27 @@ public sealed class CiRunStoreTests
                 namingReport: null,
                 new PlanReadinessState("plan-1", Array.Empty<ReadinessItem>()),
                 targetMetrics: null));
+    }
+
+    private static CiRunBaseline CreateBaseline(string caseId, string runId, DateTimeOffset promotedAtUtc)
+    {
+        return new CiRunBaseline(
+            caseId,
+            runId,
+            promotedAtUtc,
+            CiRunInputKind.SyntheticCase,
+            BeamKitCheckStatus.Pass,
+            0,
+            "case:head-neck-pass",
+            "main",
+            "abc123",
+            "build-1",
+            "plan-1",
+            "Rule pack",
+            "1",
+            "sha256:plan",
+            "sha256:rx",
+            "sha256:pack",
+            promotedBy: "physics");
     }
 }

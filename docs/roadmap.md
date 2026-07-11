@@ -24,6 +24,7 @@
 - CI/CD-style check run records with provenance fingerprints.
 - Initial self-hosted CI server with HTTP APIs, dashboard, SQLite run history, artifact downloads, and provenance artifact access.
 - CI-server intake for uploaded BeamKit plan JSON and ESAPI snapshot JSON.
+- CI-server baseline promotion and fingerprint comparison for later runs.
 - High-level SDK facade for embedded automation.
 - Initial planner assignment recommendation engine.
 
@@ -67,7 +68,7 @@
 - Notifications.
 - Write-up packet templates and adapter-backed export verification.
 - Future: persisted queues, external workload connectors, assignment dashboards, peer-review worklists, and notification providers.
-- Future: CI-server authentication, role-based access control, formal artifact retention, PHI handling guidance, and deployment hardening.
+- Future: full plan-snapshot retention for tolerant field-by-field baseline diffs, CI-server authentication, role-based access control, formal artifact retention, PHI handling guidance, and deployment hardening.
 
 ## Milestone 6: ESAPI
 

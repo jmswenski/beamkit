@@ -24,4 +24,19 @@ public interface ICiRunStore
     /// Lists runs matching the supplied query.
     /// </summary>
     IReadOnlyList<HostedCiRunSummary> List(CiRunQuery query);
+
+    /// <summary>
+    /// Adds or replaces a promoted baseline.
+    /// </summary>
+    CiRunBaseline SaveBaseline(CiRunBaseline baseline);
+
+    /// <summary>
+    /// Finds the promoted baseline for a case key.
+    /// </summary>
+    CiRunBaseline? FindBaseline(string caseId);
+
+    /// <summary>
+    /// Lists promoted baselines.
+    /// </summary>
+    IReadOnlyList<CiRunBaseline> ListBaselines();
 }

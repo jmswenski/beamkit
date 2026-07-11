@@ -56,7 +56,7 @@ What is usable today:
 - Rule-pack policy-as-code validation with deterministic fingerprints.
 - Rule-pack regression testing against PHI-free synthetic cases.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with JSON APIs, SQLite run history, provenance artifacts, synthetic and uploaded plan/snapshot gates, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with JSON APIs, SQLite run history, provenance artifacts, synthetic and uploaded plan/snapshot gates, baseline promotion/comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -291,6 +291,16 @@ Then open `http://localhost:5088` or call the JSON API:
 curl -s http://localhost:5088/api/runs \
   -H 'content-type: application/json' \
   -d '{"syntheticCaseId":"head-neck-pass","branch":"main","commit":"abc123","buildId":"local-demo"}'
+```
+
+Promote a run as the baseline and compare later runs against it:
+
+```bash
+curl -s http://localhost:5088/api/runs/{id}/baseline \
+  -H 'content-type: application/json' \
+  -d '{"promotedBy":"physics","note":"Approved baseline"}'
+
+curl -s http://localhost:5088/api/runs/{laterId}/baseline-comparison
 ```
 
 Submit a locally extracted ESAPI snapshot or BeamKit plan JSON to the server:

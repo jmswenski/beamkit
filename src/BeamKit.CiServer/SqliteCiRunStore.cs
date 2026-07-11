@@ -275,6 +275,132 @@ public sealed class SqliteCiRunStore : ICiRunStore
         }
     }
 
+    /// <summary>
+    /// Adds or replaces a promoted baseline.
+    /// </summary>
+    public CiRunBaseline SaveBaseline(CiRunBaseline baseline)
+    {
+        ArgumentNullException.ThrowIfNull(baseline);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ci_run_baselines (
+                    case_id,
+                    baseline_run_id,
+                    promoted_at_utc,
+                    promoted_by,
+                    note,
+                    input_kind,
+                    status,
+                    exit_code,
+                    input_source,
+                    branch,
+                    commit_sha,
+                    build_id,
+                    plan_id,
+                    rule_pack_name,
+                    rule_pack_version,
+                    plan_fingerprint,
+                    prescription_fingerprint,
+                    rule_pack_fingerprint
+                )
+                VALUES (
+                    $case_id,
+                    $baseline_run_id,
+                    $promoted_at_utc,
+                    $promoted_by,
+                    $note,
+                    $input_kind,
+                    $status,
+                    $exit_code,
+                    $input_source,
+                    $branch,
+                    $commit_sha,
+                    $build_id,
+                    $plan_id,
+                    $rule_pack_name,
+                    $rule_pack_version,
+                    $plan_fingerprint,
+                    $prescription_fingerprint,
+                    $rule_pack_fingerprint
+                )
+                ON CONFLICT(case_id) DO UPDATE SET
+                    baseline_run_id = excluded.baseline_run_id,
+                    promoted_at_utc = excluded.promoted_at_utc,
+                    promoted_by = excluded.promoted_by,
+                    note = excluded.note,
+                    input_kind = excluded.input_kind,
+                    status = excluded.status,
+                    exit_code = excluded.exit_code,
+                    input_source = excluded.input_source,
+                    branch = excluded.branch,
+                    commit_sha = excluded.commit_sha,
+                    build_id = excluded.build_id,
+                    plan_id = excluded.plan_id,
+                    rule_pack_name = excluded.rule_pack_name,
+                    rule_pack_version = excluded.rule_pack_version,
+                    plan_fingerprint = excluded.plan_fingerprint,
+                    prescription_fingerprint = excluded.prescription_fingerprint,
+                    rule_pack_fingerprint = excluded.rule_pack_fingerprint;
+                """;
+            AddBaselineParameters(command, baseline);
+            command.ExecuteNonQuery();
+        }
+
+        return baseline;
+    }
+
+    /// <summary>
+    /// Finds the promoted baseline for a case key.
+    /// </summary>
+    public CiRunBaseline? FindBaseline(string caseId)
+    {
+        if (string.IsNullOrWhiteSpace(caseId))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectBaselineColumns()}
+                WHERE case_id = $case_id;
+                """;
+            command.Parameters.AddWithValue("$case_id", caseId.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadBaseline(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Lists promoted baselines.
+    /// </summary>
+    public IReadOnlyList<CiRunBaseline> ListBaselines()
+    {
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectBaselineColumns()}
+                ORDER BY case_id ASC;
+                """;
+            var baselines = new List<CiRunBaseline>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                baselines.Add(ReadBaseline(reader));
+            }
+
+            return baselines;
+        }
+    }
+
     private static string ResolveDatabasePath(string path)
     {
         var normalized = string.IsNullOrWhiteSpace(path)
@@ -314,6 +440,29 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 CREATE INDEX IF NOT EXISTS ix_ci_runs_status ON ci_runs(status);
                 CREATE INDEX IF NOT EXISTS ix_ci_runs_case_id ON ci_runs(synthetic_case_id);
                 CREATE INDEX IF NOT EXISTS ix_ci_runs_branch ON ci_runs(branch);
+
+                CREATE TABLE IF NOT EXISTS ci_run_baselines (
+                    case_id TEXT PRIMARY KEY,
+                    baseline_run_id TEXT NOT NULL,
+                    promoted_at_utc TEXT NOT NULL,
+                    promoted_by TEXT NULL,
+                    note TEXT NULL,
+                    input_kind TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    exit_code INTEGER NOT NULL,
+                    input_source TEXT NULL,
+                    branch TEXT NULL,
+                    commit_sha TEXT NULL,
+                    build_id TEXT NULL,
+                    plan_id TEXT NOT NULL,
+                    rule_pack_name TEXT NOT NULL,
+                    rule_pack_version TEXT NOT NULL,
+                    plan_fingerprint TEXT NOT NULL,
+                    prescription_fingerprint TEXT NOT NULL,
+                    rule_pack_fingerprint TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_ci_run_baselines_run_id ON ci_run_baselines(baseline_run_id);
                 """;
             command.ExecuteNonQuery();
             EnsureInputKindColumn(connection);
@@ -349,6 +498,28 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$prescription_fingerprint", record.Artifact.Provenance.PrescriptionFingerprint);
         command.Parameters.AddWithValue("$rule_pack_fingerprint", record.Artifact.Provenance.RulePackFingerprint);
         command.Parameters.AddWithValue("$artifact_json", System.Text.Json.JsonSerializer.Serialize(record.Artifact, CiServerJson.Options));
+    }
+
+    private static void AddBaselineParameters(SqliteCommand command, CiRunBaseline baseline)
+    {
+        command.Parameters.AddWithValue("$case_id", baseline.CaseId);
+        command.Parameters.AddWithValue("$baseline_run_id", baseline.BaselineRunId);
+        command.Parameters.AddWithValue("$promoted_at_utc", ToStoredTimestamp(baseline.PromotedAtUtc));
+        command.Parameters.AddWithValue("$promoted_by", ToDbValue(baseline.PromotedBy));
+        command.Parameters.AddWithValue("$note", ToDbValue(baseline.Note));
+        command.Parameters.AddWithValue("$input_kind", baseline.InputKind.ToString());
+        command.Parameters.AddWithValue("$status", baseline.Status.ToString());
+        command.Parameters.AddWithValue("$exit_code", baseline.ExitCode);
+        command.Parameters.AddWithValue("$input_source", ToDbValue(baseline.InputSource));
+        command.Parameters.AddWithValue("$branch", ToDbValue(baseline.Branch));
+        command.Parameters.AddWithValue("$commit_sha", ToDbValue(baseline.Commit));
+        command.Parameters.AddWithValue("$build_id", ToDbValue(baseline.BuildId));
+        command.Parameters.AddWithValue("$plan_id", baseline.PlanId);
+        command.Parameters.AddWithValue("$rule_pack_name", baseline.RulePackName);
+        command.Parameters.AddWithValue("$rule_pack_version", baseline.RulePackVersion);
+        command.Parameters.AddWithValue("$plan_fingerprint", baseline.PlanFingerprint);
+        command.Parameters.AddWithValue("$prescription_fingerprint", baseline.PrescriptionFingerprint);
+        command.Parameters.AddWithValue("$rule_pack_fingerprint", baseline.RulePackFingerprint);
     }
 
     private static object ToDbValue(string? value)
@@ -387,6 +558,55 @@ public sealed class SqliteCiRunStore : ICiRunStore
         return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
     }
 
+    private static string SelectBaselineColumns()
+    {
+        return """
+            SELECT
+                case_id,
+                baseline_run_id,
+                promoted_at_utc,
+                promoted_by,
+                note,
+                input_kind,
+                status,
+                exit_code,
+                input_source,
+                branch,
+                commit_sha,
+                build_id,
+                plan_id,
+                rule_pack_name,
+                rule_pack_version,
+                plan_fingerprint,
+                prescription_fingerprint,
+                rule_pack_fingerprint
+            FROM ci_run_baselines
+            """;
+    }
+
+    private static CiRunBaseline ReadBaseline(SqliteDataReader reader)
+    {
+        return new CiRunBaseline(
+            reader.GetString(0),
+            reader.GetString(1),
+            DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            Enum.Parse<CiRunInputKind>(reader.GetString(5)),
+            Enum.Parse<BeamKitCheckStatus>(reader.GetString(6)),
+            reader.GetInt32(7),
+            GetNullableString(reader, 8),
+            GetNullableString(reader, 9),
+            GetNullableString(reader, 10),
+            GetNullableString(reader, 11),
+            reader.GetString(12),
+            reader.GetString(13),
+            reader.GetString(14),
+            reader.GetString(15),
+            reader.GetString(16),
+            reader.GetString(17),
+            GetNullableString(reader, 3),
+            GetNullableString(reader, 4));
+    }
+
     private void Prune(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
@@ -397,6 +617,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 FROM ci_runs
                 ORDER BY created_at_utc DESC, id ASC
                 LIMIT $retention_limit
+            )
+            AND id NOT IN (
+                SELECT baseline_run_id
+                FROM ci_run_baselines
             );
             """;
         command.Parameters.AddWithValue("$retention_limit", options.ClampedRetentionLimit);

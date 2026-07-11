@@ -21,6 +21,7 @@ http://localhost:5088
 - Validate rule packs as policy-as-code.
 - Run rule-pack regression tests.
 - Persist run metadata and full CI artifacts in SQLite.
+- Promote stored runs as case baselines and compare later runs against baseline fingerprints.
 - Return provenance artifacts with plan, prescription, and rule-pack fingerprints.
 - Filter run history by status, case id, branch, and creation time.
 - Download exact stored artifact JSON for audit and handoff workflows.
@@ -37,7 +38,11 @@ http://localhost:5088
 | `GET` | `/api/runs/{id}` | Get one hosted run summary. |
 | `GET` | `/api/runs/{id}/artifact` | Get the full BeamKit CI artifact for a run. |
 | `GET` | `/api/runs/{id}/artifact/download` | Download the stored artifact JSON. |
+| `GET` | `/api/runs/{id}/baseline-comparison` | Compare a run to the promoted baseline for its case id. |
+| `GET` | `/api/baselines` | List promoted baselines. |
+| `GET` | `/api/baselines/{caseId}` | Get the promoted baseline for one case id. |
 | `POST` | `/api/runs` | Create a run from a synthetic case. |
+| `POST` | `/api/runs/{id}/baseline` | Promote a run as the baseline for its case id. |
 | `POST` | `/api/runs/from-plan-snapshot` | Create a run from uploaded BeamKit plan JSON or ESAPI snapshot JSON. |
 | `POST` | `/api/rule-packs/validate` | Validate a rule pack. |
 | `POST` | `/api/rule-packs/test` | Run rule-pack regression tests. |
@@ -58,6 +63,22 @@ curl -s http://localhost:5088/api/runs \
   -H 'content-type: application/json' \
   -d '{"syntheticCaseId":"head-neck-cord-fail"}'
 ```
+
+Promote a run as the baseline for its case id:
+
+```bash
+curl -s http://localhost:5088/api/runs/{id}/baseline \
+  -H 'content-type: application/json' \
+  -d '{"promotedBy":"physics","note":"Approved synthetic baseline"}'
+```
+
+Compare a later run against the promoted baseline:
+
+```bash
+curl -s http://localhost:5088/api/runs/{laterId}/baseline-comparison
+```
+
+The comparison checks CI metadata and provenance fingerprints, including plan, prescription, rule-pack, status, and source category. Baseline runs are protected from SQLite retention pruning.
 
 Create a run from uploaded BeamKit plan JSON:
 
@@ -157,3 +178,4 @@ Production hardening still needs:
 - PHI handling guidance.
 - Integration adapters for real TPS, OIS, EHR, and task-system workflows.
 - Independent clinical validation.
+- Full plan-snapshot retention for tolerant field-by-field baseline diffs.

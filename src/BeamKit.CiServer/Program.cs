@@ -72,15 +72,30 @@ app.MapGet("/api/runs/{id}/artifact/download", (string id, BeamKitCiServerServic
         "application/json",
         $"{id}.beamkit-ci-artifact.json");
 });
+app.MapGet("/api/runs/{id}/baseline-comparison", (string id, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.CompareToBaseline(id));
+});
 app.MapPost("/api/runs", (HostedCiRunRequest request, BeamKitCiServerService service) =>
 {
     var record = service.CreateRun(request);
     return Results.Created($"/api/runs/{record.Id}", record);
 });
+app.MapPost("/api/runs/{id}/baseline", (string id, PromoteCiRunBaselineRequest request, BeamKitCiServerService service) =>
+{
+    var baseline = service.PromoteBaseline(id, request);
+    return Results.Created($"/api/baselines/{baseline.CaseId}", baseline);
+});
 app.MapPost("/api/runs/from-plan-snapshot", (HostedCiRunUploadRequest request, BeamKitCiServerService service) =>
 {
     var record = service.CreateRunFromPlanSnapshot(request);
     return Results.Created($"/api/runs/{record.Id}", record);
+});
+app.MapGet("/api/baselines", (BeamKitCiServerService service) => Results.Ok(service.ListBaselines()));
+app.MapGet("/api/baselines/{caseId}", (string caseId, BeamKitCiServerService service) =>
+{
+    var baseline = service.FindBaseline(caseId);
+    return baseline is null ? Results.NotFound() : Results.Ok(baseline);
 });
 app.MapPost("/api/rule-packs/validate", (RulePackValidationServerRequest request, BeamKitCiServerService service) =>
 {

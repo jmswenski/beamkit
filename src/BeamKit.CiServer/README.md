@@ -12,6 +12,7 @@ This first slice supports:
 - SQLite-backed run metadata and artifact persistence.
 - Run history filters for status, case id, branch, and date ranges.
 - Exact artifact JSON download.
+- Baseline promotion and fingerprint comparison for later runs.
 - Assignment recommendations from workflow inputs.
 - A compact local dashboard.
 
@@ -36,7 +37,11 @@ GET /api/runs
 GET /api/runs/{id}
 GET /api/runs/{id}/artifact
 GET /api/runs/{id}/artifact/download
+GET /api/runs/{id}/baseline-comparison
+GET /api/baselines
+GET /api/baselines/{caseId}
 POST /api/runs
+POST /api/runs/{id}/baseline
 POST /api/runs/from-plan-snapshot
 POST /api/rule-packs/validate
 POST /api/rule-packs/test
@@ -57,6 +62,16 @@ Create a failing run:
 curl -s http://localhost:5088/api/runs \
   -H 'content-type: application/json' \
   -d '{"syntheticCaseId":"head-neck-cord-fail"}'
+```
+
+Promote and compare baselines:
+
+```bash
+curl -s http://localhost:5088/api/runs/{id}/baseline \
+  -H 'content-type: application/json' \
+  -d '{"promotedBy":"physics","note":"Approved baseline"}'
+
+curl -s http://localhost:5088/api/runs/{laterId}/baseline-comparison
 ```
 
 Create a run from uploaded BeamKit plan JSON:
@@ -137,4 +152,4 @@ Configure it under `BeamKit:CiServer:Storage`:
 
 This server persists local run history and artifacts and can run checks from synthetic cases, BeamKit plan JSON, or ESAPI snapshot JSON. It is suitable for local demos, API shape validation, and future dashboard development.
 
-Before clinical or production use, BeamKit still needs authenticated uploads, production database deployment guidance, formal audit retention policy, role-based access control, network hardening, deployment documentation, PHI handling guidance, and clinical validation.
+Before clinical or production use, BeamKit still needs authenticated uploads, production database deployment guidance, formal audit retention policy, role-based access control, network hardening, deployment documentation, PHI handling guidance, clinical validation, and full plan-snapshot retention for tolerant field-by-field baseline diffs.

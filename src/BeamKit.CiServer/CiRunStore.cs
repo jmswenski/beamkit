@@ -9,6 +9,7 @@ namespace BeamKit.CiServer;
 public sealed class CiRunStore : ICiRunStore
 {
     private readonly ConcurrentDictionary<string, HostedCiRunRecord> records = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CiRunBaseline> baselines = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Adds or replaces a run record.
@@ -70,6 +71,35 @@ public sealed class CiRunStore : ICiRunStore
             .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
             .Take(query.ClampedLimit)
             .Select(HostedCiRunSummary.FromRecord)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Adds or replaces a promoted baseline.
+    /// </summary>
+    public CiRunBaseline SaveBaseline(CiRunBaseline baseline)
+    {
+        ArgumentNullException.ThrowIfNull(baseline);
+
+        baselines[baseline.CaseId] = baseline;
+        return baseline;
+    }
+
+    /// <summary>
+    /// Finds the promoted baseline for a case key.
+    /// </summary>
+    public CiRunBaseline? FindBaseline(string caseId)
+    {
+        return string.IsNullOrWhiteSpace(caseId) ? null : baselines.GetValueOrDefault(caseId);
+    }
+
+    /// <summary>
+    /// Lists promoted baselines.
+    /// </summary>
+    public IReadOnlyList<CiRunBaseline> ListBaselines()
+    {
+        return baselines.Values
+            .OrderBy(baseline => baseline.CaseId, StringComparer.OrdinalIgnoreCase)
             .ToArray();
     }
 }
