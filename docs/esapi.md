@@ -50,4 +50,14 @@ dotnet run --project src/BeamKit.Cli -- writeup capture \
   --output samples/esapi-smoke/artifacts/writeup.json
 ```
 
+The same extracted snapshot can be submitted to the local BeamKit CI server:
+
+```bash
+jq -n --rawfile snapshot samples/esapi-smoke/artifacts/esapi-plan-snapshot.json \
+  '{format:"esapi-snapshot-json", esapiSnapshotJson:$snapshot, branch:"main", buildId:"local-esapi"}' \
+  | curl -s http://localhost:5088/api/runs/from-plan-snapshot \
+      -H 'content-type: application/json' \
+      -d @-
+```
+
 Only use synthetic or institution-approved test patients. Do not commit snapshot outputs from real patients.

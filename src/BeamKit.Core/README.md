@@ -15,6 +15,7 @@ It has no dependency on ESAPI, RayStation, DICOM libraries, Epic, Mosaiq, Aria, 
 - `Beam`, `BeamControlPoint`, and `BeamJawPositions`: treatment beam metadata, beam model identifiers, jaw-tracking metadata, and control-point geometry for adapter mapping and deliverability checks.
 - `DoseMetricKeys`: stable keys for dose and DVH metrics.
 - `ClinicalGoal`: a metric threshold that can be converted into a rule.
+- `BeamKitPlanJson`: vendor-neutral JSON loader/writer for moving `Plan` snapshots between CLI tools, servers, tests, and future adapters.
 
 ## Units
 

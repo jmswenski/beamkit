@@ -13,7 +13,8 @@ public sealed record HostedCiRunSummary
     public HostedCiRunSummary(
         string id,
         DateTimeOffset createdAtUtc,
-        string syntheticCaseId,
+        string caseId,
+        CiRunInputKind inputKind,
         BeamKitCheckStatus status,
         int exitCode,
         string? inputSource,
@@ -29,7 +30,8 @@ public sealed record HostedCiRunSummary
     {
         Id = CiServerText.Required(id, nameof(id));
         CreatedAtUtc = createdAtUtc;
-        SyntheticCaseId = CiServerText.Required(syntheticCaseId, nameof(syntheticCaseId));
+        CaseId = CiServerText.Required(caseId, nameof(caseId));
+        InputKind = inputKind;
         Status = status;
         ExitCode = exitCode;
         InputSource = CiServerText.Optional(inputSource);
@@ -55,9 +57,19 @@ public sealed record HostedCiRunSummary
     public DateTimeOffset CreatedAtUtc { get; init; }
 
     /// <summary>
-    /// Synthetic case used for the run.
+    /// Case key for the run. Synthetic runs use the synthetic case id; uploaded runs use the plan id.
     /// </summary>
-    public string SyntheticCaseId { get; init; }
+    public string CaseId { get; init; }
+
+    /// <summary>
+    /// Source category for the run.
+    /// </summary>
+    public CiRunInputKind InputKind { get; init; }
+
+    /// <summary>
+    /// Backward-compatible alias for synthetic-only callers.
+    /// </summary>
+    public string SyntheticCaseId => CaseId;
 
     /// <summary>
     /// Top-level run status.
@@ -130,7 +142,8 @@ public sealed record HostedCiRunSummary
         return new HostedCiRunSummary(
             record.Id,
             record.CreatedAtUtc,
-            record.SyntheticCaseId,
+            record.CaseId,
+            record.InputKind,
             record.Status,
             record.ExitCode,
             provenance.InputSource,

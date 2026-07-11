@@ -77,6 +77,11 @@ app.MapPost("/api/runs", (HostedCiRunRequest request, BeamKitCiServerService ser
     var record = service.CreateRun(request);
     return Results.Created($"/api/runs/{record.Id}", record);
 });
+app.MapPost("/api/runs/from-plan-snapshot", (HostedCiRunUploadRequest request, BeamKitCiServerService service) =>
+{
+    var record = service.CreateRunFromPlanSnapshot(request);
+    return Results.Created($"/api/runs/{record.Id}", record);
+});
 app.MapPost("/api/rule-packs/validate", (RulePackValidationServerRequest request, BeamKitCiServerService service) =>
 {
     return Results.Ok(service.ValidateRulePack(request));

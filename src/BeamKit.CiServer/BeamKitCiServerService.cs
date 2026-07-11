@@ -1,6 +1,9 @@
 using System.Globalization;
 using BeamKit.Check;
+using BeamKit.Core.Domain;
+using BeamKit.Core.Serialization;
 using BeamKit.Deliverability;
+using BeamKit.Esapi;
 using BeamKit.PlanCheck;
 using BeamKit.Samples;
 using BeamKit.Sdk;
@@ -54,14 +57,54 @@ public sealed class BeamKitCiServerService
         var caseId = CiServerText.Optional(request.SyntheticCaseId) ?? "head-neck-pass";
         var clinicalCase = SyntheticClinicalCaseLibrary.Find(caseId);
         var rulePack = LoadRulePack(request.RulePackPath);
-        var artifact = client.RunCiGate(new BeamKitCiRunRequest(
+        return CreateRunForPlan(
             clinicalCase.Plan,
             rulePack,
+            caseId: clinicalCase.Id,
+            inputKind: CiRunInputKind.SyntheticCase,
             inputSource: $"case:{clinicalCase.Id}",
-            branch: request.Branch,
-            commit: request.Commit,
-            buildId: request.BuildId));
-        var record = new HostedCiRunRecord(CreateServerRunId(), timeProvider.GetUtcNow(), clinicalCase.Id, artifact);
+            request.Branch,
+            request.Commit,
+            request.BuildId);
+    }
+
+    /// <summary>
+    /// Creates and stores a BeamKit CI run from uploaded vendor-neutral plan content.
+    /// </summary>
+    public HostedCiRunRecord CreateRunFromPlanSnapshot(HostedCiRunUploadRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var uploaded = LoadUploadedPlan(request);
+        return CreateRunForPlan(
+            uploaded.Plan,
+            LoadRulePack(request.RulePackPath),
+            caseId: uploaded.Plan.Id,
+            uploaded.InputKind,
+            CiServerText.Optional(request.InputSource) ?? uploaded.DefaultInputSource,
+            request.Branch,
+            request.Commit,
+            request.BuildId);
+    }
+
+    private HostedCiRunRecord CreateRunForPlan(
+        Plan plan,
+        BeamKitRulePack rulePack,
+        string caseId,
+        CiRunInputKind inputKind,
+        string? inputSource,
+        string? branch,
+        string? commit,
+        string? buildId)
+    {
+        var artifact = client.RunCiGate(new BeamKitCiRunRequest(
+            plan,
+            rulePack,
+            inputSource: inputSource,
+            branch: branch,
+            commit: commit,
+            buildId: buildId));
+        var record = new HostedCiRunRecord(CreateServerRunId(), timeProvider.GetUtcNow(), caseId, artifact, inputKind);
         return store.Save(record);
     }
 
@@ -215,6 +258,102 @@ public sealed class BeamKitCiServerService
             _ => Array.Empty<string>()
         };
     }
+
+    private static UploadedPlan LoadUploadedPlan(HostedCiRunUploadRequest request)
+    {
+        var planJson = GetJson(request.Plan, request.PlanJson);
+        var esapiSnapshotJson = GetJson(request.EsapiSnapshot, request.EsapiSnapshotJson);
+        var format = ParseUploadFormat(request.Format, planJson, esapiSnapshotJson);
+
+        return format switch
+        {
+            CiRunInputKind.BeamKitPlanJson => LoadBeamKitPlanJson(planJson),
+            CiRunInputKind.EsapiSnapshotJson => LoadEsapiSnapshotJson(esapiSnapshotJson),
+            _ => throw new ArgumentException("Uploaded CI runs require BeamKit plan JSON or ESAPI snapshot JSON.", nameof(request))
+        };
+    }
+
+    private static UploadedPlan LoadBeamKitPlanJson(string? planJson)
+    {
+        if (string.IsNullOrWhiteSpace(planJson))
+        {
+            throw new ArgumentException("BeamKit plan JSON upload requires 'plan' or 'planJson'.", nameof(planJson));
+        }
+
+        var plan = BeamKitPlanJson.FromJson(planJson);
+        return new UploadedPlan(plan, CiRunInputKind.BeamKitPlanJson, $"beamkit-plan-json:{plan.Id}");
+    }
+
+    private static UploadedPlan LoadEsapiSnapshotJson(string? esapiSnapshotJson)
+    {
+        if (string.IsNullOrWhiteSpace(esapiSnapshotJson))
+        {
+            throw new ArgumentException("ESAPI snapshot upload requires 'esapiSnapshot' or 'esapiSnapshotJson'.", nameof(esapiSnapshotJson));
+        }
+
+        var snapshot = EsapiPlanSnapshotJson.FromJson(esapiSnapshotJson);
+        var validation = new EsapiSnapshotValidator().Validate(snapshot);
+        if (validation.ErrorCount > 0)
+        {
+            var errors = string.Join("; ", validation.Issues
+                .Where(issue => issue.Severity == EsapiSnapshotIssueSeverity.Error)
+                .Take(3)
+                .Select(issue => $"{issue.Code}: {issue.Message}"));
+            throw new InvalidOperationException($"ESAPI snapshot validation failed with {validation.ErrorCount} error(s): {errors}");
+        }
+
+        var plan = new EsapiPlanConverter().Convert(snapshot);
+        return new UploadedPlan(plan, CiRunInputKind.EsapiSnapshotJson, $"esapi-snapshot:{snapshot.PlanId}");
+    }
+
+    private static CiRunInputKind ParseUploadFormat(string? format, string? planJson, string? esapiSnapshotJson)
+    {
+        var hasPlan = !string.IsNullOrWhiteSpace(planJson);
+        var hasEsapiSnapshot = !string.IsNullOrWhiteSpace(esapiSnapshotJson);
+        if (hasPlan && hasEsapiSnapshot)
+        {
+            throw new ArgumentException("Use only one of 'plan'/'planJson' or 'esapiSnapshot'/'esapiSnapshotJson'.", nameof(format));
+        }
+
+        if (string.IsNullOrWhiteSpace(format))
+        {
+            if (hasPlan)
+            {
+                return CiRunInputKind.BeamKitPlanJson;
+            }
+
+            if (hasEsapiSnapshot)
+            {
+                return CiRunInputKind.EsapiSnapshotJson;
+            }
+
+            throw new ArgumentException("Uploaded CI runs require a plan or ESAPI snapshot payload.", nameof(format));
+        }
+
+        return format.Trim().ToLowerInvariant() switch
+        {
+            "beamkit" or "beamkit-plan" or "beamkit-plan-json" or "plan" or "plan-json" => CiRunInputKind.BeamKitPlanJson,
+            "esapi" or "esapi-snapshot" or "esapi-snapshot-json" => CiRunInputKind.EsapiSnapshotJson,
+            _ => throw new ArgumentException($"Unsupported uploaded plan format '{format}'.", nameof(format))
+        };
+    }
+
+    private static string? GetJson(System.Text.Json.JsonElement? element, string? rawJson)
+    {
+        if (!string.IsNullOrWhiteSpace(rawJson))
+        {
+            return rawJson;
+        }
+
+        if (element is null || element.Value.ValueKind is System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return element.Value.GetRawText();
+    }
+
+    private sealed record UploadedPlan(Plan Plan, CiRunInputKind InputKind, string DefaultInputSource);
 
     private static IReadOnlyList<PlannerProfile> CreateSyntheticPlannerProfiles(DateOnly assignmentDate)
     {

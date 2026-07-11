@@ -56,7 +56,7 @@ What is usable today:
 - Rule-pack policy-as-code validation with deterministic fingerprints.
 - Rule-pack regression testing against PHI-free synthetic cases.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with JSON APIs, SQLite run history, provenance artifacts, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with JSON APIs, SQLite run history, provenance artifacts, synthetic and uploaded plan/snapshot gates, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -86,7 +86,7 @@ What is not complete yet:
 - RayStation integration.
 - Aria/Mosaiq workflow integration.
 - Actual export execution and destination read-back for plan write-up manifests.
-- Production database deployment guidance, authentication, upload hardening, and audit-retention policy for the CI server.
+- Production database deployment guidance, authentication, upload hardening, PHI policy, and audit-retention policy for the CI server.
 - Production notification adapters for email, Teams, EHR inboxes, or task systems.
 - External case-assignment data connectors, persisted work queues, workload dashboards, and peer-review dashboard applications.
 - Research warehouse/export tooling.
@@ -291,6 +291,16 @@ Then open `http://localhost:5088` or call the JSON API:
 curl -s http://localhost:5088/api/runs \
   -H 'content-type: application/json' \
   -d '{"syntheticCaseId":"head-neck-pass","branch":"main","commit":"abc123","buildId":"local-demo"}'
+```
+
+Submit a locally extracted ESAPI snapshot or BeamKit plan JSON to the server:
+
+```bash
+jq -n --rawfile snapshot path/to/esapi-plan-snapshot.json \
+  '{format:"esapi-snapshot-json", esapiSnapshotJson:$snapshot, branch:"main", buildId:"local-esapi"}' \
+  | curl -s http://localhost:5088/api/runs/from-plan-snapshot \
+      -H 'content-type: application/json' \
+      -d @-
 ```
 
 Run template-driven QA from repository sample files:
@@ -712,7 +722,7 @@ Near-term:
 - Expand machine profiles for institutional beam models, algorithms, energies, and delivery-technique policies.
 - Expand write-up manifest schemas, packet templates, and adapter-backed export verification.
 - Add file-backed planner rosters and assignment inputs for CLI and SDK workflows.
-- Add authenticated CI-server uploads, role-based access control, production database deployment guidance, and artifact-retention policy documentation.
+- Add CI-server authentication, role-based access control, production database deployment guidance, PHI handling guidance, and artifact-retention policy documentation.
 
 Medium-term:
 

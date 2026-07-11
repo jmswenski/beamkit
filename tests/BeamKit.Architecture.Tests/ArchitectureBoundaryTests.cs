@@ -96,7 +96,6 @@ public sealed class ArchitectureBoundaryTests
         {
             typeof(PlanChangeDetector).Assembly,
             typeof(BeamKitCheckEngine).Assembly,
-            typeof(BeamKitCiServerService).Assembly,
             typeof(DoseCalculationService).Assembly,
             typeof(DeliverabilityCheckService).Assembly,
             typeof(PlanQualityMetricService).Assembly,

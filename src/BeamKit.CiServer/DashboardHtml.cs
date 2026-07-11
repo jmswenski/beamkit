@@ -203,7 +203,7 @@ internal static class DashboardHtml
               </div>
               <table>
                 <thead>
-                  <tr><th>Run</th><th>Case</th><th>Status</th><th>Exit</th><th>Created</th><th>Artifact</th></tr>
+                  <tr><th>Run</th><th>Source</th><th>Case</th><th>Status</th><th>Exit</th><th>Created</th><th>Artifact</th></tr>
                 </thead>
                 <tbody id="runs"></tbody>
               </table>
@@ -275,13 +275,22 @@ internal static class DashboardHtml
                 const status = String(run.status).toLowerCase();
                 return `<tr>
                   <td><code>${run.id}</code></td>
-                  <td>${run.syntheticCaseId}</td>
+                  <td>${formatInputKind(run.inputKind)}</td>
+                  <td>${run.caseId || run.syntheticCaseId}</td>
                   <td class="status-${status}">${run.status}</td>
                   <td>${run.exitCode}</td>
                   <td>${new Date(run.createdAtUtc).toLocaleString()}</td>
                   <td><a href="/api/runs/${run.id}/artifact/download">JSON</a></td>
                 </tr>`;
               }).join("");
+            }
+
+            function formatInputKind(inputKind) {
+              switch (inputKind) {
+                case "BeamKitPlanJson": return "BeamKit Plan JSON";
+                case "EsapiSnapshotJson": return "ESAPI Snapshot";
+                default: return "Synthetic";
+              }
             }
 
             loadRuns();

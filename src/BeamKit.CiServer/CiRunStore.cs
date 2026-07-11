@@ -61,7 +61,7 @@ public sealed class CiRunStore : ICiRunStore
         return records.Values
             .Where(record => query.Status is null || record.Status == query.Status)
             .Where(record => string.IsNullOrWhiteSpace(query.SyntheticCaseId)
-                || string.Equals(record.SyntheticCaseId, query.SyntheticCaseId, StringComparison.OrdinalIgnoreCase))
+                || string.Equals(record.CaseId, query.SyntheticCaseId, StringComparison.OrdinalIgnoreCase))
             .Where(record => string.IsNullOrWhiteSpace(query.Branch)
                 || string.Equals(record.Artifact.Provenance.Branch, query.Branch, StringComparison.OrdinalIgnoreCase))
             .Where(record => query.CreatedFromUtc is null || record.CreatedAtUtc >= query.CreatedFromUtc)

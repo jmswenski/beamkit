@@ -62,6 +62,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     id,
                     created_at_utc,
                     synthetic_case_id,
+                    input_kind,
                     status,
                     exit_code,
                     input_source,
@@ -80,6 +81,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     $id,
                     $created_at_utc,
                     $synthetic_case_id,
+                    $input_kind,
                     $status,
                     $exit_code,
                     $input_source,
@@ -97,6 +99,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 ON CONFLICT(id) DO UPDATE SET
                     created_at_utc = excluded.created_at_utc,
                     synthetic_case_id = excluded.synthetic_case_id,
+                    input_kind = excluded.input_kind,
                     status = excluded.status,
                     exit_code = excluded.exit_code,
                     input_source = excluded.input_source,
@@ -142,6 +145,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     id,
                     created_at_utc,
                     synthetic_case_id,
+                    input_kind,
                     status,
                     exit_code,
                     input_source,
@@ -236,6 +240,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     id,
                     created_at_utc,
                     synthetic_case_id,
+                    input_kind,
                     status,
                     exit_code,
                     input_source,
@@ -289,6 +294,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     id TEXT PRIMARY KEY,
                     created_at_utc TEXT NOT NULL,
                     synthetic_case_id TEXT NOT NULL,
+                    input_kind TEXT NOT NULL DEFAULT 'SyntheticCase',
                     status TEXT NOT NULL,
                     exit_code INTEGER NOT NULL,
                     input_source TEXT NULL,
@@ -310,6 +316,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 CREATE INDEX IF NOT EXISTS ix_ci_runs_branch ON ci_runs(branch);
                 """;
             command.ExecuteNonQuery();
+            EnsureInputKindColumn(connection);
+            using var index = connection.CreateCommand();
+            index.CommandText = "CREATE INDEX IF NOT EXISTS ix_ci_runs_input_kind ON ci_runs(input_kind);";
+            index.ExecuteNonQuery();
         }
     }
 
@@ -324,7 +334,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
     {
         command.Parameters.AddWithValue("$id", record.Id);
         command.Parameters.AddWithValue("$created_at_utc", ToStoredTimestamp(record.CreatedAtUtc));
-        command.Parameters.AddWithValue("$synthetic_case_id", record.SyntheticCaseId);
+        command.Parameters.AddWithValue("$synthetic_case_id", record.CaseId);
+        command.Parameters.AddWithValue("$input_kind", record.InputKind.ToString());
         command.Parameters.AddWithValue("$status", record.Status.ToString());
         command.Parameters.AddWithValue("$exit_code", record.ExitCode);
         command.Parameters.AddWithValue("$input_source", ToDbValue(record.Artifact.Provenance.InputSource));
@@ -356,18 +367,19 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.GetString(0),
             DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
             reader.GetString(2),
-            Enum.Parse<BeamKitCheckStatus>(reader.GetString(3)),
-            reader.GetInt32(4),
-            GetNullableString(reader, 5),
+            Enum.Parse<CiRunInputKind>(reader.GetString(3)),
+            Enum.Parse<BeamKitCheckStatus>(reader.GetString(4)),
+            reader.GetInt32(5),
             GetNullableString(reader, 6),
             GetNullableString(reader, 7),
             GetNullableString(reader, 8),
-            reader.GetString(9),
+            GetNullableString(reader, 9),
             reader.GetString(10),
             reader.GetString(11),
             reader.GetString(12),
             reader.GetString(13),
-            reader.GetString(14));
+            reader.GetString(14),
+            reader.GetString(15));
     }
 
     private static string? GetNullableString(SqliteDataReader reader, int ordinal)
@@ -389,5 +401,32 @@ public sealed class SqliteCiRunStore : ICiRunStore
             """;
         command.Parameters.AddWithValue("$retention_limit", options.ClampedRetentionLimit);
         command.ExecuteNonQuery();
+    }
+
+    private static void EnsureInputKindColumn(SqliteConnection connection)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = "PRAGMA table_info(ci_runs);";
+        var hasColumn = false;
+        using (var reader = check.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), "input_kind", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasColumn = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasColumn)
+        {
+            return;
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE ci_runs ADD COLUMN input_kind TEXT NOT NULL DEFAULT 'SyntheticCase';";
+        alter.ExecuteNonQuery();
     }
 }

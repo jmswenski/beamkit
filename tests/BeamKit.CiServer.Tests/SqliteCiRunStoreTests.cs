@@ -1,5 +1,6 @@
 using BeamKit.Check;
 using BeamKit.Sdk;
+using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace BeamKit.CiServer.Tests;
@@ -27,6 +28,7 @@ public sealed class SqliteCiRunStoreTests
         Assert.NotNull(found);
         Assert.Equal(saved.Id, found.Id);
         Assert.Equal(BeamKitCheckStatus.Pass, found.Status);
+        Assert.Equal(CiRunInputKind.SyntheticCase, found.InputKind);
         Assert.Equal("main", found.Branch);
         Assert.StartsWith("sha256:", found.PlanFingerprint, StringComparison.Ordinal);
         var artifactJson = secondStore.FindArtifactJson(saved.Id) ?? throw new InvalidOperationException("Artifact JSON was not stored.");
@@ -80,12 +82,33 @@ public sealed class SqliteCiRunStoreTests
         Assert.Null(store.Find("old"));
     }
 
+    [Fact]
+    public void ExistingDatabaseWithoutInputKindColumnIsUpgraded()
+    {
+        using var database = TemporaryDatabase.Create();
+        CreateLegacyDatabase(database.Path);
+        var store = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+
+        store.Save(CreateRecord(
+            "uploaded",
+            new DateTimeOffset(2026, 7, 9, 12, 3, 0, TimeSpan.Zero),
+            BeamKitCheckStatus.Pass,
+            CiRunInputKind.BeamKitPlanJson));
+
+        var found = store.Find("uploaded") ?? throw new InvalidOperationException("Run was not stored.");
+        Assert.Equal(CiRunInputKind.BeamKitPlanJson, found.InputKind);
+    }
+
     private static BeamKitCiServerService CreateService(ICiRunStore store)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store, new FixedTimeProvider());
     }
 
-    private static HostedCiRunRecord CreateRecord(string id, DateTimeOffset createdAtUtc, BeamKitCheckStatus status)
+    private static HostedCiRunRecord CreateRecord(
+        string id,
+        DateTimeOffset createdAtUtc,
+        BeamKitCheckStatus status,
+        CiRunInputKind inputKind = CiRunInputKind.SyntheticCase)
     {
         var service = CreateService(new CiRunStore());
         var source = status == BeamKitCheckStatus.Fail
@@ -100,7 +123,35 @@ public sealed class SqliteCiRunStoreTests
                 artifact.CheckReport);
         }
 
-        return new HostedCiRunRecord(id, createdAtUtc, source.SyntheticCaseId, artifact);
+        return new HostedCiRunRecord(id, createdAtUtc, source.CaseId, artifact, inputKind);
+    }
+
+    private static void CreateLegacyDatabase(string path)
+    {
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE ci_runs (
+                id TEXT PRIMARY KEY,
+                created_at_utc TEXT NOT NULL,
+                synthetic_case_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                exit_code INTEGER NOT NULL,
+                input_source TEXT NULL,
+                branch TEXT NULL,
+                commit_sha TEXT NULL,
+                build_id TEXT NULL,
+                plan_id TEXT NOT NULL,
+                rule_pack_name TEXT NOT NULL,
+                rule_pack_version TEXT NOT NULL,
+                plan_fingerprint TEXT NOT NULL,
+                prescription_fingerprint TEXT NOT NULL,
+                rule_pack_fingerprint TEXT NOT NULL,
+                artifact_json TEXT NOT NULL
+            );
+            """;
+        command.ExecuteNonQuery();
     }
 
     private sealed class FixedTimeProvider : TimeProvider

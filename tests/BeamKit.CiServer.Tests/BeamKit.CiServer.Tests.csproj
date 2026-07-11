@@ -14,5 +14,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\BeamKit.CiServer\BeamKit.CiServer.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Esapi\BeamKit.Esapi.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Samples\BeamKit.Samples.csproj" />
   </ItemGroup>
 </Project>
