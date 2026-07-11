@@ -36,7 +36,12 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Equal(BeamKitCheckStatus.Pass, record.Status);
         Assert.Equal(0, record.ExitCode);
         Assert.Equal("main", record.Artifact.Provenance.Branch);
-        Assert.Same(record, store.Find(record.Id));
+        var summary = store.Find(record.Id);
+        Assert.NotNull(summary);
+        Assert.Equal(record.Id, summary.Id);
+        Assert.Equal("main", summary.Branch);
+        var artifactJson = store.FindArtifactJson(record.Id) ?? throw new InvalidOperationException("Artifact JSON was not stored.");
+        Assert.Contains("planFingerprint", artifactJson, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -104,7 +109,7 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Contains(recommendation.RecommendedPlanner!.Reasons, reason => reason.Contains("All required skills", StringComparison.Ordinal));
     }
 
-    private static BeamKitCiServerService CreateService(CiRunStore? store = null)
+    private static BeamKitCiServerService CreateService(ICiRunStore? store = null)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store ?? new CiRunStore(), new FixedTimeProvider());
     }

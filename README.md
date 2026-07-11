@@ -56,7 +56,7 @@ What is usable today:
 - Rule-pack policy-as-code validation with deterministic fingerprints.
 - Rule-pack regression testing against PHI-free synthetic cases.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with JSON APIs, in-memory run history, provenance artifacts, rule-pack validation/testing, assignment recommendations, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with JSON APIs, SQLite run history, provenance artifacts, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -86,7 +86,7 @@ What is not complete yet:
 - RayStation integration.
 - Aria/Mosaiq workflow integration.
 - Actual export execution and destination read-back for plan write-up manifests.
-- Production persistence, authentication, upload hardening, and audit-retention policy for the CI server.
+- Production database deployment guidance, authentication, upload hardening, and audit-retention policy for the CI server.
 - Production notification adapters for email, Teams, EHR inboxes, or task systems.
 - External case-assignment data connectors, persisted work queues, workload dashboards, and peer-review dashboard applications.
 - Research warehouse/export tooling.
@@ -712,7 +712,7 @@ Near-term:
 - Expand machine profiles for institutional beam models, algorithms, energies, and delivery-technique policies.
 - Expand write-up manifest schemas, packet templates, and adapter-backed export verification.
 - Add file-backed planner rosters and assignment inputs for CLI and SDK workflows.
-- Add persistent CI-server storage, authenticated uploads, role-based access control, and artifact-retention settings.
+- Add authenticated CI-server uploads, role-based access control, production database deployment guidance, and artifact-retention policy documentation.
 
 Medium-term:
 

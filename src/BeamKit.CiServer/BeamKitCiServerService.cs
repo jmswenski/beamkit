@@ -15,13 +15,13 @@ namespace BeamKit.CiServer;
 public sealed class BeamKitCiServerService
 {
     private readonly BeamKitClient client;
-    private readonly CiRunStore store;
+    private readonly ICiRunStore store;
     private readonly TimeProvider timeProvider;
 
     /// <summary>
     /// Creates a hosted CI server service.
     /// </summary>
-    public BeamKitCiServerService(BeamKitClient client, CiRunStore store, TimeProvider? timeProvider = null)
+    public BeamKitCiServerService(BeamKitClient client, ICiRunStore store, TimeProvider? timeProvider = null)
     {
         this.client = client ?? throw new ArgumentNullException(nameof(client));
         this.store = store ?? throw new ArgumentNullException(nameof(store));
@@ -68,17 +68,33 @@ public sealed class BeamKitCiServerService
     /// <summary>
     /// Lists recent stored CI runs.
     /// </summary>
-    public IReadOnlyList<HostedCiRunRecord> ListRuns(int limit = 50)
+    public IReadOnlyList<HostedCiRunSummary> ListRuns(int limit = 50)
     {
-        return store.List(limit);
+        return ListRuns(new CiRunQuery { Limit = limit });
+    }
+
+    /// <summary>
+    /// Lists stored CI runs matching the supplied query.
+    /// </summary>
+    public IReadOnlyList<HostedCiRunSummary> ListRuns(CiRunQuery query)
+    {
+        return store.List(query);
     }
 
     /// <summary>
     /// Finds a stored CI run.
     /// </summary>
-    public HostedCiRunRecord? FindRun(string id)
+    public HostedCiRunSummary? FindRun(string id)
     {
         return store.Find(id);
+    }
+
+    /// <summary>
+    /// Finds the stored full artifact JSON for a CI run.
+    /// </summary>
+    public string? FindArtifactJson(string id)
+    {
+        return store.FindArtifactJson(id);
     }
 
     /// <summary>

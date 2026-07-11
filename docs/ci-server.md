@@ -19,8 +19,10 @@ http://localhost:5088
 - Run BeamKit CI gates against built-in PHI-free synthetic cases.
 - Validate rule packs as policy-as-code.
 - Run rule-pack regression tests.
-- Store recent run records in memory.
+- Persist run metadata and full CI artifacts in SQLite.
 - Return provenance artifacts with plan, prescription, and rule-pack fingerprints.
+- Filter run history by status, case id, branch, and creation time.
+- Download exact stored artifact JSON for audit and handoff workflows.
 - Recommend planner assignments from disease site, skills, workload, PTO, complexity, priority, and due-date context.
 
 ## Endpoints
@@ -29,9 +31,10 @@ http://localhost:5088
 | --- | --- | --- |
 | `GET` | `/health` | Service health check. |
 | `GET` | `/api/cases` | List built-in synthetic cases. |
-| `GET` | `/api/runs` | List recent CI runs. |
-| `GET` | `/api/runs/{id}` | Get one hosted run record. |
+| `GET` | `/api/runs` | List recent CI run summaries. Supports `limit`, `status`, `caseId`, `branch`, `createdFrom`, and `createdTo`. |
+| `GET` | `/api/runs/{id}` | Get one hosted run summary. |
 | `GET` | `/api/runs/{id}/artifact` | Get the full BeamKit CI artifact for a run. |
+| `GET` | `/api/runs/{id}/artifact/download` | Download the stored artifact JSON. |
 | `POST` | `/api/runs` | Create a run from a synthetic case. |
 | `POST` | `/api/rule-packs/validate` | Validate a rule pack. |
 | `POST` | `/api/rule-packs/test` | Run rule-pack regression tests. |
@@ -51,6 +54,18 @@ Create a failing run:
 curl -s http://localhost:5088/api/runs \
   -H 'content-type: application/json' \
   -d '{"syntheticCaseId":"head-neck-cord-fail"}'
+```
+
+Filter persisted run history:
+
+```bash
+curl -s 'http://localhost:5088/api/runs?status=Fail&caseId=head-neck-cord-fail&limit=25'
+```
+
+Download a stored artifact:
+
+```bash
+curl -OJ http://localhost:5088/api/runs/{id}/artifact/download
 ```
 
 Validate policy:
@@ -77,15 +92,41 @@ curl -s http://localhost:5088/api/assignments/recommend \
   -d '{"diseaseSite":"Head and Neck","requiredSkills":["VMAT"],"complexityScore":4,"priority":4}'
 ```
 
+## Storage
+
+By default, the server stores run metadata and artifact JSON at:
+
+```text
+src/BeamKit.CiServer/artifacts/beamkit-ci-server/beamkit-ci.db
+```
+
+The SQLite database path and retention policy are configured in `src/BeamKit.CiServer/appsettings.json`:
+
+```json
+{
+  "BeamKit": {
+    "CiServer": {
+      "Storage": {
+        "DatabasePath": "artifacts/beamkit-ci-server/beamkit-ci.db",
+        "RetentionLimit": 1000,
+        "EnableRetention": true
+      }
+    }
+  }
+}
+```
+
+The `ci_runs` table stores searchable metadata separately from the full artifact JSON, so run history can be filtered without deserializing clinical report payloads.
+
 ## Current Boundaries
 
-This is a development server, not a production clinical deployment. It currently uses in-memory storage and synthetic cases by default.
+This is a development server, not a production clinical deployment. It persists run history locally and still uses synthetic cases by default.
 
 Production hardening still needs:
 
 - Authenticated plan and rule-pack upload paths.
-- Persistent storage for run records and artifacts.
-- Audit-retention policy.
+- Production database deployment guidance.
+- Formal audit-retention policy.
 - Role-based access control.
 - TLS and deployment hardening.
 - PHI handling guidance.

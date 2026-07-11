@@ -20,7 +20,13 @@ public sealed class CiRunStoreTests
 
         store.Save(record);
 
-        Assert.Same(record, store.Find("RUN-1"));
+        var summary = store.Find("RUN-1");
+
+        Assert.NotNull(summary);
+        Assert.Equal(record.Id, summary.Id);
+        Assert.Equal(record.Status, summary.Status);
+        var artifactJson = store.FindArtifactJson("RUN-1") ?? throw new InvalidOperationException("Artifact JSON was not stored.");
+        Assert.Contains("planFingerprint", artifactJson, StringComparison.Ordinal);
     }
 
     [Fact]

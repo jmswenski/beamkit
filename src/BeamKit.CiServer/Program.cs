@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Serialization;
 using BeamKit.CiServer;
 using BeamKit.Sdk;
@@ -9,9 +10,10 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
     options.SerializerOptions.WriteIndented = true;
 });
+builder.Services.Configure<CiServerStorageOptions>(builder.Configuration.GetSection("BeamKit:CiServer:Storage"));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<BeamKitClient>();
-builder.Services.AddSingleton<CiRunStore>();
+builder.Services.AddSingleton<ICiRunStore, SqliteCiRunStore>();
 builder.Services.AddSingleton<BeamKitCiServerService>();
 
 var app = builder.Build();
@@ -34,7 +36,19 @@ app.UseExceptionHandler(errorApp =>
 app.MapGet("/", () => Results.Content(DashboardHtml.Content, "text/html"));
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "BeamKit.CiServer" }));
 app.MapGet("/api/cases", (BeamKitCiServerService service) => Results.Ok(service.ListCases()));
-app.MapGet("/api/runs", (BeamKitCiServerService service, int? limit) => Results.Ok(service.ListRuns(limit ?? 50)));
+app.MapGet("/api/runs", (
+    BeamKitCiServerService service,
+    int? limit,
+    string? status,
+    string? caseId,
+    string? syntheticCaseId,
+    string? branch,
+    string? createdFrom,
+    string? createdTo) =>
+{
+    var query = CiRunQueryParser.Parse(limit, status, syntheticCaseId ?? caseId, branch, createdFrom, createdTo);
+    return Results.Ok(service.ListRuns(query));
+});
 app.MapGet("/api/runs/{id}", (string id, BeamKitCiServerService service) =>
 {
     var record = service.FindRun(id);
@@ -42,8 +56,21 @@ app.MapGet("/api/runs/{id}", (string id, BeamKitCiServerService service) =>
 });
 app.MapGet("/api/runs/{id}/artifact", (string id, BeamKitCiServerService service) =>
 {
-    var record = service.FindRun(id);
-    return record is null ? Results.NotFound() : Results.Ok(record.Artifact);
+    var artifactJson = service.FindArtifactJson(id);
+    return artifactJson is null ? Results.NotFound() : Results.Text(artifactJson, "application/json");
+});
+app.MapGet("/api/runs/{id}/artifact/download", (string id, BeamKitCiServerService service) =>
+{
+    var artifactJson = service.FindArtifactJson(id);
+    if (artifactJson is null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.File(
+        Encoding.UTF8.GetBytes(artifactJson),
+        "application/json",
+        $"{id}.beamkit-ci-artifact.json");
 });
 app.MapPost("/api/runs", (HostedCiRunRequest request, BeamKitCiServerService service) =>
 {

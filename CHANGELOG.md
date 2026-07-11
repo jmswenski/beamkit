@@ -41,7 +41,7 @@ The format follows Keep a Changelog principles, and the project intends to use s
 - High-level SDK facade for checks, rule-pack validation, regression testing, CI gates, and assignment recommendations.
 - Planner assignment recommendation based on workload, skills, PTO, disease site, due dates, complexity, and priority.
 - CLI commands for `rule-pack validate`, `rule-pack test`, `ci run`, and `assignment recommend`.
-- Self-hosted `BeamKit.CiServer` with HTTP APIs, local dashboard, synthetic case gates, rule-pack validation/testing, in-memory run history, provenance artifact access, and assignment recommendations.
+- Self-hosted `BeamKit.CiServer` with HTTP APIs, local dashboard, synthetic case gates, rule-pack validation/testing, SQLite run history, filtered run summaries, artifact downloads, provenance artifact access, and assignment recommendations.
 - Physics QA checks for prescription energy/technique/fractionation, calculation model/version, beam model, jaw policy, and treatment-vs-QA plan integrity.
 - Deterministic plan and prescription fingerprints for release evidence and stale write-up detection.
 - Release package for plan write-up manifests, export/document attestations, JSON round-trips, and current/stale verification.

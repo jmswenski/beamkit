@@ -83,7 +83,7 @@ internal static class DashboardHtml
               font-weight: 650;
             }
 
-            input {
+            input, select {
               width: 100%;
               min-height: 36px;
               border: 1px solid var(--line);
@@ -182,9 +182,28 @@ internal static class DashboardHtml
             </aside>
             <section>
               <h2>Recent Runs</h2>
+              <div class="stack" style="margin-top:12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));">
+                <label>Status
+                  <select id="filterStatus" onchange="loadRuns()">
+                    <option value="">Any</option>
+                    <option value="Pass">Pass</option>
+                    <option value="Warning">Warning</option>
+                    <option value="Fail">Fail</option>
+                  </select>
+                </label>
+                <label>Case
+                  <input id="filterCase" placeholder="head-neck-pass" oninput="loadRuns()">
+                </label>
+                <label>Branch
+                  <input id="filterBranch" placeholder="main" oninput="loadRuns()">
+                </label>
+                <label>Limit
+                  <input id="filterLimit" value="50" inputmode="numeric" oninput="loadRuns()">
+                </label>
+              </div>
               <table>
                 <thead>
-                  <tr><th>Run</th><th>Case</th><th>Status</th><th>Exit</th><th>Created</th></tr>
+                  <tr><th>Run</th><th>Case</th><th>Status</th><th>Exit</th><th>Created</th><th>Artifact</th></tr>
                 </thead>
                 <tbody id="runs"></tbody>
               </table>
@@ -241,7 +260,16 @@ internal static class DashboardHtml
             }
 
             async function loadRuns() {
-              const response = await fetch("/api/runs");
+              const params = new URLSearchParams();
+              const status = document.getElementById("filterStatus").value;
+              const caseId = document.getElementById("filterCase").value;
+              const branch = document.getElementById("filterBranch").value;
+              const limit = document.getElementById("filterLimit").value;
+              if (status) params.set("status", status);
+              if (caseId) params.set("caseId", caseId);
+              if (branch) params.set("branch", branch);
+              if (limit) params.set("limit", limit);
+              const response = await fetch(`/api/runs?${params}`);
               const runs = await response.json();
               document.getElementById("runs").innerHTML = runs.map(run => {
                 const status = String(run.status).toLowerCase();
@@ -251,6 +279,7 @@ internal static class DashboardHtml
                   <td class="status-${status}">${run.status}</td>
                   <td>${run.exitCode}</td>
                   <td>${new Date(run.createdAtUtc).toLocaleString()}</td>
+                  <td><a href="/api/runs/${run.id}/artifact/download">JSON</a></td>
                 </tr>`;
               }).join("");
             }
