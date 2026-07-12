@@ -18,6 +18,7 @@
     <ProjectReference Include="..\BeamKit.Naming\BeamKit.Naming.csproj" />
     <ProjectReference Include="..\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
     <ProjectReference Include="..\BeamKit.Protocols\BeamKit.Protocols.csproj" />
+    <ProjectReference Include="..\BeamKit.Protocols.Word\BeamKit.Protocols.Word.csproj" />
     <ProjectReference Include="..\BeamKit.Qa\BeamKit.Qa.csproj" />
     <ProjectReference Include="..\BeamKit.Release\BeamKit.Release.csproj" />
     <ProjectReference Include="..\BeamKit.Reporting\BeamKit.Reporting.csproj" />

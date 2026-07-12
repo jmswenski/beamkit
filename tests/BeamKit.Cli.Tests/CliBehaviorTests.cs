@@ -125,12 +125,27 @@ public sealed class CliBehaviorTests
             "--output",
             "rule-pack"
         });
+        var lintWord = CliOptions.Parse(new[] { "rtpx", "lint-word", "--docx", "protocol.docx" });
+        var extractWord = CliOptions.Parse(new[]
+        {
+            "protocol",
+            "extract-word",
+            "--word",
+            "protocol.docx",
+            "--output",
+            "rtpx.json"
+        });
 
         Assert.Equal("rtpx-validate", validate.Command);
         Assert.Equal("rtpx.json", validate.ProtocolPath);
         Assert.Equal("rtpx-compile", compile.Command);
         Assert.Equal("rtpx.json", compile.ProtocolPath);
         Assert.Equal("rule-pack", compile.OutputPath);
+        Assert.Equal("rtpx-lint-word", lintWord.Command);
+        Assert.Equal("protocol.docx", lintWord.DocxPath);
+        Assert.Equal("protocol-extract-word", extractWord.Command);
+        Assert.Equal("protocol.docx", extractWord.DocxPath);
+        Assert.Equal("rtpx.json", extractWord.OutputPath);
     }
 
     [Fact]

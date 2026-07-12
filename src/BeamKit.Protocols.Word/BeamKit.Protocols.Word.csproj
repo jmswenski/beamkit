@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Word document extraction utilities for RT-PX Radiotherapy Protocol Exchange packages.</Description>
+    <PackageId>BeamKit.Protocols.Word</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <ProjectReference Include="..\BeamKit.Protocols\BeamKit.Protocols.csproj" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

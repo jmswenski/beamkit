@@ -31,6 +31,8 @@ internal sealed record CliOptions
 
     public string? ProtocolPath { get; init; }
 
+    public string? DocxPath { get; init; }
+
     public string? TemplatePath { get; init; }
 
     public string? RuleCatalogPath { get; init; }
@@ -281,6 +283,12 @@ internal sealed record CliOptions
                 case "--rtpx":
                 case "--rtpx-package":
                     options = options with { ProtocolPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--docx":
+                case "--word":
+                case "--word-protocol":
+                    options = options with { DocxPath = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
                 case "--template":

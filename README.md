@@ -161,6 +161,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.Naming`](src/BeamKit.Naming/README.md) | Structure name normalization, aliases, regex mappings, ambiguity, and missing-structure checks. | Active |
 | [`BeamKit.PlanCheck`](src/BeamKit.PlanCheck/README.md) | Configurable plan-check catalogs that combine structure, prescription, dose, metric, model, and deliverability checks. | Active |
 | [`BeamKit.Protocols`](src/BeamKit.Protocols/README.md) | RT-PX Radiotherapy Protocol Exchange models that encode treatment intent, prescriptions, structures, constraints, workflow requirements, and source traceability, then compile into rule packs. | Initial |
+| [`BeamKit.Protocols.Word`](src/BeamKit.Protocols.Word/README.md) | Word-first RT-PX extraction from structured `.docx` protocol tables, preserving source traceability back to table rows. | Initial |
 | [`BeamKit.Structures`](src/BeamKit.Structures/README.md) | Derived-structure recipes, including deterministic PTV ring specifications. | Active |
 | [`BeamKit.Rules`](src/BeamKit.Rules/README.md) | Clinical rule engine and built-in plan checks. | Active |
 | [`BeamKit.Safety`](src/BeamKit.Safety/README.md) | Clinical safety case, hazard, control, and validation evidence models. | Initial |
@@ -268,6 +269,13 @@ dotnet run --project src/BeamKit.Cli -- check --case head-neck-cord-fail
 Validate and compile an RT-PX protocol package:
 
 ```bash
+dotnet run --project src/BeamKit.Cli -- rtpx lint-word \
+  --docx protocol.docx
+
+dotnet run --project src/BeamKit.Cli -- rtpx extract-word \
+  --docx protocol.docx \
+  --output artifacts/rtpx/protocol/rtpx.json
+
 dotnet run --project src/BeamKit.Cli -- rtpx validate \
   --rtpx samples/rtpx/lung-sbrt-v1
 
@@ -760,6 +768,7 @@ See [docs/esapi.md](docs/esapi.md).
 | Clinical safety case | [docs/clinical-safety-case.md](docs/clinical-safety-case.md) |
 | BeamKit Check | [docs/beamkit-check.md](docs/beamkit-check.md) |
 | RT-PX protocol exchange | [docs/rtpx.md](docs/rtpx.md) |
+| RT-PX Word authoring | [docs/rtpx-word-authoring.md](docs/rtpx-word-authoring.md) |
 | RT-PX specification | [docs/rtpx-specification.md](docs/rtpx-specification.md) |
 | Rule-pack authoring | [docs/rule-pack-authoring.md](docs/rule-pack-authoring.md) |
 | Sample rule packs | [samples/rule-packs/README.md](samples/rule-packs/README.md) |

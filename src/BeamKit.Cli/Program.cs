@@ -14,6 +14,7 @@ using BeamKit.Metrics;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.Protocols;
+using BeamKit.Protocols.Word;
 using BeamKit.Qa;
 using BeamKit.Release;
 using BeamKit.Reporting;
@@ -56,8 +57,12 @@ internal static class Program
                 "rule-pack-test" => RunRulePackTest(options),
                 "protocol-validate" => RunProtocolValidate(options),
                 "protocol-compile" => RunProtocolCompile(options),
+                "protocol-lint-word" => RunProtocolWordLint(options),
+                "protocol-extract-word" => RunProtocolWordExtract(options),
                 "rtpx-validate" => RunProtocolValidate(options),
                 "rtpx-compile" => RunProtocolCompile(options),
+                "rtpx-lint-word" => RunProtocolWordLint(options),
+                "rtpx-extract-word" => RunProtocolWordExtract(options),
                 "ci-run" => RunCiRun(options),
                 "assignment-recommend" => RunAssignmentRecommend(options),
                 "assignment-recommend-team" => RunAssignmentRecommendTeam(options),
@@ -309,6 +314,45 @@ internal static class Program
             compilation.Scaffold.Files.Select(file => file.RelativePath).ToArray());
         WriteOutput(WriteProtocolCompileReport(report, options.Format), null);
         return compilation.Validation.IsValid ? 0 : 2;
+    }
+
+    private static int RunProtocolWordLint(CliOptions options)
+    {
+        var docxPath = RequireDocxPath(options);
+        var report = new RtpxWordProtocolExtractor().Extract(docxPath);
+        var cliReport = new ProtocolWordExtractionCliReport(
+            Path.GetFullPath(docxPath),
+            null,
+            report.Package,
+            report.Issues,
+            report.Validation,
+            WrotePackage: false);
+        WriteOutput(WriteProtocolWordExtractionReport(cliReport, options.Format), options.OutputPath);
+        return report.IsValid ? 0 : 2;
+    }
+
+    private static int RunProtocolWordExtract(CliOptions options)
+    {
+        var docxPath = RequireDocxPath(options);
+        var outputPath = options.OutputPath
+            ?? throw new ArgumentException("RT-PX Word extraction requires --output rtpx.json.");
+        var report = new RtpxWordProtocolExtractor().Extract(docxPath);
+        var wrotePackage = false;
+        if (report.IsValid && report.Package is not null)
+        {
+            RadiotherapyProtocolPackageStore.Save(outputPath, report.Package);
+            wrotePackage = true;
+        }
+
+        var cliReport = new ProtocolWordExtractionCliReport(
+            Path.GetFullPath(docxPath),
+            Path.GetFullPath(outputPath),
+            report.Package,
+            report.Issues,
+            report.Validation,
+            wrotePackage);
+        WriteOutput(WriteProtocolWordExtractionReport(cliReport, options.Format), null);
+        return wrotePackage ? 0 : 2;
     }
 
     private static int RunCiRun(CliOptions options)
@@ -712,6 +756,13 @@ internal static class Program
         return string.IsNullOrWhiteSpace(options.ProtocolPath)
             ? throw new ArgumentException("RT-PX command requires --rtpx or --protocol path.")
             : options.ProtocolPath;
+    }
+
+    private static string RequireDocxPath(CliOptions options)
+    {
+        return string.IsNullOrWhiteSpace(options.DocxPath)
+            ? throw new ArgumentException("RT-PX Word command requires --docx path.")
+            : options.DocxPath;
     }
 
     private static string ResolveManifestReference(string manifestPath, string relativePath)
@@ -1434,8 +1485,12 @@ internal static class Program
         Console.Error.WriteLine("  beamkit rule-pack test [--rule-pack path] [--case id] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit rtpx validate --rtpx rtpx.json|directory [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit rtpx compile --rtpx rtpx.json|directory --output rule-pack-directory [--overwrite] [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit rtpx lint-word --docx protocol.docx [--format json|markdown|html] [--output report-path]");
+        Console.Error.WriteLine("  beamkit rtpx extract-word --docx protocol.docx --output rtpx.json [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit protocol validate --protocol rtpx.json|directory [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit protocol compile --protocol rtpx.json|directory --output rule-pack-directory [--overwrite] [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit protocol lint-word --docx protocol.docx [--format json|markdown|html] [--output report-path]");
+        Console.Error.WriteLine("  beamkit protocol extract-word --docx protocol.docx --output rtpx.json [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit ci run [--plan path | --esapi-snapshot path | --case id] [--rule-pack path] [--branch name] [--commit sha] [--build-id id] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit assignment recommend [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist] [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit assignment recommend-team [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist]... [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
@@ -2281,6 +2336,82 @@ internal static class Program
         return builder.ToString();
     }
 
+    private static string WriteProtocolWordExtractionReport(ProtocolWordExtractionCliReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteProtocolWordExtractionMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit RT-PX Word Extraction", WriteProtocolWordExtractionMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteProtocolWordExtractionMarkdown(ProtocolWordExtractionCliReport report)
+    {
+        var validation = report.Validation;
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit RT-PX Word Extraction");
+        builder.AppendLine();
+        builder.AppendLine($"- Source: `{report.DocxPath}`");
+        if (!string.IsNullOrWhiteSpace(report.OutputPath))
+        {
+            builder.AppendLine($"- Output: `{report.OutputPath}`");
+            builder.AppendLine($"- Wrote package: {(report.WrotePackage ? "Yes" : "No")}");
+        }
+
+        builder.AppendLine($"- Extracted package: {(report.Package is null ? "No" : "Yes")}");
+        if (report.Package is not null)
+        {
+            builder.AppendLine($"- Protocol: {report.Package.Name} ({report.Package.Version})");
+            builder.AppendLine($"- Protocol id: `{report.Package.Id}`");
+            builder.AppendLine($"- Disease site: {report.Package.DiseaseSite}");
+            builder.AppendLine($"- Structures: {report.Package.Structures.Count}");
+            builder.AppendLine($"- Prescriptions: {report.Package.Prescriptions.Count}");
+            builder.AppendLine($"- Constraints: {report.Package.Constraints.Count}");
+            builder.AppendLine($"- Plan checks: {report.Package.PlanChecks.Count}");
+            builder.AppendLine($"- Workflow requirements: {report.Package.Workflow.Count}");
+        }
+
+        builder.AppendLine($"- Word errors: {report.WordErrorCount}");
+        builder.AppendLine($"- Word warnings: {report.WordWarningCount}");
+        builder.AppendLine($"- RT-PX valid: {(validation?.IsValid == true ? "Yes" : "No")}");
+        builder.AppendLine($"- RT-PX errors: {validation?.ErrorCount ?? 0}");
+        builder.AppendLine($"- RT-PX warnings: {validation?.WarningCount ?? 0}");
+        builder.AppendLine();
+
+        if (report.WordIssues.Count == 0)
+        {
+            builder.AppendLine("No Word extraction issues were detected.");
+        }
+        else
+        {
+            builder.AppendLine("## Word Issues");
+            builder.AppendLine();
+            builder.AppendLine("| Severity | Code | Section | Anchor | Message |");
+            builder.AppendLine("| --- | --- | --- | --- | --- |");
+            foreach (var issue in report.WordIssues)
+            {
+                builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | {EscapeMarkdownTable(issue.Section ?? string.Empty)} | `{issue.Anchor ?? string.Empty}` | {EscapeMarkdownTable(issue.Message)} |");
+            }
+        }
+
+        if (validation?.Issues.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## RT-PX Validation Issues");
+            builder.AppendLine();
+            builder.AppendLine("| Severity | Code | Subject | Message |");
+            builder.AppendLine("| --- | --- | --- | --- |");
+            foreach (var issue in validation.Issues)
+            {
+                builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {EscapeMarkdownTable(issue.Message)} |");
+            }
+        }
+
+        return builder.ToString();
+    }
+
     private static string WriteSimpleHtml(string title, string markdown)
     {
         var builder = new StringBuilder();
@@ -3041,6 +3172,19 @@ internal static class Program
         RadiotherapyProtocolPackage Package,
         ProtocolValidationReport Validation,
         IReadOnlyList<string> Files);
+
+    private sealed record ProtocolWordExtractionCliReport(
+        string DocxPath,
+        string? OutputPath,
+        RadiotherapyProtocolPackage? Package,
+        IReadOnlyList<RtpxWordExtractionIssue> WordIssues,
+        ProtocolValidationReport? Validation,
+        bool WrotePackage)
+    {
+        public int WordErrorCount => WordIssues.Count(issue => issue.Severity == RtpxWordIssueSeverity.Error);
+
+        public int WordWarningCount => WordIssues.Count(issue => issue.Severity == RtpxWordIssueSeverity.Warning);
+    }
 
     private sealed record DoseCalculationCliReport(BiologicalDoseResult BiologicalDose, EquivalentFractionationResult? EquivalentFractionation);
 

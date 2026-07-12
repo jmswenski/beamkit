@@ -8,6 +8,21 @@ RT-PX is designed for cases where the clinical requirements exist in a protocol 
 
 RT-PX does not replace DICOM RT, FHIR, treatment planning systems, record-and-verify systems, or commissioned physics QA. It sits above those formats as computable validation intent.
 
+## Word-First Authoring
+
+Researchers can keep writing protocols in Microsoft Word. BeamKit can extract RT-PX from deterministic `.docx` tables headed `RT-PX Metadata`, `RT-PX Structures`, `RT-PX Prescriptions`, `RT-PX Dose Constraints`, `RT-PX Plan Checks`, and `RT-PX Workflow`.
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rtpx lint-word \
+  --docx protocol.docx
+
+dotnet run --project src/BeamKit.Cli -- rtpx extract-word \
+  --docx protocol.docx \
+  --output artifacts/rtpx/protocol/rtpx.json
+```
+
+See [RT-PX Word Authoring](rtpx-word-authoring.md) and [RT-PX Word samples](../samples/rtpx-word/README.md).
+
 ## Package Shape
 
 A v0.1 package is a directory containing `rtpx.json`:

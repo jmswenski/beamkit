@@ -85,6 +85,13 @@ dotnet run --project src/BeamKit.Cli -- rule-pack import-reminders \
 Validate and compile an RT-PX Radiotherapy Protocol Exchange package into a normal BeamKit rule pack:
 
 ```bash
+dotnet run --project src/BeamKit.Cli -- rtpx lint-word \
+  --docx protocol.docx
+
+dotnet run --project src/BeamKit.Cli -- rtpx extract-word \
+  --docx protocol.docx \
+  --output artifacts/rtpx/protocol/rtpx.json
+
 dotnet run --project src/BeamKit.Cli -- rtpx validate \
   --rtpx samples/rtpx/lung-sbrt-v1
 
