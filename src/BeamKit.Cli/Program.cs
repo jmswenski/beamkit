@@ -295,8 +295,8 @@ internal static class Program
 
     private static int RunAssignmentRecommend(CliOptions options)
     {
-        var request = CreateAssignmentRequest(options, includeTeamRoles: false);
-        var recommendation = new PlannerAssignmentEngine().Recommend(request);
+        var context = CreateAssignmentRequestContext(options, includeTeamRoles: false);
+        var recommendation = new PlannerAssignmentEngine().Recommend(context.Request) with { Intelligence = context.Intelligence };
         var output = WriteAssignmentRecommendation(recommendation, options.Format);
 
         WriteOutput(output, options.OutputPath);
@@ -305,8 +305,8 @@ internal static class Program
 
     private static int RunAssignmentRecommendTeam(CliOptions options)
     {
-        var request = CreateAssignmentRequest(options, includeTeamRoles: true);
-        var recommendation = new PlannerAssignmentEngine().RecommendTeam(request);
+        var context = CreateAssignmentRequestContext(options, includeTeamRoles: true);
+        var recommendation = new PlannerAssignmentEngine().RecommendTeam(context.Request) with { Intelligence = context.Intelligence };
         var output = WritePlanStaffingRecommendation(recommendation, options.Format);
 
         WriteOutput(output, options.OutputPath);
@@ -726,32 +726,182 @@ internal static class Program
         return parameters;
     }
 
-    private static PlannerAssignmentRequest CreateAssignmentRequest(CliOptions options, bool includeTeamRoles)
+    private static AssignmentRequestContext CreateAssignmentRequestContext(CliOptions options, bool includeTeamRoles)
     {
         var assignmentDate = DateOnly.FromDateTime(DateTime.UtcNow);
-        var syntheticCase = string.IsNullOrWhiteSpace(options.SyntheticCaseId)
-            ? null
-            : SyntheticClinicalCaseLibrary.Find(options.SyntheticCaseId);
-        var diseaseSite = options.DiseaseSite ?? syntheticCase?.DiseaseSite ?? "Head and Neck";
-        var requiredSkills = options.RequiredSkills.Count == 0
-            ? new[] { "VMAT" }
-            : options.RequiredSkills;
         var requiredRoles = ResolveAssignmentRoles(options, includeTeamRoles);
         var dueDate = options.DueDate ?? assignmentDate.AddDays(3);
+        var plan = TryLoadAssignmentPlan(options);
+        var intelligenceReport = plan is null
+            ? null
+            : new CasePlanIntelligenceService().Analyze(new CasePlanIntelligenceRequest(
+                plan,
+                dueDate,
+                assignmentDate,
+                options.Priority));
+        var diseaseSite = options.DiseaseSite ?? intelligenceReport?.DiseaseSite ?? plan?.DiseaseSite ?? "Head and Neck";
+        var requiredSkills = options.RequiredSkills.Count == 0
+            ? InferRequiredAssignmentSkills(plan, intelligenceReport, diseaseSite)
+            : options.RequiredSkills;
+        var complexityScore = options.ComplexityScore ?? MapAssignmentComplexityScore(intelligenceReport?.ComplexityScore);
+        var caseId = !string.IsNullOrWhiteSpace(options.SyntheticCaseId)
+            ? options.SyntheticCaseId
+            : plan?.Id ?? "synthetic-assignment";
+        var summary = intelligenceReport is null
+            ? null
+            : CreateAssignmentIntelligenceSummary(intelligenceReport, complexityScore, requiredSkills);
 
-        return new PlannerAssignmentRequest(
-            syntheticCase?.Id ?? "synthetic-assignment",
+        var request = new PlannerAssignmentRequest(
+            caseId,
             diseaseSite,
             dueDate,
             LoadPlannerProfiles(options, assignmentDate, dueDate),
             requiredSkills,
-            options.ComplexityScore ?? 3,
+            complexityScore,
             options.Priority ?? 3,
             options.Physician,
             assignmentDate,
             requiredRoles[0],
             requiredRoles);
+
+        return new AssignmentRequestContext(request, summary);
     }
+
+    private static BeamKit.Core.Domain.Plan? TryLoadAssignmentPlan(CliOptions options)
+    {
+        return HasExplicitPlanInput(options) ? LoadPlan(options) : null;
+    }
+
+    private static bool HasExplicitPlanInput(CliOptions options)
+    {
+        return !string.IsNullOrWhiteSpace(options.PlanPath)
+            || !string.IsNullOrWhiteSpace(options.EsapiSnapshotPath)
+            || !string.IsNullOrWhiteSpace(options.SyntheticCaseId);
+    }
+
+    private static IReadOnlyList<string> InferRequiredAssignmentSkills(
+        BeamKit.Core.Domain.Plan? plan,
+        CasePlanIntelligenceReport? intelligenceReport,
+        string diseaseSite)
+    {
+        var skills = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (plan is not null)
+        {
+            AddTechniqueSkill(skills, plan.Prescription.RequestedTechniqueId);
+            foreach (var beam in plan.Beams.Where(beam => !beam.IsSetupField))
+            {
+                AddTechniqueSkill(skills, beam.TechniqueId);
+                AddTechniqueSkill(skills, beam.Modality);
+            }
+
+            if (IsSbrtLike(plan, diseaseSite))
+            {
+                skills.Add("SBRT");
+            }
+
+            if (IsSrsLike(plan, diseaseSite))
+            {
+                skills.Add("SRS");
+            }
+        }
+
+        if (skills.Count == 0)
+        {
+            skills.Add("VMAT");
+        }
+
+        if (intelligenceReport?.ComplexityLevel is CaseComplexityLevel.High or CaseComplexityLevel.VeryHigh)
+        {
+            skills.Add(diseaseSite);
+        }
+
+        return skills.ToArray();
+    }
+
+    private static void AddTechniqueSkill(ISet<string> skills, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (ContainsAny(value, "VMAT", "RapidArc"))
+        {
+            skills.Add("VMAT");
+        }
+        else if (ContainsAny(value, "IMRT"))
+        {
+            skills.Add("IMRT");
+        }
+        else if (ContainsAny(value, "SRS"))
+        {
+            skills.Add("SRS");
+        }
+        else if (ContainsAny(value, "SBRT", "SABR"))
+        {
+            skills.Add("SBRT");
+        }
+        else if (ContainsAny(value, "3D"))
+        {
+            skills.Add("3D");
+        }
+    }
+
+    private static bool IsSbrtLike(BeamKit.Core.Domain.Plan plan, string diseaseSite)
+    {
+        return ContainsAny(diseaseSite, "lung", "sbrt", "sabr")
+            && (plan.Prescription.FractionCount <= 5 || plan.Prescription.DosePerFractionGy >= 5m);
+    }
+
+    private static bool IsSrsLike(BeamKit.Core.Domain.Plan plan, string diseaseSite)
+    {
+        return ContainsAny(diseaseSite, "brain", "srs")
+            && (plan.Prescription.FractionCount <= 5 || ContainsAny(plan.Id, "srs"));
+    }
+
+    private static int MapAssignmentComplexityScore(decimal? predictiveComplexityScore)
+    {
+        if (!predictiveComplexityScore.HasValue)
+        {
+            return 3;
+        }
+
+        return predictiveComplexityScore.Value switch
+        {
+            >= 80m => 5,
+            >= 60m => 4,
+            >= 40m => 3,
+            >= 20m => 2,
+            _ => 1
+        };
+    }
+
+    private static AssignmentIntelligenceSummary CreateAssignmentIntelligenceSummary(
+        CasePlanIntelligenceReport report,
+        int appliedAssignmentComplexityScore,
+        IReadOnlyList<string> suggestedSkills)
+    {
+        return new AssignmentIntelligenceSummary(
+            report.PlanId,
+            report.DiseaseSite,
+            report.ComplexityScore,
+            report.ComplexityLevel.ToString(),
+            report.QaRiskScore,
+            report.QaRiskLevel.ToString(),
+            report.EstimatedPlanningHours,
+            report.EstimatedPhysicsReviewMinutes,
+            appliedAssignmentComplexityScore,
+            suggestedSkills,
+            report.Signals.Take(5).Select(signal => $"{signal.Severity}: {signal.Category} - {signal.Name}").ToArray(),
+            report.Recommendations.Take(5).ToArray());
+    }
+
+    private static bool ContainsAny(string value, params string[] candidates)
+    {
+        return candidates.Any(candidate => value.Contains(candidate, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed record AssignmentRequestContext(PlannerAssignmentRequest Request, AssignmentIntelligenceSummary? Intelligence);
 
     private static IReadOnlyList<PlannerProfile> LoadPlannerProfiles(CliOptions options, DateOnly assignmentDate, DateOnly dueDate)
     {
@@ -770,7 +920,7 @@ internal static class Program
             new PlannerProfile(
                 "planner-jane",
                 "Jane Doe",
-                new[] { "VMAT", "SBRT", "Head and Neck" },
+                new[] { "VMAT", "SBRT", "Head and Neck", "Lung" },
                 new[] { "Head and Neck", "Lung" },
                 activeCaseCount: 2,
                 maxActiveCaseCount: 8,
@@ -813,7 +963,7 @@ internal static class Program
             new PlannerProfile(
                 "physicist-morgan",
                 "Morgan Lee",
-                new[] { "VMAT", "SBRT", "SRS", "Machine QA" },
+                new[] { "VMAT", "SBRT", "SRS", "Lung", "Machine QA" },
                 new[] { "Head and Neck", "Lung", "Brain" },
                 activeCaseCount: 5,
                 maxActiveCaseCount: 10,
@@ -1240,8 +1390,8 @@ internal static class Program
         Console.Error.WriteLine("  beamkit rule-pack validate [--rule-pack path] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit rule-pack test [--rule-pack path] [--case id] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit ci run [--plan path | --esapi-snapshot path | --case id] [--rule-pack path] [--branch name] [--commit sha] [--build-id id] [--format json|markdown|html] [--output path]");
-        Console.Error.WriteLine("  beamkit assignment recommend [--roster staff.json] [--case id] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist] [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
-        Console.Error.WriteLine("  beamkit assignment recommend-team [--roster staff.json] [--case id] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist]... [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit assignment recommend [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist] [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit assignment recommend-team [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist]... [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit intelligence case [--plan path | --esapi-snapshot path | --case id] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit cases [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit dose-calc --total-dose-gy value --fractions n [--alpha-beta value] [--equivalent-fractions n] [--format json|markdown|html] [--output path]");
@@ -2272,6 +2422,7 @@ internal static class Program
         builder.AppendLine("# BeamKit Assignment Recommendation");
         builder.AppendLine();
         builder.AppendLine($"- Case: `{recommendation.CaseId}`");
+        AppendAssignmentIntelligenceMarkdown(builder, recommendation.Intelligence);
         if (recommended is not null)
         {
             builder.AppendLine($"- Recommended planner: {recommended.Planner.DisplayName}");
@@ -2300,6 +2451,7 @@ internal static class Program
         builder.AppendLine("<html lang=\"en\"><head><meta charset=\"utf-8\"><title>BeamKit Assignment Recommendation</title></head><body>");
         builder.AppendLine("<h1>BeamKit Assignment Recommendation</h1>");
         builder.AppendLine($"<p>Case: <code>{WebUtility.HtmlEncode(recommendation.CaseId)}</code></p>");
+        AppendAssignmentIntelligenceHtml(builder, recommendation.Intelligence);
         if (recommended is not null)
         {
             builder.AppendLine($"<p>Recommended planner: {WebUtility.HtmlEncode(recommended.Planner.DisplayName)}; Score: {recommended.Score}</p>");
@@ -2342,6 +2494,7 @@ internal static class Program
         builder.AppendLine();
         builder.AppendLine($"- Case: `{recommendation.CaseId}`");
         builder.AppendLine($"- Fully staffed: {(recommendation.IsFullyStaffed ? "Yes" : "No")}");
+        AppendAssignmentIntelligenceMarkdown(builder, recommendation.Intelligence);
 
         foreach (var roleRecommendation in recommendation.RoleRecommendations)
         {
@@ -2378,6 +2531,7 @@ internal static class Program
         builder.AppendLine("<h1>BeamKit Plan Staffing Recommendation</h1>");
         builder.AppendLine($"<p>Case: <code>{WebUtility.HtmlEncode(recommendation.CaseId)}</code></p>");
         builder.AppendLine($"<p>Fully staffed: {(recommendation.IsFullyStaffed ? "Yes" : "No")}</p>");
+        AppendAssignmentIntelligenceHtml(builder, recommendation.Intelligence);
 
         foreach (var roleRecommendation in recommendation.RoleRecommendations)
         {
@@ -2406,6 +2560,45 @@ internal static class Program
 
         builder.AppendLine("</body></html>");
         return builder.ToString();
+    }
+
+    private static void AppendAssignmentIntelligenceMarkdown(StringBuilder builder, AssignmentIntelligenceSummary? intelligence)
+    {
+        if (intelligence is null)
+        {
+            return;
+        }
+
+        builder.AppendLine($"- Intelligence plan: `{intelligence.PlanId}`");
+        builder.AppendLine($"- Predicted complexity: {FormatNumber(intelligence.ComplexityScore)} ({intelligence.ComplexityLevel}); assignment complexity: {intelligence.AppliedAssignmentComplexityScore}/5");
+        builder.AppendLine($"- Predicted QA risk: {FormatNumber(intelligence.QaRiskScore)} ({intelligence.QaRiskLevel})");
+        builder.AppendLine($"- Estimated effort: {FormatNumber(intelligence.EstimatedPlanningHours)} planning hour(s); {FormatNumber(intelligence.EstimatedPhysicsReviewMinutes)} physics review minute(s)");
+        builder.AppendLine($"- Inferred skills: {FormatTags(intelligence.SuggestedSkills)}");
+        if (intelligence.TopSignals.Count > 0)
+        {
+            builder.AppendLine($"- Top signals: {FormatTags(intelligence.TopSignals)}");
+        }
+    }
+
+    private static void AppendAssignmentIntelligenceHtml(StringBuilder builder, AssignmentIntelligenceSummary? intelligence)
+    {
+        if (intelligence is null)
+        {
+            return;
+        }
+
+        builder.AppendLine("<section><h2>Predictive Intelligence</h2>");
+        builder.AppendLine($"<p>Plan: <code>{WebUtility.HtmlEncode(intelligence.PlanId)}</code></p>");
+        builder.AppendLine($"<p>Complexity: {FormatNumber(intelligence.ComplexityScore)} ({WebUtility.HtmlEncode(intelligence.ComplexityLevel)}); assignment complexity: {intelligence.AppliedAssignmentComplexityScore}/5</p>");
+        builder.AppendLine($"<p>QA risk: {FormatNumber(intelligence.QaRiskScore)} ({WebUtility.HtmlEncode(intelligence.QaRiskLevel)})</p>");
+        builder.AppendLine($"<p>Estimated effort: {FormatNumber(intelligence.EstimatedPlanningHours)} planning hour(s); {FormatNumber(intelligence.EstimatedPhysicsReviewMinutes)} physics review minute(s)</p>");
+        builder.AppendLine($"<p>Inferred skills: {WebUtility.HtmlEncode(FormatTags(intelligence.SuggestedSkills))}</p>");
+        if (intelligence.TopSignals.Count > 0)
+        {
+            builder.AppendLine($"<p>Top signals: {WebUtility.HtmlEncode(FormatTags(intelligence.TopSignals))}</p>");
+        }
+
+        builder.AppendLine("</section>");
     }
 
     private static string WriteCasesReport(IReadOnlyList<SyntheticClinicalCase> cases, ReportFormat format)

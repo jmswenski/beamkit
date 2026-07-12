@@ -811,6 +811,82 @@ public sealed class CliBehaviorTests
     }
 
     [Fact]
+    public void ProgramRunsAssignmentTeamCommandWithInferredCaseIntelligence()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "beamkit-cli-intelligent-assignment-tests", Guid.NewGuid().ToString("N"));
+        var rosterPath = Path.Combine(directory, "staff.json");
+        var dueDate = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(3).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(rosterPath, """
+                {
+                  "name": "CLI intelligence roster",
+                  "staff": [
+                    {
+                      "id": "lung-dosimetrist",
+                      "displayName": "Lung SBRT Dosimetrist",
+                      "role": "Dosimetrist",
+                      "skills": [ "VMAT", "SBRT", "Lung" ],
+                      "preferredDiseaseSites": [ "Lung" ],
+                      "activeCaseCount": 1,
+                      "maxActiveCaseCount": 8,
+                      "maxComplexityScore": 5
+                    },
+                    {
+                      "id": "sbrt-physicist",
+                      "displayName": "SBRT Physicist",
+                      "role": "Physicist",
+                      "skills": [ "VMAT", "SBRT", "Lung", "Machine QA" ],
+                      "preferredDiseaseSites": [ "Lung" ],
+                      "activeCaseCount": 2,
+                      "maxActiveCaseCount": 10,
+                      "maxComplexityScore": 5
+                    }
+                  ]
+                }
+                """);
+
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[]
+            {
+                "assignment",
+                "recommend-team",
+                "--case",
+                "lung-sbrt-pass",
+                "--roster",
+                rosterPath,
+                "--due-date",
+                dueDate
+            });
+
+            var report = output.ToString();
+            Assert.Equal(0, exitCode);
+            Assert.Contains("Predicted complexity", report, StringComparison.Ordinal);
+            Assert.Contains("Inferred skills", report, StringComparison.Ordinal);
+            Assert.Contains("SBRT", report, StringComparison.Ordinal);
+            Assert.Contains("Lung SBRT Dosimetrist", report, StringComparison.Ordinal);
+            Assert.Contains("SBRT Physicist", report, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void ProgramReturnsTwoForFailingCheckCase()
     {
         var originalOut = Console.Out;

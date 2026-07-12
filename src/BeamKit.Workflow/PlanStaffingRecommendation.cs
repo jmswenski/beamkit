@@ -8,10 +8,11 @@ public sealed record PlanStaffingRecommendation
     /// <summary>
     /// Creates a plan staffing recommendation.
     /// </summary>
-    public PlanStaffingRecommendation(string caseId, IEnumerable<RoleAssignmentRecommendation> roleRecommendations)
+    public PlanStaffingRecommendation(string caseId, IEnumerable<RoleAssignmentRecommendation> roleRecommendations, AssignmentIntelligenceSummary? intelligence = null)
     {
         CaseId = WorkflowText.Required(caseId, nameof(caseId));
         RoleRecommendations = roleRecommendations?.ToArray() ?? throw new ArgumentNullException(nameof(roleRecommendations));
+        Intelligence = intelligence;
     }
 
     /// <summary>
@@ -23,6 +24,11 @@ public sealed record PlanStaffingRecommendation
     /// Recommendations for each requested role.
     /// </summary>
     public IReadOnlyList<RoleAssignmentRecommendation> RoleRecommendations { get; init; }
+
+    /// <summary>
+    /// Optional predictive intelligence context used to derive assignment inputs.
+    /// </summary>
+    public AssignmentIntelligenceSummary? Intelligence { get; init; }
 
     /// <summary>
     /// Indicates whether every requested role has an available recommendation.

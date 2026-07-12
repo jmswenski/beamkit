@@ -40,6 +40,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Download exact stored artifact JSON for audit and handoff workflows.
 - Label run sources as synthetic cases, BeamKit plan JSON uploads, or ESAPI snapshot uploads.
 - Recommend single-role and dosimetrist/physicist team assignments from disease site, skills, workload, schedule, PTO, physician compatibility rules, complexity, priority, and due-date context.
+- Infer assignment complexity, required skills, QA risk, and effort estimates from `syntheticCaseId`, BeamKit plan JSON, or ESAPI snapshot JSON when assignment requests include plan content.
 
 ## Endpoints
 
@@ -197,7 +198,7 @@ Recommend assignment:
 curl -s "$API/api/assignments/recommend" \
   -H 'content-type: application/json' \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
-  -d '{"diseaseSite":"Head and Neck","requiredSkills":["VMAT"],"complexityScore":4,"priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
+  -d '{"syntheticCaseId":"head-neck-pass","priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
 ```
 
 Recommend a dosimetrist and physicist team:
@@ -206,7 +207,7 @@ Recommend a dosimetrist and physicist team:
 curl -s "$API/api/assignments/recommend-team" \
   -H 'content-type: application/json' \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
-  -d '{"diseaseSite":"Lung","requiredSkills":["VMAT","SBRT"],"physician":"Dr Smith","complexityScore":4,"priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
+  -d '{"syntheticCaseId":"lung-sbrt-pass","physician":"Dr Smith","priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
 ```
 
 Review audit events:

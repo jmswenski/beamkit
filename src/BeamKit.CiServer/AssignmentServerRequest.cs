@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BeamKit.Workflow;
 
 namespace BeamKit.CiServer;
@@ -11,6 +12,11 @@ public sealed record AssignmentServerRequest
     /// Optional case id.
     /// </summary>
     public string? CaseId { get; init; }
+
+    /// <summary>
+    /// Optional built-in PHI-free synthetic case id used to infer disease site, skills, complexity, and risk.
+    /// </summary>
+    public string? SyntheticCaseId { get; init; }
 
     /// <summary>
     /// Disease site used for assignment matching.
@@ -46,6 +52,26 @@ public sealed record AssignmentServerRequest
     /// Optional physician label.
     /// </summary>
     public string? Physician { get; init; }
+
+    /// <summary>
+    /// Optional inline BeamKit plan JSON object used for predictive assignment inference.
+    /// </summary>
+    public JsonElement? Plan { get; init; }
+
+    /// <summary>
+    /// Optional raw BeamKit plan JSON used for predictive assignment inference.
+    /// </summary>
+    public string? PlanJson { get; init; }
+
+    /// <summary>
+    /// Optional inline ESAPI snapshot JSON object used for predictive assignment inference.
+    /// </summary>
+    public JsonElement? EsapiSnapshot { get; init; }
+
+    /// <summary>
+    /// Optional raw ESAPI snapshot JSON used for predictive assignment inference.
+    /// </summary>
+    public string? EsapiSnapshotJson { get; init; }
 
     /// <summary>
     /// Optional embedded staff roster. When omitted, the server uses synthetic PHI-free defaults.

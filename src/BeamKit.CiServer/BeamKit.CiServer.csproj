@@ -9,6 +9,7 @@
     <ProjectReference Include="..\BeamKit.ChangeDetection\BeamKit.ChangeDetection.csproj" />
     <ProjectReference Include="..\BeamKit.Check\BeamKit.Check.csproj" />
     <ProjectReference Include="..\BeamKit.Esapi\BeamKit.Esapi.csproj" />
+    <ProjectReference Include="..\BeamKit.Intelligence\BeamKit.Intelligence.csproj" />
     <ProjectReference Include="..\BeamKit.Samples\BeamKit.Samples.csproj" />
     <ProjectReference Include="..\BeamKit.Sdk\BeamKit.Sdk.csproj" />
     <ProjectReference Include="..\BeamKit.Workflow\BeamKit.Workflow.csproj" />

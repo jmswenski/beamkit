@@ -637,6 +637,51 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Equal("embedded-physicist", recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Physicist).RecommendedCandidate?.Planner.Id);
     }
 
+    [Fact]
+    public void RecommendStaffingInfersIntelligenceFromSyntheticCase()
+    {
+        var service = CreateService();
+        var roster = new StaffRoster(
+            "Synthetic intelligent assignment roster",
+            new[]
+            {
+                new StaffRosterMember(
+                    "lung-dosimetrist",
+                    "Lung SBRT Dosimetrist",
+                    PlanningStaffRole.Dosimetrist,
+                    new[] { "VMAT", "SBRT", "Lung" },
+                    new[] { "Lung" },
+                    activeCaseCount: 1,
+                    maxActiveCaseCount: 8,
+                    maxComplexityScore: 5),
+                new StaffRosterMember(
+                    "sbrt-physicist",
+                    "SBRT Physicist",
+                    PlanningStaffRole.Physicist,
+                    new[] { "VMAT", "SBRT", "Lung", "Machine QA" },
+                    new[] { "Lung" },
+                    activeCaseCount: 2,
+                    maxActiveCaseCount: 10,
+                    maxComplexityScore: 5)
+            });
+
+        var recommendation = service.RecommendStaffing(new AssignmentServerRequest
+        {
+            SyntheticCaseId = "lung-sbrt-pass",
+            DueDate = "2026-07-12",
+            Priority = 4,
+            Roster = roster
+        });
+
+        Assert.True(recommendation.IsFullyStaffed);
+        Assert.NotNull(recommendation.Intelligence);
+        Assert.Equal("LUNG-SBRT-SYN-001", recommendation.Intelligence.PlanId);
+        Assert.Contains("SBRT", recommendation.Intelligence.SuggestedSkills);
+        Assert.True(recommendation.Intelligence.AppliedAssignmentComplexityScore >= 3);
+        Assert.Equal("lung-dosimetrist", recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Dosimetrist).RecommendedCandidate?.Planner.Id);
+        Assert.Equal("sbrt-physicist", recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Physicist).RecommendedCandidate?.Planner.Id);
+    }
+
     private static BeamKitCiServerService CreateService(ICiRunStore? store = null)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store ?? new CiRunStore(), new FixedTimeProvider());

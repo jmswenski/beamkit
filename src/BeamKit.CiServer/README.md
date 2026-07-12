@@ -20,7 +20,7 @@ This first slice supports:
 - Exact artifact JSON download.
 - Internal BeamKit plan snapshot retention for field-level baseline comparison.
 - Baseline promotion with fingerprint and plan-change comparison for later runs.
-- Single-role and dosimetrist/physicist team assignment recommendations from workflow inputs and optional staff rosters.
+- Single-role and dosimetrist/physicist team assignment recommendations from workflow inputs, optional staff rosters, and optional plan intelligence inferred from synthetic cases, BeamKit plan JSON, or ESAPI snapshot JSON.
 - A compact local dashboard.
 
 ## Run
@@ -175,7 +175,7 @@ Recommend an assignment:
 curl -s "$API/api/assignments/recommend" \
   -H 'content-type: application/json' \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
-  -d '{"diseaseSite":"Head and Neck","requiredSkills":["VMAT"],"complexityScore":4,"priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
+  -d '{"syntheticCaseId":"head-neck-pass","priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
 ```
 
 Recommend a dosimetrist and physicist team:
@@ -184,7 +184,7 @@ Recommend a dosimetrist and physicist team:
 curl -s "$API/api/assignments/recommend-team" \
   -H 'content-type: application/json' \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
-  -d '{"diseaseSite":"Lung","requiredSkills":["VMAT","SBRT"],"physician":"Dr Smith","complexityScore":4,"priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
+  -d '{"syntheticCaseId":"lung-sbrt-pass","physician":"Dr Smith","priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
 ```
 
 Review audit events:

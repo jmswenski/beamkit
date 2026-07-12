@@ -59,7 +59,7 @@ BeamKit.Core domain model
 
 `BeamKit.Reporting` turns evaluation results into JSON, Markdown, or HTML.
 
-`BeamKit.Workflow` owns workflow state such as plan readiness and dosimetrist/physicist assignment recommendation. It consumes explicit workflow inputs such as specialty, workload, schedule capacity, physician compatibility rules, complexity, priority, and due dates, but does not know where data came from.
+`BeamKit.Workflow` owns workflow state such as plan readiness and dosimetrist/physicist assignment recommendation. It consumes explicit workflow inputs such as specialty, workload, schedule capacity, physician compatibility rules, complexity, priority, due dates, and optional neutral intelligence summaries, but does not know where prediction data came from.
 
 `BeamKit.Qa` orchestrates naming, rules, reporting, and workflow checks into combined QA reports.
 
@@ -71,7 +71,7 @@ BeamKit.Core domain model
 
 `BeamKit.Sdk` is the high-level developer facade for applications that want common automation workflows without manually composing every package. It remains vendor-neutral and must not reference adapters.
 
-`BeamKit.CiServer` is the first hosted application layer. It exposes BeamKit Check, rule-pack validation, rule-pack tests, run records, provenance artifacts, and assignment recommendations through HTTP APIs and a local dashboard. It is allowed to depend on samples for the initial PHI-free demo workflow, but it must not contain adapter-specific business logic.
+`BeamKit.CiServer` is the first hosted application layer. It exposes BeamKit Check, rule-pack validation, rule-pack tests, run records, provenance artifacts, intelligence-assisted assignment recommendations, and a local dashboard through HTTP APIs. It is allowed to depend on samples for the initial PHI-free demo workflow, but it must not contain adapter-specific business logic.
 
 `BeamKit.Samples` provides synthetic data only. It should never contain real patient data.
 

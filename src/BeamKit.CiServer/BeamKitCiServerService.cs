@@ -4,6 +4,7 @@ using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
 using BeamKit.Esapi;
+using BeamKit.Intelligence;
 using BeamKit.RulePacks;
 using BeamKit.Samples;
 using BeamKit.Sdk;
@@ -274,13 +275,13 @@ public sealed class BeamKitCiServerService
         ArgumentNullException.ThrowIfNull(request);
 
         var assignmentDate = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
-        var assignmentRequest = CreateAssignmentRequest(request, assignmentDate, includeTeamRoles: false);
+        var context = CreateAssignmentRequestContext(request, assignmentDate, includeTeamRoles: false);
 
-        var recommendation = client.RecommendPlanner(assignmentRequest);
+        var recommendation = client.RecommendPlanner(context.Request) with { Intelligence = context.Intelligence };
         Audit(
             "assignment.recommended",
             auditContext,
-            caseId: assignmentRequest.CaseId,
+            caseId: context.Request.CaseId,
             status: recommendation.RecommendedPlanner is null ? "NoRecommendation" : "Recommended",
             details: recommendation.RecommendedPlanner?.Planner.Id);
         return recommendation;
@@ -294,12 +295,12 @@ public sealed class BeamKitCiServerService
         ArgumentNullException.ThrowIfNull(request);
 
         var assignmentDate = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
-        var assignmentRequest = CreateAssignmentRequest(request, assignmentDate, includeTeamRoles: true);
-        var recommendation = client.RecommendPlanningTeam(assignmentRequest);
+        var context = CreateAssignmentRequestContext(request, assignmentDate, includeTeamRoles: true);
+        var recommendation = client.RecommendPlanningTeam(context.Request) with { Intelligence = context.Intelligence };
         Audit(
             "assignment.team-recommended",
             auditContext,
-            caseId: assignmentRequest.CaseId,
+            caseId: context.Request.CaseId,
             status: recommendation.IsFullyStaffed ? "FullyStaffed" : "NeedsReview",
             details: string.Join(", ", recommendation.RoleRecommendations.Select(role => $"{role.Role}:{role.RecommendedCandidate?.Planner.Id ?? "none"}")));
         return recommendation;
@@ -915,27 +916,203 @@ public sealed class BeamKitCiServerService
 
     private sealed record RulePackImportSource(string ManifestJson, string BaseDirectory, string SourceKind, string Source, RulePackBundle? Bundle);
 
-    private static PlannerAssignmentRequest CreateAssignmentRequest(AssignmentServerRequest request, DateOnly assignmentDate, bool includeTeamRoles)
+    private sealed record AssignmentRequestContext(PlannerAssignmentRequest Request, AssignmentIntelligenceSummary? Intelligence);
+
+    private static AssignmentRequestContext CreateAssignmentRequestContext(AssignmentServerRequest request, DateOnly assignmentDate, bool includeTeamRoles)
     {
         var dueDate = ParseDueDate(request.DueDate) ?? assignmentDate.AddDays(3);
-        var requiredSkills = request.RequiredSkills is { Count: > 0 }
-            ? request.RequiredSkills
-            : new[] { "VMAT" };
         var requiredRoles = ResolveAssignmentRoles(request.RequiredRoles, includeTeamRoles);
         var planners = LoadPlannerProfiles(request, assignmentDate, dueDate);
+        var plan = TryLoadAssignmentPlan(request);
+        var intelligenceReport = plan is null
+            ? null
+            : new CasePlanIntelligenceService().Analyze(new CasePlanIntelligenceRequest(
+                plan,
+                dueDate,
+                assignmentDate,
+                request.Priority));
+        var diseaseSite = CiServerText.Optional(request.DiseaseSite) ?? intelligenceReport?.DiseaseSite ?? plan?.DiseaseSite ?? "Head and Neck";
+        var requiredSkills = request.RequiredSkills is { Count: > 0 }
+            ? request.RequiredSkills
+            : InferRequiredAssignmentSkills(plan, intelligenceReport, diseaseSite);
+        var complexityScore = request.ComplexityScore ?? MapAssignmentComplexityScore(intelligenceReport?.ComplexityScore);
+        var caseId = CiServerText.Optional(request.CaseId)
+            ?? CiServerText.Optional(request.SyntheticCaseId)
+            ?? plan?.Id
+            ?? "server-assignment";
+        var summary = intelligenceReport is null
+            ? null
+            : CreateAssignmentIntelligenceSummary(intelligenceReport, complexityScore, requiredSkills);
 
-        return new PlannerAssignmentRequest(
-            CiServerText.Optional(request.CaseId) ?? "server-assignment",
-            CiServerText.Optional(request.DiseaseSite) ?? "Head and Neck",
+        var assignmentRequest = new PlannerAssignmentRequest(
+            caseId,
+            diseaseSite,
             dueDate,
             planners,
             requiredSkills,
-            request.ComplexityScore ?? 3,
+            complexityScore,
             request.Priority ?? 3,
             request.Physician,
             assignmentDate,
             requiredRoles[0],
             requiredRoles);
+
+        return new AssignmentRequestContext(assignmentRequest, summary);
+    }
+
+    private static Plan? TryLoadAssignmentPlan(AssignmentServerRequest request)
+    {
+        var planJson = GetJson(request.Plan, request.PlanJson);
+        var esapiSnapshotJson = GetJson(request.EsapiSnapshot, request.EsapiSnapshotJson);
+        var sources = new[]
+        {
+            !string.IsNullOrWhiteSpace(request.SyntheticCaseId),
+            !string.IsNullOrWhiteSpace(planJson),
+            !string.IsNullOrWhiteSpace(esapiSnapshotJson)
+        }.Count(value => value);
+        if (sources > 1)
+        {
+            throw new ArgumentException("Use only one of 'syntheticCaseId', 'plan'/'planJson', or 'esapiSnapshot'/'esapiSnapshotJson' for assignment inference.", nameof(request));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.SyntheticCaseId))
+        {
+            return SyntheticClinicalCaseLibrary.Find(request.SyntheticCaseId).Plan;
+        }
+
+        if (!string.IsNullOrWhiteSpace(planJson))
+        {
+            return LoadBeamKitPlanJson(planJson).Plan;
+        }
+
+        if (!string.IsNullOrWhiteSpace(esapiSnapshotJson))
+        {
+            return LoadEsapiSnapshotJson(esapiSnapshotJson).Plan;
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<string> InferRequiredAssignmentSkills(
+        Plan? plan,
+        CasePlanIntelligenceReport? intelligenceReport,
+        string diseaseSite)
+    {
+        var skills = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (plan is not null)
+        {
+            AddTechniqueSkill(skills, plan.Prescription.RequestedTechniqueId);
+            foreach (var beam in plan.Beams.Where(beam => !beam.IsSetupField))
+            {
+                AddTechniqueSkill(skills, beam.TechniqueId);
+                AddTechniqueSkill(skills, beam.Modality);
+            }
+
+            if (IsSbrtLike(plan, diseaseSite))
+            {
+                skills.Add("SBRT");
+            }
+
+            if (IsSrsLike(plan, diseaseSite))
+            {
+                skills.Add("SRS");
+            }
+        }
+
+        if (skills.Count == 0)
+        {
+            skills.Add("VMAT");
+        }
+
+        if (intelligenceReport?.ComplexityLevel is CaseComplexityLevel.High or CaseComplexityLevel.VeryHigh)
+        {
+            skills.Add(diseaseSite);
+        }
+
+        return skills.ToArray();
+    }
+
+    private static void AddTechniqueSkill(ISet<string> skills, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (ContainsAny(value, "VMAT", "RapidArc"))
+        {
+            skills.Add("VMAT");
+        }
+        else if (ContainsAny(value, "IMRT"))
+        {
+            skills.Add("IMRT");
+        }
+        else if (ContainsAny(value, "SRS"))
+        {
+            skills.Add("SRS");
+        }
+        else if (ContainsAny(value, "SBRT", "SABR"))
+        {
+            skills.Add("SBRT");
+        }
+        else if (ContainsAny(value, "3D"))
+        {
+            skills.Add("3D");
+        }
+    }
+
+    private static bool IsSbrtLike(Plan plan, string diseaseSite)
+    {
+        return ContainsAny(diseaseSite, "lung", "sbrt", "sabr")
+            && (plan.Prescription.FractionCount <= 5 || plan.Prescription.DosePerFractionGy >= 5m);
+    }
+
+    private static bool IsSrsLike(Plan plan, string diseaseSite)
+    {
+        return ContainsAny(diseaseSite, "brain", "srs")
+            && (plan.Prescription.FractionCount <= 5 || ContainsAny(plan.Id, "srs"));
+    }
+
+    private static int MapAssignmentComplexityScore(decimal? predictiveComplexityScore)
+    {
+        if (!predictiveComplexityScore.HasValue)
+        {
+            return 3;
+        }
+
+        return predictiveComplexityScore.Value switch
+        {
+            >= 80m => 5,
+            >= 60m => 4,
+            >= 40m => 3,
+            >= 20m => 2,
+            _ => 1
+        };
+    }
+
+    private static AssignmentIntelligenceSummary CreateAssignmentIntelligenceSummary(
+        CasePlanIntelligenceReport report,
+        int appliedAssignmentComplexityScore,
+        IReadOnlyList<string> suggestedSkills)
+    {
+        return new AssignmentIntelligenceSummary(
+            report.PlanId,
+            report.DiseaseSite,
+            report.ComplexityScore,
+            report.ComplexityLevel.ToString(),
+            report.QaRiskScore,
+            report.QaRiskLevel.ToString(),
+            report.EstimatedPlanningHours,
+            report.EstimatedPhysicsReviewMinutes,
+            appliedAssignmentComplexityScore,
+            suggestedSkills,
+            report.Signals.Take(5).Select(signal => $"{signal.Severity}: {signal.Category} - {signal.Name}").ToArray(),
+            report.Recommendations.Take(5).ToArray());
+    }
+
+    private static bool ContainsAny(string value, params string[] candidates)
+    {
+        return candidates.Any(candidate => value.Contains(candidate, StringComparison.OrdinalIgnoreCase));
     }
 
     private static IReadOnlyList<PlannerProfile> LoadPlannerProfiles(AssignmentServerRequest request, DateOnly assignmentDate, DateOnly dueDate)
@@ -965,7 +1142,7 @@ public sealed class BeamKitCiServerService
             new PlannerProfile(
                 "planner-jane",
                 "Jane Doe",
-                new[] { "VMAT", "SBRT", "Head and Neck" },
+                new[] { "VMAT", "SBRT", "Head and Neck", "Lung" },
                 new[] { "Head and Neck", "Lung" },
                 activeCaseCount: 2,
                 maxActiveCaseCount: 8,
@@ -1008,7 +1185,7 @@ public sealed class BeamKitCiServerService
             new PlannerProfile(
                 "physicist-morgan",
                 "Morgan Lee",
-                new[] { "VMAT", "SBRT", "SRS", "Machine QA" },
+                new[] { "VMAT", "SBRT", "SRS", "Lung", "Machine QA" },
                 new[] { "Head and Neck", "Lung", "Brain" },
                 activeCaseCount: 5,
                 maxActiveCaseCount: 10,

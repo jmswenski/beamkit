@@ -76,7 +76,7 @@ What is usable today:
 - Synthetic clinical case library with passing and failing PHI-free examples.
 - Architecture-boundary tests.
 - High-level `BeamKit.Sdk` facade for embedding checks, policy validation, CI gates, rule-pack tests, and assignment recommendations.
-- Dosimetrist and physicist assignment recommendations based on configurable staff rosters, disease site, specialty, workload, schedule, PTO, physician compatibility rules, complexity, priority, and required skills.
+- Intelligence-assisted dosimetrist and physicist assignment recommendations based on configurable staff rosters, inferred case complexity, inferred skills, disease site, specialty, workload, schedule, PTO, physician compatibility rules, priority, and required skills.
 - Read-only ESAPI adapter scaffold without proprietary DLL references.
 - ESAPI snapshot JSON bridge and smoke-harness template for local Varian workstation testing.
 - ESAPI snapshot validation for missing target, dose, structure, beam, and model metadata.
@@ -318,11 +318,9 @@ Generate a dosimetrist assignment recommendation:
 ```bash
 dotnet run --project src/BeamKit.Cli -- assignment recommend \
   --roster samples/staff-roster-synthetic.json \
-  --disease-site "Head and Neck" \
+  --case head-neck-pass \
   --physician "Dr Smith" \
-  --required-skill VMAT \
   --role Dosimetrist \
-  --complexity 4 \
   --priority 4
 ```
 
@@ -331,11 +329,8 @@ Generate a dosimetrist and physicist staffing recommendation:
 ```bash
 dotnet run --project src/BeamKit.Cli -- assignment recommend-team \
   --roster samples/staff-roster-synthetic.json \
-  --disease-site Lung \
+  --case lung-sbrt-pass \
   --physician "Dr Smith" \
-  --required-skill VMAT \
-  --required-skill SBRT \
-  --complexity 4 \
   --priority 4
 ```
 

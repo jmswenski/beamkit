@@ -94,17 +94,14 @@ dotnet run --project src/BeamKit.Cli -- ci run \
   --format markdown
 ```
 
-Recommend a dosimetrist or physicist assignment from workload, skills, PTO, schedule, specialty, physician pairing rules, and due-date context:
+Recommend a dosimetrist or physicist assignment from workload, skills, PTO, schedule, specialty, physician pairing rules, and due-date context. When `--case`, `--plan`, or `--esapi-snapshot` is supplied, BeamKit can infer complexity and required skills unless they are explicitly provided:
 
 ```bash
 dotnet run --project src/BeamKit.Cli -- assignment recommend \
   --roster samples/staff-roster-synthetic.json \
-  --disease-site "Head and Neck" \
+  --case head-neck-pass \
   --physician "Dr Smith" \
-  --required-skill VMAT \
-  --required-skill SBRT \
   --role Dosimetrist \
-  --complexity 4 \
   --priority 4 \
   --due-date 2026-07-10
 ```
@@ -114,11 +111,8 @@ Recommend a planning team:
 ```bash
 dotnet run --project src/BeamKit.Cli -- assignment recommend-team \
   --roster samples/staff-roster-synthetic.json \
-  --disease-site Lung \
+  --case lung-sbrt-pass \
   --physician "Dr Smith" \
-  --required-skill VMAT \
-  --required-skill SBRT \
-  --complexity 4 \
   --priority 4
 ```
 

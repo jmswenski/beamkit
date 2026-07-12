@@ -246,6 +246,34 @@ public sealed class PlannerAssignmentEngineTests
         Assert.Equal("physicist", recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Physicist).RecommendedCandidate?.Planner.Id);
     }
 
+    [Fact]
+    public void RecommendationCanCarryAssignmentIntelligenceSummary()
+    {
+        var summary = new AssignmentIntelligenceSummary(
+            "plan-1",
+            "Lung",
+            72m,
+            "High",
+            61m,
+            "High",
+            7.5m,
+            62m,
+            4,
+            new[] { "VMAT", "SBRT", "Lung" },
+            new[] { "High: Prescription - Hypofractionated treatment" },
+            new[] { "Reserve additional planning time." });
+
+        var recommendation = new PlannerAssignmentRecommendation(
+            "case-1",
+            new[] { new PlannerCandidateScore(new PlannerProfile("planner", "Planner"), 90, new[] { "Available." }, isAvailable: true) },
+            summary);
+
+        var intelligence = Assert.IsType<AssignmentIntelligenceSummary>(recommendation.Intelligence);
+        Assert.Same(summary, intelligence);
+        Assert.Equal(4, intelligence.AppliedAssignmentComplexityScore);
+        Assert.Contains("SBRT", intelligence.SuggestedSkills);
+    }
+
     private static IReadOnlyList<PlannerScheduleDay> CreateSchedule(params int[] assignedCases)
     {
         return assignedCases

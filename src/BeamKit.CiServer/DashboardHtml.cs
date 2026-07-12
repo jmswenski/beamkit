@@ -182,8 +182,11 @@ internal static class DashboardHtml
                   <label>Disease site
                     <input id="diseaseSite" value="Head and Neck">
                   </label>
+                  <label>Synthetic case
+                    <input id="assignmentCaseId" placeholder="lung-sbrt-pass">
+                  </label>
                   <label>Required skill
-                    <input id="requiredSkill" value="VMAT">
+                    <input id="requiredSkill" placeholder="VMAT">
                   </label>
                   <label>Physician
                     <input id="assignmentPhysician" placeholder="Dr Smith">
@@ -283,11 +286,13 @@ internal static class DashboardHtml
             }
 
             async function recommendAssignment() {
+              const requiredSkill = document.getElementById("requiredSkill").value;
               await api("/api/assignments/recommend", {
                 method: "POST",
                 body: JSON.stringify({
-                  diseaseSite: document.getElementById("diseaseSite").value,
-                  requiredSkills: [document.getElementById("requiredSkill").value],
+                  diseaseSite: document.getElementById("diseaseSite").value || null,
+                  syntheticCaseId: document.getElementById("assignmentCaseId").value || null,
+                  requiredSkills: requiredSkill ? [requiredSkill] : null,
                   physician: document.getElementById("assignmentPhysician").value || null,
                   rosterPath: document.getElementById("assignmentRosterPath").value || null
                 })
@@ -295,11 +300,13 @@ internal static class DashboardHtml
             }
 
             async function recommendTeam() {
+              const requiredSkill = document.getElementById("requiredSkill").value;
               await api("/api/assignments/recommend-team", {
                 method: "POST",
                 body: JSON.stringify({
-                  diseaseSite: document.getElementById("diseaseSite").value,
-                  requiredSkills: [document.getElementById("requiredSkill").value],
+                  diseaseSite: document.getElementById("diseaseSite").value || null,
+                  syntheticCaseId: document.getElementById("assignmentCaseId").value || null,
+                  requiredSkills: requiredSkill ? [requiredSkill] : null,
                   physician: document.getElementById("assignmentPhysician").value || null,
                   rosterPath: document.getElementById("assignmentRosterPath").value || null
                 })

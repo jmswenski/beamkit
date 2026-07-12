@@ -26,6 +26,7 @@ It also includes dosimetrist and physicist assignment recommendation:
 - Complexity ceilings for staff who should not receive high-complexity cases without override.
 - Due-date pressure.
 - Complexity and priority scoring.
+- Optional neutral predictive intelligence summaries supplied by hosts such as the CLI or CI server.
 - Ranked candidates with human-readable reasons.
 
 Load a configurable roster:
