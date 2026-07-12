@@ -162,6 +162,34 @@ app.MapGet("/api/rtpx/acceptance/{id}", (string id, BeamKitCiServerService servi
     var acceptance = service.FindRtpxAcceptance(id);
     return acceptance is null ? Results.NotFound() : Results.Ok(acceptance);
 });
+app.MapGet("/api/protocol-compliance/runs", (BeamKitCiServerService service, int? limit) =>
+{
+    return Results.Ok(service.ListProtocolComplianceRuns(limit ?? 50));
+});
+app.MapGet("/api/protocol-compliance/runs/{id}", (string id, BeamKitCiServerService service) =>
+{
+    var run = service.FindProtocolComplianceRun(id);
+    return run is null ? Results.NotFound() : Results.Ok(run);
+});
+app.MapGet("/api/protocol-compliance/runs/{id}/report.json", (string id, BeamKitCiServerService service) =>
+{
+    var reportJson = service.FindProtocolComplianceReportJson(id);
+    return reportJson is null ? Results.NotFound() : Results.Text(reportJson, "application/json");
+});
+app.MapGet("/api/protocol-compliance/runs/{id}/report.md", (string id, BeamKitCiServerService service) =>
+{
+    var report = service.FindProtocolComplianceMarkdownReport(id);
+    return report is null ? Results.NotFound() : Results.Text(report, "text/markdown");
+});
+app.MapPost("/api/protocol-compliance/runs", (ProtocolComplianceRunRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    var record = service.CreateProtocolComplianceRun(request, CiServerAuditContext.FromHttpContext(context));
+    return Results.Created($"/api/protocol-compliance/runs/{record.Id}", record);
+});
+app.MapPost("/api/protocol-compliance/runs/{id}/variances", (string id, ProtocolComplianceVarianceRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.AcceptProtocolComplianceVariance(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
 app.MapGet("/api/rtpx/drafts", (BeamKitCiServerService service, int? limit) =>
 {
     return Results.Ok(service.ListRtpxDraftReviews(limit ?? 50));

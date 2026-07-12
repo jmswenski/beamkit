@@ -230,6 +230,31 @@ internal static class DashboardHtml
                 </div>
               </section>
               <section>
+                <h2>Protocol Compliance</h2>
+                <div class="stack" style="margin-top:12px">
+                  <label>Synthetic case
+                    <input id="protocolComplianceCaseId" value="head-neck-pass">
+                  </label>
+                  <label>Rule pack ID
+                    <input id="protocolComplianceRulePackId" placeholder="active RT-PX rule pack">
+                  </label>
+                  <label>RT-PX acceptance ID
+                    <input id="protocolComplianceAcceptanceId" placeholder="optional rtpx-...">
+                  </label>
+                  <label>Variance finding ID
+                    <input id="protocolComplianceFindingId" placeholder="plancheck:cord-max">
+                  </label>
+                  <label>Variance rationale
+                    <textarea id="protocolComplianceVarianceRationale" placeholder="Clinical or physics rationale"></textarea>
+                  </label>
+                </div>
+                <div class="actions">
+                  <button onclick="runProtocolCompliance()">Run compliance</button>
+                  <button class="secondary" onclick="acceptProtocolComplianceVariance()">Accept variance</button>
+                  <button class="secondary" onclick="loadProtocolComplianceRuns()">Refresh</button>
+                </div>
+              </section>
+              <section>
                 <h2>Assignment</h2>
                 <div class="stack" style="margin-top:12px">
                   <label>Disease site
@@ -335,6 +360,13 @@ internal static class DashboardHtml
                   <tr><td colspan="5">Select a draft to view protocol differences.</td></tr>
                 </tbody>
               </table>
+              <h2 style="margin-top:22px">Protocol Compliance</h2>
+              <table>
+                <thead>
+                  <tr><th>Run</th><th>Plan</th><th>Status</th><th>Protocol</th><th>Rule Pack</th><th>Findings</th><th>Created</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="protocolComplianceRuns"></tbody>
+              </table>
               <h2 style="margin-top:22px">Work Queue</h2>
               <table>
                 <thead>
@@ -372,6 +404,7 @@ internal static class DashboardHtml
               await loadRuns();
               await loadRtpxAcceptances();
               await loadRtpxDrafts();
+              await loadProtocolComplianceRuns();
               await loadWorkItems();
               return data;
             }
@@ -438,6 +471,34 @@ internal static class DashboardHtml
                   promote: document.getElementById("rtpxPromote").checked,
                   importedBy: "dashboard",
                   note: "Accepted from local BeamKit CI dashboard."
+                })
+              });
+            }
+
+            async function runProtocolCompliance() {
+              const payload = {
+                syntheticCaseId: document.getElementById("protocolComplianceCaseId").value || null,
+                rulePackId: document.getElementById("protocolComplianceRulePackId").value || null,
+                rtpxAcceptanceId: document.getElementById("protocolComplianceAcceptanceId").value || null,
+                inputSource: "dashboard"
+              };
+              await api("/api/protocol-compliance/runs", {
+                method: "POST",
+                body: JSON.stringify(payload)
+              });
+            }
+
+            async function acceptProtocolComplianceVariance() {
+              const runId = document.getElementById("protocolComplianceRunId")?.value || "";
+              const selectedRunId = runId || document.getElementById("protocolComplianceFindingId").dataset.runId || "";
+              const findingId = document.getElementById("protocolComplianceFindingId").value.trim();
+              if (!selectedRunId || !findingId) return;
+              await api(`/api/protocol-compliance/runs/${selectedRunId}/variances`, {
+                method: "POST",
+                body: JSON.stringify({
+                  findingId,
+                  acceptedBy: "dashboard",
+                  rationale: document.getElementById("protocolComplianceVarianceRationale").value || "Accepted from local BeamKit CI dashboard."
                 })
               });
             }
@@ -679,6 +740,60 @@ internal static class DashboardHtml
               }).join("");
             }
 
+            async function loadProtocolComplianceRuns() {
+              const response = await fetch("/api/protocol-compliance/runs?limit=25", { headers: requestHeaders() });
+              if (!response.ok) {
+                document.getElementById("protocolComplianceRuns").innerHTML = "";
+                return;
+              }
+
+              const runs = await response.json();
+              document.getElementById("protocolComplianceRuns").innerHTML = runs.map(run => {
+                const runId = escapeOnclickString(run.id);
+                const status = String(run.status || "").toLowerCase();
+                return `<tr>
+                  <td><code>${escapeHtml(run.id)}</code></td>
+                  <td>${escapeHtml(run.planId)}<br><code>${escapeHtml(run.inputKind)}</code></td>
+                  <td class="status-${escapeHtml(status)}">${escapeHtml(run.status)}</td>
+                  <td>${escapeHtml(run.protocolName)}<br><code>${escapeHtml(run.protocolVersion)}</code></td>
+                  <td><code>${escapeHtml(run.rulePackId)}</code><br><code>${escapeHtml(run.versionId)}</code></td>
+                  <td>${escapeHtml(run.passCount)} pass / ${escapeHtml(run.warningCount)} warn<br>${escapeHtml(run.failCount + run.notEvaluableCount)} blocking, ${escapeHtml(run.acceptedVarianceCount)} variance</td>
+                  <td>${escapeHtml(new Date(run.createdAtUtc).toLocaleString())}</td>
+                  <td>
+                    <button class="secondary" style="min-height:28px; padding:0 8px" onclick="viewProtocolComplianceRun('${runId}')">View</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="downloadProtocolComplianceMarkdown('${runId}')">MD</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="selectProtocolComplianceRun('${runId}')">Variance</button>
+                  </td>
+                </tr>`;
+              }).join("");
+            }
+
+            async function viewProtocolComplianceRun(id) {
+              const response = await fetch(`/api/protocol-compliance/runs/${id}/report.json`, { headers: requestHeaders() });
+              const text = await response.text();
+              document.getElementById("output").textContent = text ? JSON.stringify(JSON.parse(text), null, 2) : "{}";
+            }
+
+            async function downloadProtocolComplianceMarkdown(id) {
+              const response = await fetch(`/api/protocol-compliance/runs/${id}/report.md`, { headers: requestHeaders() });
+              if (!response.ok) {
+                document.getElementById("output").textContent = await response.text();
+                return;
+              }
+
+              const blob = new Blob([await response.text()], { type: "text/markdown" });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = `${id}.beamkit-protocol-compliance.md`;
+              link.click();
+              URL.revokeObjectURL(url);
+            }
+
+            function selectProtocolComplianceRun(id) {
+              document.getElementById("protocolComplianceFindingId").dataset.runId = id;
+            }
+
             async function viewRtpxAcceptance(id) {
               await api(`/api/rtpx/acceptance/${id}`, { method: "GET" });
             }
@@ -776,6 +891,7 @@ internal static class DashboardHtml
             loadRuns();
             loadRtpxAcceptances();
             loadRtpxDrafts();
+            loadProtocolComplianceRuns();
             loadWorkItems();
           </script>
         </body>

@@ -177,6 +177,23 @@ public sealed class CiRunStoreTests
         Assert.Equal(RtpxDraftReviewStatus.Draft, found.ReviewStatus);
     }
 
+    [Fact]
+    public void SaveProtocolComplianceRunStoresQueryableHistory()
+    {
+        var store = new CiRunStore();
+        store.SaveProtocolComplianceRun(CreateProtocolComplianceRun("old", DateTimeOffset.UtcNow.AddMinutes(-1), ProtocolComplianceStatus.Pass));
+        store.SaveProtocolComplianceRun(CreateProtocolComplianceRun("new", DateTimeOffset.UtcNow, ProtocolComplianceStatus.Fail));
+
+        var records = store.ListProtocolComplianceRuns();
+        var found = store.FindProtocolComplianceRun("NEW");
+
+        Assert.Equal(new[] { "new", "old" }, records.Select(record => record.Id));
+        Assert.NotNull(found);
+        Assert.Equal(ProtocolComplianceStatus.Fail, found.Status);
+        Assert.Equal("rtpx-head-neck", found.RulePackId);
+        Assert.Contains("Protocol Compliance", found.MarkdownReport, StringComparison.Ordinal);
+    }
+
     private static BeamKitCiRunRecord CreateArtifact(BeamKitCheckStatus status)
     {
         return new BeamKitCiRunRecord(
@@ -274,6 +291,39 @@ public sealed class CiRunStoreTests
             warningCount: 0,
             """{"accepted":true}""",
             """{"subjectType":"RulePack"}""");
+    }
+
+    private static ProtocolComplianceRunRecord CreateProtocolComplianceRun(
+        string id,
+        DateTimeOffset createdAtUtc,
+        ProtocolComplianceStatus status)
+    {
+        return new ProtocolComplianceRunRecord(
+            id,
+            createdAtUtc,
+            status,
+            "plan-1",
+            "patient-1",
+            "course-1",
+            "Head and Neck",
+            CiRunInputKind.SyntheticCase,
+            "case:head-neck-pass",
+            "rtpx-head-neck",
+            "version-1",
+            "rtpx-1",
+            "rtpx.synthetic.head-neck",
+            "Synthetic Head and Neck",
+            "1.0",
+            "sha256:package",
+            passCount: status == ProtocolComplianceStatus.Pass ? 4 : 3,
+            warningCount: 0,
+            failCount: status == ProtocolComplianceStatus.Fail ? 1 : 0,
+            notEvaluableCount: 0,
+            acceptedVarianceCount: 0,
+            unresolvedBlockingCount: status == ProtocolComplianceStatus.Fail ? 1 : 0,
+            """{"runId":"test"}""",
+            "# BeamKit Protocol Compliance Packet",
+            """{"id":"plan-1"}""");
     }
 
     private static CaseWorkItem CreateWorkItem(

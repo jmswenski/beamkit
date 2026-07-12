@@ -860,6 +860,156 @@ public sealed class SqliteCiRunStore : ICiRunStore
     }
 
     /// <summary>
+    /// Adds or replaces a protocol compliance run.
+    /// </summary>
+    public ProtocolComplianceRunRecord SaveProtocolComplianceRun(ProtocolComplianceRunRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ci_protocol_compliance_runs (
+                    id,
+                    created_at_utc,
+                    status,
+                    plan_id,
+                    patient_id,
+                    course_id,
+                    disease_site,
+                    input_kind,
+                    input_source,
+                    rule_pack_id,
+                    version_id,
+                    rtpx_acceptance_id,
+                    protocol_id,
+                    protocol_name,
+                    protocol_version,
+                    package_fingerprint,
+                    pass_count,
+                    warning_count,
+                    fail_count,
+                    not_evaluable_count,
+                    accepted_variance_count,
+                    unresolved_blocking_count,
+                    report_json,
+                    markdown_report,
+                    plan_snapshot_json
+                )
+                VALUES (
+                    $id,
+                    $created_at_utc,
+                    $status,
+                    $plan_id,
+                    $patient_id,
+                    $course_id,
+                    $disease_site,
+                    $input_kind,
+                    $input_source,
+                    $rule_pack_id,
+                    $version_id,
+                    $rtpx_acceptance_id,
+                    $protocol_id,
+                    $protocol_name,
+                    $protocol_version,
+                    $package_fingerprint,
+                    $pass_count,
+                    $warning_count,
+                    $fail_count,
+                    $not_evaluable_count,
+                    $accepted_variance_count,
+                    $unresolved_blocking_count,
+                    $report_json,
+                    $markdown_report,
+                    $plan_snapshot_json
+                )
+                ON CONFLICT(id) DO UPDATE SET
+                    created_at_utc = excluded.created_at_utc,
+                    status = excluded.status,
+                    plan_id = excluded.plan_id,
+                    patient_id = excluded.patient_id,
+                    course_id = excluded.course_id,
+                    disease_site = excluded.disease_site,
+                    input_kind = excluded.input_kind,
+                    input_source = excluded.input_source,
+                    rule_pack_id = excluded.rule_pack_id,
+                    version_id = excluded.version_id,
+                    rtpx_acceptance_id = excluded.rtpx_acceptance_id,
+                    protocol_id = excluded.protocol_id,
+                    protocol_name = excluded.protocol_name,
+                    protocol_version = excluded.protocol_version,
+                    package_fingerprint = excluded.package_fingerprint,
+                    pass_count = excluded.pass_count,
+                    warning_count = excluded.warning_count,
+                    fail_count = excluded.fail_count,
+                    not_evaluable_count = excluded.not_evaluable_count,
+                    accepted_variance_count = excluded.accepted_variance_count,
+                    unresolved_blocking_count = excluded.unresolved_blocking_count,
+                    report_json = excluded.report_json,
+                    markdown_report = excluded.markdown_report,
+                    plan_snapshot_json = excluded.plan_snapshot_json;
+                """;
+            AddProtocolComplianceRunParameters(command, record);
+            command.ExecuteNonQuery();
+        }
+
+        return record;
+    }
+
+    /// <summary>
+    /// Finds a protocol compliance run by id.
+    /// </summary>
+    public ProtocolComplianceRunRecord? FindProtocolComplianceRun(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectProtocolComplianceRunColumns()}
+                WHERE id = $id COLLATE NOCASE;
+                """;
+            command.Parameters.AddWithValue("$id", id.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadProtocolComplianceRun(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Lists recent protocol compliance runs.
+    /// </summary>
+    public IReadOnlyList<ProtocolComplianceRunSummary> ListProtocolComplianceRuns(int limit = 50)
+    {
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectProtocolComplianceRunColumns()}
+                ORDER BY created_at_utc DESC, id ASC
+                LIMIT $limit;
+                """;
+            command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
+
+            var records = new List<ProtocolComplianceRunSummary>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                records.Add(new ProtocolComplianceRunSummary(ReadProtocolComplianceRun(reader)));
+            }
+
+            return records;
+        }
+    }
+
+    /// <summary>
     /// Adds or replaces a case work item.
     /// </summary>
     public CaseWorkItem SaveWorkItem(CaseWorkItem workItem)
@@ -1301,6 +1451,40 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 CREATE INDEX IF NOT EXISTS ix_ci_rtpx_acceptances_accepted ON ci_rtpx_acceptances(accepted);
                 CREATE INDEX IF NOT EXISTS ix_ci_rtpx_acceptances_package_fingerprint ON ci_rtpx_acceptances(package_fingerprint);
 
+                CREATE TABLE IF NOT EXISTS ci_protocol_compliance_runs (
+                    id TEXT PRIMARY KEY,
+                    created_at_utc TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    patient_id TEXT NOT NULL,
+                    course_id TEXT NOT NULL,
+                    disease_site TEXT NULL,
+                    input_kind TEXT NOT NULL,
+                    input_source TEXT NOT NULL,
+                    rule_pack_id TEXT NOT NULL,
+                    version_id TEXT NOT NULL,
+                    rtpx_acceptance_id TEXT NOT NULL,
+                    protocol_id TEXT NOT NULL,
+                    protocol_name TEXT NOT NULL,
+                    protocol_version TEXT NOT NULL,
+                    package_fingerprint TEXT NOT NULL,
+                    pass_count INTEGER NOT NULL,
+                    warning_count INTEGER NOT NULL,
+                    fail_count INTEGER NOT NULL,
+                    not_evaluable_count INTEGER NOT NULL,
+                    accepted_variance_count INTEGER NOT NULL,
+                    unresolved_blocking_count INTEGER NOT NULL,
+                    report_json TEXT NOT NULL,
+                    markdown_report TEXT NOT NULL,
+                    plan_snapshot_json TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_ci_protocol_compliance_runs_created_at ON ci_protocol_compliance_runs(created_at_utc);
+                CREATE INDEX IF NOT EXISTS ix_ci_protocol_compliance_runs_status ON ci_protocol_compliance_runs(status);
+                CREATE INDEX IF NOT EXISTS ix_ci_protocol_compliance_runs_plan ON ci_protocol_compliance_runs(plan_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_protocol_compliance_runs_rule_pack ON ci_protocol_compliance_runs(rule_pack_id, version_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_protocol_compliance_runs_rtpx ON ci_protocol_compliance_runs(rtpx_acceptance_id);
+
                 CREATE TABLE IF NOT EXISTS ci_work_items (
                     id TEXT PRIMARY KEY,
                     created_at_utc TEXT NOT NULL,
@@ -1494,6 +1678,35 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$diff_acknowledged_by", ToDbValue(record.DiffAcknowledgedBy));
         command.Parameters.AddWithValue("$diff_acknowledged_at_utc", record.DiffAcknowledgedAtUtc is null ? DBNull.Value : ToStoredTimestamp(record.DiffAcknowledgedAtUtc.Value));
         command.Parameters.AddWithValue("$acknowledged_diff_change_ids_json", JsonSerializer.Serialize(record.AcknowledgedDiffChangeIds, CiServerJson.Options));
+    }
+
+    private static void AddProtocolComplianceRunParameters(SqliteCommand command, ProtocolComplianceRunRecord record)
+    {
+        command.Parameters.AddWithValue("$id", record.Id);
+        command.Parameters.AddWithValue("$created_at_utc", ToStoredTimestamp(record.CreatedAtUtc));
+        command.Parameters.AddWithValue("$status", record.Status.ToString());
+        command.Parameters.AddWithValue("$plan_id", record.PlanId);
+        command.Parameters.AddWithValue("$patient_id", record.PatientId);
+        command.Parameters.AddWithValue("$course_id", record.CourseId);
+        command.Parameters.AddWithValue("$disease_site", ToDbValue(record.DiseaseSite));
+        command.Parameters.AddWithValue("$input_kind", record.InputKind.ToString());
+        command.Parameters.AddWithValue("$input_source", record.InputSource);
+        command.Parameters.AddWithValue("$rule_pack_id", record.RulePackId);
+        command.Parameters.AddWithValue("$version_id", record.VersionId);
+        command.Parameters.AddWithValue("$rtpx_acceptance_id", record.RtpxAcceptanceId);
+        command.Parameters.AddWithValue("$protocol_id", record.ProtocolId);
+        command.Parameters.AddWithValue("$protocol_name", record.ProtocolName);
+        command.Parameters.AddWithValue("$protocol_version", record.ProtocolVersion);
+        command.Parameters.AddWithValue("$package_fingerprint", record.PackageFingerprint);
+        command.Parameters.AddWithValue("$pass_count", record.PassCount);
+        command.Parameters.AddWithValue("$warning_count", record.WarningCount);
+        command.Parameters.AddWithValue("$fail_count", record.FailCount);
+        command.Parameters.AddWithValue("$not_evaluable_count", record.NotEvaluableCount);
+        command.Parameters.AddWithValue("$accepted_variance_count", record.AcceptedVarianceCount);
+        command.Parameters.AddWithValue("$unresolved_blocking_count", record.UnresolvedBlockingCount);
+        command.Parameters.AddWithValue("$report_json", record.ReportJson);
+        command.Parameters.AddWithValue("$markdown_report", record.MarkdownReport);
+        command.Parameters.AddWithValue("$plan_snapshot_json", record.PlanSnapshotJson);
     }
 
     private static void AddWorkItemParameters(SqliteCommand command, CaseWorkItem workItem)
@@ -1765,6 +1978,69 @@ public sealed class SqliteCiRunStore : ICiRunStore
             GetNullableString(reader, 31),
             GetNullableTimestamp(reader, 32),
             ReadStringArray(GetNullableString(reader, 33)));
+    }
+
+    private static string SelectProtocolComplianceRunColumns()
+    {
+        return """
+            SELECT
+                id,
+                created_at_utc,
+                status,
+                plan_id,
+                patient_id,
+                course_id,
+                disease_site,
+                input_kind,
+                input_source,
+                rule_pack_id,
+                version_id,
+                rtpx_acceptance_id,
+                protocol_id,
+                protocol_name,
+                protocol_version,
+                package_fingerprint,
+                pass_count,
+                warning_count,
+                fail_count,
+                not_evaluable_count,
+                accepted_variance_count,
+                unresolved_blocking_count,
+                report_json,
+                markdown_report,
+                plan_snapshot_json
+            FROM ci_protocol_compliance_runs
+            """;
+    }
+
+    private static ProtocolComplianceRunRecord ReadProtocolComplianceRun(SqliteDataReader reader)
+    {
+        return new ProtocolComplianceRunRecord(
+            reader.GetString(0),
+            DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            Enum.Parse<ProtocolComplianceStatus>(reader.GetString(2)),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            GetNullableString(reader, 6),
+            Enum.Parse<CiRunInputKind>(reader.GetString(7)),
+            reader.GetString(8),
+            reader.GetString(9),
+            reader.GetString(10),
+            reader.GetString(11),
+            reader.GetString(12),
+            reader.GetString(13),
+            reader.GetString(14),
+            reader.GetString(15),
+            reader.GetInt32(16),
+            reader.GetInt32(17),
+            reader.GetInt32(18),
+            reader.GetInt32(19),
+            reader.GetInt32(20),
+            reader.GetInt32(21),
+            reader.GetString(22),
+            reader.GetString(23),
+            reader.GetString(24));
     }
 
     private static RulePackValidationReport ReadRulePackValidationReport(string json)

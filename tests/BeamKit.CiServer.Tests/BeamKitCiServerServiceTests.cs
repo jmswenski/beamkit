@@ -705,6 +705,55 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void ProtocolComplianceRunUsesActiveRtpxProtocolAndSupportsVariance()
+    {
+        var store = new CiRunStore();
+        var service = CreateService(store);
+        var acceptance = service.AcceptRtpxPackage(new RtpxAcceptanceServerRequest
+        {
+            PackagePath = CreateHeadNeckRtpxPackage(),
+            InstitutionProfileJson = CreateHeadNeckInstitutionProfileJson(),
+            RulePackId = "rtpx-head-neck",
+            SyntheticCaseId = "head-neck-pass",
+            RunRegressionTests = true,
+            ImportedBy = "physics",
+            Promote = true,
+            Note = "Approved RT-PX acceptance."
+        });
+
+        var passing = service.CreateProtocolComplianceRun(new ProtocolComplianceRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            RtpxAcceptanceId = acceptance.Acceptance.Id
+        });
+        var failing = service.CreateProtocolComplianceRun(new ProtocolComplianceRunRequest
+        {
+            SyntheticCaseId = "head-neck-cord-fail",
+            RulePackId = "rtpx-head-neck"
+        });
+        var failingReport = ProtocolComplianceReportWriter.FromJson(failing.ReportJson);
+        var blockingFinding = failingReport.Findings.First(finding => finding.IsBlocking);
+        var updated = service.AcceptProtocolComplianceVariance(
+            failing.Id,
+            new ProtocolComplianceVarianceRequest
+            {
+                FindingId = blockingFinding.Id,
+                AcceptedBy = "physics",
+                Rationale = "Documented protocol-approved exception for regression test."
+            });
+
+        Assert.Equal(ProtocolComplianceStatus.Pass, passing.Status);
+        Assert.Equal(ProtocolComplianceStatus.Fail, failing.Status);
+        Assert.Contains("BeamKit Protocol Compliance Packet", passing.MarkdownReport, StringComparison.Ordinal);
+        Assert.Equal(acceptance.Acceptance.Id, passing.RtpxAcceptanceId);
+        Assert.Equal("rtpx.synthetic.head-neck.accepted.synthetic-hospital", passing.ProtocolId);
+        Assert.Equal(1, updated.Summary.AcceptedVarianceCount);
+        Assert.True(updated.Summary.UnresolvedBlockingCount < failing.UnresolvedBlockingCount);
+        Assert.Contains(store.ListAuditEvents(new CiServerAuditQuery { Action = "protocol-compliance.created" }), audit => audit.RunId == passing.Id);
+        Assert.Contains(store.ListAuditEvents(new CiServerAuditQuery { Action = "protocol-compliance.variance-accepted" }), audit => audit.RunId == failing.Id);
+    }
+
+    [Fact]
     public void AcceptRtpxPackageWithEsapiSnapshotStoresOptionalEvidence()
     {
         var service = CreateService();
@@ -1089,7 +1138,15 @@ public sealed class BeamKitCiServerServiceTests
                     GoalComparison.GreaterThanOrEqual,
                     66.5m,
                     "Gy",
-                    description: "PTV D95 coverage objective.")
+                    description: "PTV D95 coverage objective."),
+                new ProtocolDoseConstraint(
+                    "cord.max",
+                    "Cord",
+                    "Max",
+                    GoalComparison.LessThanOrEqual,
+                    45m,
+                    "Gy",
+                    description: "Cord maximum dose limit.")
             });
         var manifest = new RtpxWordPackageManifest(
             "beamkit.rtpx.word-package/0.1",

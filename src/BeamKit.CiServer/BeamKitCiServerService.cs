@@ -8,10 +8,13 @@ using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
 using BeamKit.Esapi;
 using BeamKit.Intelligence;
+using BeamKit.Naming;
+using BeamKit.PlanCheck;
 using BeamKit.Protocols;
 using BeamKit.Protocols.Acceptance;
 using BeamKit.Protocols.Word;
 using BeamKit.RulePacks;
+using BeamKit.Rules;
 using BeamKit.Safety;
 using BeamKit.Samples;
 using BeamKit.Sdk;
@@ -1247,6 +1250,146 @@ public sealed class BeamKitCiServerService
     }
 
     /// <summary>
+    /// Runs an active RT-PX protocol compliance check against a synthetic case or uploaded plan snapshot.
+    /// </summary>
+    public ProtocolComplianceRunRecord CreateProtocolComplianceRun(
+        ProtocolComplianceRunRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var uploaded = LoadProtocolCompliancePlan(request);
+        var binding = ResolveProtocolComplianceBinding(request);
+        var rulePack = LoadManagedRulePack(binding.Version);
+        var inputSource = CiServerText.Optional(request.InputSource) ?? uploaded.DefaultInputSource;
+        var checkReport = new BeamKitCheckEngine(timeProvider).Evaluate(new BeamKitCheckRequest(
+            uploaded.Plan,
+            rulePack,
+            CreateCompleteSyntheticReadinessInput(uploaded.Plan),
+            inputSource: inputSource));
+        var findings = CreateProtocolComplianceFindings(checkReport);
+        var acceptedVariances = CreateProtocolComplianceVariances(request.Variances, findings, auditContext);
+        var runId = CreateProtocolComplianceRunId();
+        var createdAtUtc = timeProvider.GetUtcNow();
+        var report = new ProtocolComplianceReport(
+            runId,
+            createdAtUtc,
+            uploaded.Plan.Id,
+            uploaded.Plan.Patient.Id,
+            uploaded.Plan.CourseId,
+            uploaded.Plan.DiseaseSite ?? checkReport.DiseaseSite ?? binding.Protocol.DiseaseSite,
+            uploaded.InputKind.ToString(),
+            inputSource,
+            binding.Version.RulePackId,
+            binding.Version.VersionId,
+            binding.Acceptance.Id,
+            binding.Protocol.Id,
+            binding.Protocol.Name,
+            binding.Protocol.Version,
+            binding.Acceptance.PackageFingerprint,
+            findings,
+            acceptedVariances,
+            checkReport);
+        var saved = store.SaveProtocolComplianceRun(CreateProtocolComplianceRunRecord(
+            report,
+            BeamKitPlanJson.ToJson(uploaded.Plan)));
+        Audit(
+            "protocol-compliance.created",
+            auditContext,
+            runId: saved.Id,
+            caseId: saved.PlanId,
+            status: saved.Status.ToString(),
+            details: $"{saved.ProtocolId}:{saved.RulePackId}/{saved.VersionId}");
+        return saved;
+    }
+
+    /// <summary>
+    /// Lists recent active protocol compliance runs.
+    /// </summary>
+    public IReadOnlyList<ProtocolComplianceRunSummary> ListProtocolComplianceRuns(int limit = 50)
+    {
+        return store.ListProtocolComplianceRuns(limit);
+    }
+
+    /// <summary>
+    /// Finds one active protocol compliance run with its export artifacts.
+    /// </summary>
+    public ProtocolComplianceRunDetail? FindProtocolComplianceRun(string id)
+    {
+        var record = store.FindProtocolComplianceRun(id);
+        return record is null ? null : new ProtocolComplianceRunDetail(record);
+    }
+
+    /// <summary>
+    /// Finds the serialized compliance report JSON for a stored run.
+    /// </summary>
+    public string? FindProtocolComplianceReportJson(string id)
+    {
+        return store.FindProtocolComplianceRun(id)?.ReportJson;
+    }
+
+    /// <summary>
+    /// Finds the Markdown compliance packet for a stored run.
+    /// </summary>
+    public string? FindProtocolComplianceMarkdownReport(string id)
+    {
+        return store.FindProtocolComplianceRun(id)?.MarkdownReport;
+    }
+
+    /// <summary>
+    /// Accepts or replaces a variance for one blocking protocol compliance finding.
+    /// </summary>
+    public ProtocolComplianceRunDetail AcceptProtocolComplianceVariance(
+        string id,
+        ProtocolComplianceVarianceRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new ArgumentException("Protocol compliance run id is required.", nameof(id));
+        }
+
+        ArgumentNullException.ThrowIfNull(request);
+        var record = store.FindProtocolComplianceRun(id)
+            ?? throw new InvalidOperationException($"Protocol compliance run '{id}' was not found.");
+        var report = ProtocolComplianceReportWriter.FromJson(record.ReportJson);
+        var variance = CreateProtocolComplianceVariance(request, report.Findings, auditContext);
+        var variances = report.AcceptedVariances
+            .Where(existing => !string.Equals(existing.FindingId, variance.FindingId, StringComparison.OrdinalIgnoreCase))
+            .Concat(new[] { variance })
+            .OrderBy(existing => existing.FindingId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var updatedReport = new ProtocolComplianceReport(
+            report.RunId,
+            report.CreatedAtUtc,
+            report.PlanId,
+            report.PatientId,
+            report.CourseId,
+            report.DiseaseSite,
+            report.InputKind,
+            report.InputSource,
+            report.RulePackId,
+            report.VersionId,
+            report.RtpxAcceptanceId,
+            report.ProtocolId,
+            report.ProtocolName,
+            report.ProtocolVersion,
+            report.PackageFingerprint,
+            report.Findings,
+            variances,
+            report.CheckReport);
+        var saved = store.SaveProtocolComplianceRun(CreateProtocolComplianceRunRecord(updatedReport, record.PlanSnapshotJson));
+        Audit(
+            "protocol-compliance.variance-accepted",
+            auditContext,
+            runId: saved.Id,
+            caseId: saved.PlanId,
+            status: saved.Status.ToString(),
+            details: variance.FindingId);
+        return new ProtocolComplianceRunDetail(saved);
+    }
+
+    /// <summary>
     /// Lists RT-PX draft review records.
     /// </summary>
     public IReadOnlyList<RtpxDraftReviewSummary> ListRtpxDraftReviews(int limit = 50)
@@ -1480,6 +1623,378 @@ public sealed class BeamKitCiServerService
     public IReadOnlyList<CiServerAuditEvent> ListAuditEvents(CiServerAuditQuery query)
     {
         return store.ListAuditEvents(query);
+    }
+
+    private UploadedPlan LoadProtocolCompliancePlan(ProtocolComplianceRunRequest request)
+    {
+        var planJson = GetJson(request.Plan, request.PlanJson);
+        var esapiSnapshotJson = GetJson(request.EsapiSnapshot, request.EsapiSnapshotJson);
+        var sourceCount = new[]
+        {
+            !string.IsNullOrWhiteSpace(request.SyntheticCaseId),
+            !string.IsNullOrWhiteSpace(planJson),
+            !string.IsNullOrWhiteSpace(esapiSnapshotJson)
+        }.Count(value => value);
+        if (sourceCount != 1)
+        {
+            throw new ArgumentException("Protocol compliance requires exactly one of 'syntheticCaseId', 'plan'/'planJson', or 'esapiSnapshot'/'esapiSnapshotJson'.", nameof(request));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.SyntheticCaseId))
+        {
+            var clinicalCase = SyntheticClinicalCaseLibrary.Find(request.SyntheticCaseId);
+            return new UploadedPlan(clinicalCase.Plan, CiRunInputKind.SyntheticCase, $"case:{clinicalCase.Id}");
+        }
+
+        return LoadUploadedPlan(new HostedCiRunUploadRequest
+        {
+            Format = request.Format,
+            Plan = request.Plan,
+            PlanJson = request.PlanJson,
+            EsapiSnapshot = request.EsapiSnapshot,
+            EsapiSnapshotJson = request.EsapiSnapshotJson
+        });
+    }
+
+    private ProtocolComplianceBinding ResolveProtocolComplianceBinding(ProtocolComplianceRunRequest request)
+    {
+        var acceptanceId = CiServerText.Optional(request.RtpxAcceptanceId);
+        if (acceptanceId is not null)
+        {
+            var acceptance = FindRequiredRtpxAcceptance(acceptanceId);
+            EnsureProtocolComplianceAcceptanceIsActive(acceptance);
+            if (!string.IsNullOrWhiteSpace(request.RulePackId)
+                && !string.Equals(acceptance.RulePackId, request.RulePackId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"RT-PX acceptance '{acceptance.Id}' is bound to rule pack '{acceptance.RulePackId}', not '{request.RulePackId}'.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.VersionId)
+                && !string.Equals(acceptance.VersionId, request.VersionId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"RT-PX acceptance '{acceptance.Id}' is bound to version '{acceptance.VersionId}', not '{request.VersionId}'.");
+            }
+
+            var boundVersion = FindRequiredManagedRulePackVersion(acceptance.RulePackId!, acceptance.VersionId!);
+            return new ProtocolComplianceBinding(acceptance, boundVersion, DeserializeRtpxAcceptanceReport(acceptance.ReportJson).LocalPackage);
+        }
+
+        var rulePackId = CiServerText.Required(request.RulePackId, nameof(request.RulePackId));
+        var version = string.IsNullOrWhiteSpace(request.VersionId)
+            ? store.FindActiveRulePackVersion(rulePackId)
+                ?? throw new InvalidOperationException($"Rule pack '{rulePackId}' does not have an active managed version.")
+            : FindRequiredManagedRulePackVersion(rulePackId, request.VersionId.Trim());
+        if (!version.IsActive)
+        {
+            throw new InvalidOperationException($"Rule pack version '{version.RulePackId}/{version.VersionId}' is not active.");
+        }
+
+        var activeAcceptance = FindRtpxAcceptanceForRulePackVersion(version.RulePackId, version.VersionId)
+            ?? throw new InvalidOperationException($"Rule pack version '{version.RulePackId}/{version.VersionId}' does not have an accepted RT-PX provenance record.");
+        EnsureProtocolComplianceAcceptanceIsActive(activeAcceptance);
+        return new ProtocolComplianceBinding(activeAcceptance, version, DeserializeRtpxAcceptanceReport(activeAcceptance.ReportJson).LocalPackage);
+    }
+
+    private void EnsureProtocolComplianceAcceptanceIsActive(CiServerRtpxAcceptanceRecord acceptance)
+    {
+        if (!acceptance.Accepted)
+        {
+            throw new InvalidOperationException($"RT-PX acceptance '{acceptance.Id}' was rejected and cannot be used for protocol compliance.");
+        }
+
+        if (string.IsNullOrWhiteSpace(acceptance.RulePackId) || string.IsNullOrWhiteSpace(acceptance.VersionId))
+        {
+            throw new InvalidOperationException($"RT-PX acceptance '{acceptance.Id}' does not have an imported managed rule-pack version.");
+        }
+
+        var activeVersion = store.FindActiveRulePackVersion(acceptance.RulePackId);
+        if (!string.Equals(activeVersion?.VersionId, acceptance.VersionId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"RT-PX acceptance '{acceptance.Id}' is not the active promoted protocol for rule pack '{acceptance.RulePackId}'.");
+        }
+
+        if (acceptance.ReviewStatus is not RtpxDraftReviewStatus.Promoted && !acceptance.Promoted)
+        {
+            throw new InvalidOperationException($"RT-PX acceptance '{acceptance.Id}' has not completed draft review promotion.");
+        }
+    }
+
+    private CiServerRtpxAcceptanceRecord? FindRtpxAcceptanceForRulePackVersion(string rulePackId, string versionId)
+    {
+        return store.ListRtpxAcceptances(500)
+            .Select(summary => store.FindRtpxAcceptance(summary.Id))
+            .Where(record => record is not null && record.Accepted)
+            .Select(record => record!)
+            .Where(record => string.Equals(record.RulePackId, rulePackId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(record.VersionId, versionId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(record => record.CreatedAtUtc)
+            .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    private IReadOnlyList<ProtocolComplianceFinding> CreateProtocolComplianceFindings(BeamKitCheckReport report)
+    {
+        var findings = new List<ProtocolComplianceFinding>();
+        foreach (var result in report.PlanCheckReport.Results)
+        {
+            findings.Add(new ProtocolComplianceFinding(
+                CreateProtocolComplianceFindingId("PlanCheck", result.CheckId),
+                "PlanCheck",
+                result.CheckId,
+                MapPlanCheckStatus(result.Status),
+                result.Message,
+                result.Severity.ToString(),
+                FormatEvidence(result.Evidence),
+                result.Reference));
+        }
+
+        foreach (var result in report.ClinicalGoalReport.Results)
+        {
+            findings.Add(new ProtocolComplianceFinding(
+                CreateProtocolComplianceFindingId("ClinicalGoal", result.RuleId),
+                "ClinicalGoal",
+                result.RuleId,
+                MapEvaluationStatus(result.Status),
+                result.Message,
+                result.Status == EvaluationStatus.Error ? "Error" : null,
+                FormatClinicalGoalEvidence(result),
+                result.StructureName));
+        }
+
+        if (report.NamingReport is not null)
+        {
+            foreach (var result in report.NamingReport.Results)
+            {
+                findings.Add(new ProtocolComplianceFinding(
+                    CreateProtocolComplianceFindingId("StructureNaming", result.OriginalName),
+                    "StructureNaming",
+                    result.OriginalName,
+                    MapNamingStatus(result.Status),
+                    result.Message,
+                    result.Status.ToString(),
+                    FormatNamingEvidence(result),
+                    result.CanonicalName));
+            }
+
+            foreach (var missing in report.NamingReport.MissingStructures)
+            {
+                findings.Add(new ProtocolComplianceFinding(
+                    CreateProtocolComplianceFindingId("MissingStructure", missing.CanonicalName),
+                    "MissingStructure",
+                    missing.CanonicalName,
+                    ProtocolComplianceStatus.Fail,
+                    missing.Message,
+                    "Failure"));
+            }
+        }
+
+        foreach (var item in report.ReadinessState.Items)
+        {
+            findings.Add(new ProtocolComplianceFinding(
+                CreateProtocolComplianceFindingId("Readiness", item.Key),
+                "Readiness",
+                item.Key,
+                MapReadinessStatus(item.Status),
+                string.IsNullOrWhiteSpace(item.Details) ? item.Label : $"{item.Label}: {item.Details}",
+                item.Status.ToString(),
+                item.Details,
+                item.Label));
+        }
+
+        if (report.WriteUpManifest is not null)
+        {
+            foreach (var item in report.WriteUpManifest.Checklist)
+            {
+                findings.Add(new ProtocolComplianceFinding(
+                    CreateProtocolComplianceFindingId("WriteUp", item.Key),
+                    "WriteUp",
+                    item.Key,
+                    MapReadinessStatus(item.Status),
+                    string.IsNullOrWhiteSpace(item.Details) ? item.Label : $"{item.Label}: {item.Details}",
+                    item.Status.ToString(),
+                    item.Details,
+                    item.Label));
+            }
+        }
+
+        return findings
+            .OrderBy(finding => finding.Section, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(finding => finding.Subject, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private IReadOnlyList<ProtocolComplianceVariance> CreateProtocolComplianceVariances(
+        IReadOnlyList<ProtocolComplianceVarianceRequest>? requests,
+        IReadOnlyList<ProtocolComplianceFinding> findings,
+        CiServerAuditContext? auditContext)
+    {
+        if (requests is null || requests.Count == 0)
+        {
+            return Array.Empty<ProtocolComplianceVariance>();
+        }
+
+        return requests
+            .Select(request => CreateProtocolComplianceVariance(request, findings, auditContext))
+            .GroupBy(variance => variance.FindingId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.Last())
+            .OrderBy(variance => variance.FindingId, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private ProtocolComplianceVariance CreateProtocolComplianceVariance(
+        ProtocolComplianceVarianceRequest request,
+        IReadOnlyList<ProtocolComplianceFinding> findings,
+        CiServerAuditContext? auditContext)
+    {
+        var findingId = CiServerText.Required(request.FindingId, nameof(request.FindingId));
+        var finding = findings.FirstOrDefault(candidate => string.Equals(candidate.Id, findingId, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"Protocol compliance finding '{findingId}' was not found.");
+        if (!finding.IsBlocking)
+        {
+            throw new InvalidOperationException($"Protocol compliance finding '{findingId}' is not blocking and does not require a variance.");
+        }
+
+        return new ProtocolComplianceVariance(
+            finding.Id,
+            CiServerText.Optional(request.AcceptedBy) ?? auditContext?.Actor ?? "unknown",
+            timeProvider.GetUtcNow(),
+            CiServerText.Required(request.Rationale, nameof(request.Rationale)));
+    }
+
+    private static ProtocolComplianceRunRecord CreateProtocolComplianceRunRecord(
+        ProtocolComplianceReport report,
+        string planSnapshotJson)
+    {
+        var reportJson = ProtocolComplianceReportWriter.ToJson(report);
+        var markdownReport = ProtocolComplianceReportWriter.ToMarkdown(report);
+        return new ProtocolComplianceRunRecord(
+            report.RunId,
+            report.CreatedAtUtc,
+            report.Summary.Status,
+            report.PlanId,
+            report.PatientId,
+            report.CourseId,
+            report.DiseaseSite,
+            Enum.Parse<CiRunInputKind>(report.InputKind),
+            report.InputSource,
+            report.RulePackId,
+            report.VersionId,
+            report.RtpxAcceptanceId,
+            report.ProtocolId,
+            report.ProtocolName,
+            report.ProtocolVersion,
+            report.PackageFingerprint,
+            report.Summary.PassCount,
+            report.Summary.WarningCount,
+            report.Summary.FailCount,
+            report.Summary.NotEvaluableCount,
+            report.Summary.AcceptedVarianceCount,
+            report.Summary.UnresolvedBlockingCount,
+            reportJson,
+            markdownReport,
+            planSnapshotJson);
+    }
+
+    private static ProtocolComplianceStatus MapPlanCheckStatus(PlanCheckStatus status)
+    {
+        return status switch
+        {
+            PlanCheckStatus.Pass => ProtocolComplianceStatus.Pass,
+            PlanCheckStatus.Warning => ProtocolComplianceStatus.Warning,
+            PlanCheckStatus.Fail => ProtocolComplianceStatus.Fail,
+            PlanCheckStatus.NotEvaluable => ProtocolComplianceStatus.NotEvaluable,
+            _ => ProtocolComplianceStatus.NotEvaluable
+        };
+    }
+
+    private static ProtocolComplianceStatus MapEvaluationStatus(EvaluationStatus status)
+    {
+        return status switch
+        {
+            EvaluationStatus.Pass => ProtocolComplianceStatus.Pass,
+            EvaluationStatus.Warning => ProtocolComplianceStatus.Warning,
+            EvaluationStatus.Fail => ProtocolComplianceStatus.Fail,
+            EvaluationStatus.NotEvaluable or EvaluationStatus.Error => ProtocolComplianceStatus.NotEvaluable,
+            _ => ProtocolComplianceStatus.NotEvaluable
+        };
+    }
+
+    private static ProtocolComplianceStatus MapNamingStatus(NormalizationStatus status)
+    {
+        return status switch
+        {
+            NormalizationStatus.AlreadyCanonical => ProtocolComplianceStatus.Pass,
+            NormalizationStatus.Normalized => ProtocolComplianceStatus.Warning,
+            NormalizationStatus.Ambiguous or NormalizationStatus.Unmapped => ProtocolComplianceStatus.NotEvaluable,
+            _ => ProtocolComplianceStatus.NotEvaluable
+        };
+    }
+
+    private static ProtocolComplianceStatus MapReadinessStatus(ReadinessItemStatus status)
+    {
+        return status switch
+        {
+            ReadinessItemStatus.Complete or ReadinessItemStatus.NotApplicable => ProtocolComplianceStatus.Pass,
+            ReadinessItemStatus.Pending => ProtocolComplianceStatus.NotEvaluable,
+            ReadinessItemStatus.Blocked => ProtocolComplianceStatus.Fail,
+            _ => ProtocolComplianceStatus.NotEvaluable
+        };
+    }
+
+    private static string CreateProtocolComplianceFindingId(string section, string subject)
+    {
+        return $"{Slug(section)}:{Slug(subject)}";
+    }
+
+    private static string? FormatEvidence(IReadOnlyDictionary<string, string> evidence)
+    {
+        return evidence.Count == 0
+            ? null
+            : string.Join("; ", evidence.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase).Select(pair => $"{pair.Key}={pair.Value}"));
+    }
+
+    private static string? FormatClinicalGoalEvidence(EvaluationResult result)
+    {
+        var evidence = new List<string>();
+        if (result.StructureName is not null)
+        {
+            evidence.Add($"structure={result.StructureName}");
+        }
+
+        if (result.ObservedValue.HasValue)
+        {
+            evidence.Add($"observed={result.ObservedValue.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (result.ExpectedValue.HasValue)
+        {
+            evidence.Add($"expected={result.ExpectedValue.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (result.Unit is not null)
+        {
+            evidence.Add($"unit={result.Unit}");
+        }
+
+        return evidence.Count == 0 ? null : string.Join("; ", evidence);
+    }
+
+    private static string? FormatNamingEvidence(StructureNameNormalizationResult result)
+    {
+        var evidence = new List<string>();
+        if (result.CanonicalName is not null)
+        {
+            evidence.Add($"canonical={result.CanonicalName}");
+        }
+
+        if (result.Candidates.Count > 0)
+        {
+            evidence.Add($"candidates={string.Join(", ", result.Candidates)}");
+        }
+
+        evidence.Add($"confidence={result.Confidence}");
+        evidence.Add($"source={result.Source}");
+        return string.Join("; ", evidence);
     }
 
     private BeamKitRulePack LoadRulePack(string? rulePackId = null, string? rulePackPath = null)
@@ -2503,6 +3018,11 @@ public sealed class BeamKitCiServerService
 
     private sealed record RtpxEsapiSnapshotSource(EsapiPlanSnapshot Snapshot, string? Path, string Fingerprint);
 
+    private sealed record ProtocolComplianceBinding(
+        CiServerRtpxAcceptanceRecord Acceptance,
+        CiServerManagedRulePackVersion Version,
+        RadiotherapyProtocolPackage Protocol);
+
     private sealed record AssignmentRequestContext(PlannerAssignmentRequest Request, AssignmentIntelligenceSummary? Intelligence);
 
     private AssignmentRequestContext CreateAssignmentRequestContext(AssignmentServerRequest request, DateOnly assignmentDate, bool includeTeamRoles)
@@ -2986,6 +3506,11 @@ public sealed class BeamKitCiServerService
     private string CreateRtpxAcceptanceId()
     {
         return $"rtpx-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..38];
+    }
+
+    private string CreateProtocolComplianceRunId()
+    {
+        return $"pcr-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..37];
     }
 
     private string CreateRtpxWordAuthoringId()

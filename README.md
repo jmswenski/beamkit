@@ -66,7 +66,7 @@ What is usable today:
 - Immutable rule-pack bundle artifacts with embedded catalog files, validation evidence, regression evidence, fingerprints, and tamper verification.
 - Explainable predictive case/plan intelligence for complexity, QA risk, planning effort, physics review effort, target metrics, and next-action recommendations.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, RT-PX package acceptance and approval-gated promotion, registered and managed immutable rule-pack versions, draft rule-pack review, managed-version diffs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, RT-PX package acceptance and approval-gated promotion, active protocol compliance packets with variance tracking, registered and managed immutable rule-pack versions, draft rule-pack review, managed-version diffs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -155,7 +155,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.Core`](src/BeamKit.Core/README.md) | Vendor-neutral models for patients, plans, structures, dose, beams, prescriptions, and clinical goals. | Active |
 | [`BeamKit.ChangeDetection`](src/BeamKit.ChangeDetection/README.md) | Vendor-neutral plan change detection and treatment-vs-QA plan integrity verification. | Active |
 | [`BeamKit.Check`](src/BeamKit.Check/README.md) | Flagship rule-pack workflow for CI/CD-style plan QA, polished reports, readiness, metrics, naming, and write-up evidence. | Active |
-| [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for API-key protected plan gates, managed rule-pack versions, audit events, provenance artifacts, baseline comparisons, and assignment recommendations. | Initial |
+| [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for API-key protected plan gates, active RT-PX protocol compliance packets, managed rule-pack versions, audit events, provenance artifacts, baseline comparisons, and assignment recommendations. | Initial |
 | [`BeamKit.WordAddIn`](src/BeamKit.WordAddIn/README.md) | Office.js Word task-pane scaffold for authoring RT-PX tables, applying server-backed templates/snippets, quick-checking protocols, publishing drafts to BeamKit CI review, and downloading generated RT-PX packages. | Scaffold |
 | [`BeamKit.Deliverability`](src/BeamKit.Deliverability/README.md) | Beam deliverability and machine-profile checks for MU, MU/degree, jaw policy, beam model, and calculation model constraints. | Active |
 | [`BeamKit.Intelligence`](src/BeamKit.Intelligence/README.md) | Explainable predictive case and plan intelligence for complexity, QA risk, planning effort, and physics review triage. | Initial |

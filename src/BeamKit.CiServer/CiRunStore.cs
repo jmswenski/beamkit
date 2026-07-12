@@ -13,6 +13,7 @@ public sealed class CiRunStore : ICiRunStore
     private readonly ConcurrentDictionary<string, CiServerAuditEvent> auditEvents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerManagedRulePackVersion> rulePackVersions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerRtpxAcceptanceRecord> rtpxAcceptances = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ProtocolComplianceRunRecord> protocolComplianceRuns = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CaseWorkItem> workItems = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -235,6 +236,38 @@ public sealed class CiRunStore : ICiRunStore
             .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
             .Take(clampedLimit)
             .Select(record => new CiServerRtpxAcceptanceSummary(record))
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Adds or replaces a protocol compliance run.
+    /// </summary>
+    public ProtocolComplianceRunRecord SaveProtocolComplianceRun(ProtocolComplianceRunRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        protocolComplianceRuns[record.Id] = record;
+        return record;
+    }
+
+    /// <summary>
+    /// Finds a protocol compliance run by id.
+    /// </summary>
+    public ProtocolComplianceRunRecord? FindProtocolComplianceRun(string id)
+    {
+        return string.IsNullOrWhiteSpace(id) ? null : protocolComplianceRuns.GetValueOrDefault(id);
+    }
+
+    /// <summary>
+    /// Lists recent protocol compliance runs.
+    /// </summary>
+    public IReadOnlyList<ProtocolComplianceRunSummary> ListProtocolComplianceRuns(int limit = 50)
+    {
+        var clampedLimit = Math.Clamp(limit, 1, 500);
+        return protocolComplianceRuns.Values
+            .OrderByDescending(record => record.CreatedAtUtc)
+            .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .Take(clampedLimit)
+            .Select(record => new ProtocolComplianceRunSummary(record))
             .ToArray();
     }
 

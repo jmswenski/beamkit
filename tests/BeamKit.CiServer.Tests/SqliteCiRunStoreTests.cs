@@ -305,6 +305,27 @@ public sealed class SqliteCiRunStoreTests
     }
 
     [Fact]
+    public void ProtocolComplianceRunsSurviveNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        firstStore.SaveProtocolComplianceRun(CreateProtocolComplianceRun("pcr-1", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero), ProtocolComplianceStatus.Pass));
+        firstStore.SaveProtocolComplianceRun(CreateProtocolComplianceRun("pcr-2", new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero), ProtocolComplianceStatus.Fail));
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var records = secondStore.ListProtocolComplianceRuns();
+        var found = secondStore.FindProtocolComplianceRun("PCR-2");
+
+        Assert.Equal(new[] { "pcr-2", "pcr-1" }, records.Select(record => record.Id));
+        Assert.NotNull(found);
+        Assert.Equal(ProtocolComplianceStatus.Fail, found.Status);
+        Assert.Equal("rtpx-head-neck", found.RulePackId);
+        Assert.Equal("rtpx-1", found.RtpxAcceptanceId);
+        Assert.Contains("Protocol Compliance", found.MarkdownReport, StringComparison.Ordinal);
+        Assert.Contains("plan-1", found.PlanSnapshotJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExistingRtpxAcceptanceTableMigratesReviewColumnsBeforeIndexCreation()
     {
         using var database = TemporaryDatabase.Create();
@@ -423,6 +444,39 @@ public sealed class SqliteCiRunStoreTests
             warningCount: 2,
             """{"title":"acceptance-report"}""",
             """{"subjectType":"RulePack"}""");
+    }
+
+    private static ProtocolComplianceRunRecord CreateProtocolComplianceRun(
+        string id,
+        DateTimeOffset createdAtUtc,
+        ProtocolComplianceStatus status)
+    {
+        return new ProtocolComplianceRunRecord(
+            id,
+            createdAtUtc,
+            status,
+            "plan-1",
+            "patient-1",
+            "course-1",
+            "Head and Neck",
+            CiRunInputKind.SyntheticCase,
+            "case:head-neck-pass",
+            "rtpx-head-neck",
+            "version-1",
+            "rtpx-1",
+            "rtpx.synthetic.head-neck",
+            "Synthetic Head and Neck",
+            "1.0",
+            "sha256:package",
+            passCount: status == ProtocolComplianceStatus.Pass ? 4 : 3,
+            warningCount: 0,
+            failCount: status == ProtocolComplianceStatus.Fail ? 1 : 0,
+            notEvaluableCount: 0,
+            acceptedVarianceCount: 0,
+            unresolvedBlockingCount: status == ProtocolComplianceStatus.Fail ? 1 : 0,
+            """{"runId":"test"}""",
+            "# BeamKit Protocol Compliance Packet",
+            """{"id":"plan-1"}""");
     }
 
     private static CaseWorkItem CreateWorkItem(

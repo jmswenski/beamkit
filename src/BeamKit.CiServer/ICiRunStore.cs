@@ -91,6 +91,21 @@ public interface ICiRunStore
     IReadOnlyList<CiServerRtpxAcceptanceSummary> ListRtpxAcceptances(int limit = 50);
 
     /// <summary>
+    /// Adds or replaces a protocol compliance run.
+    /// </summary>
+    ProtocolComplianceRunRecord SaveProtocolComplianceRun(ProtocolComplianceRunRecord record);
+
+    /// <summary>
+    /// Finds a protocol compliance run by id.
+    /// </summary>
+    ProtocolComplianceRunRecord? FindProtocolComplianceRun(string id);
+
+    /// <summary>
+    /// Lists recent protocol compliance runs.
+    /// </summary>
+    IReadOnlyList<ProtocolComplianceRunSummary> ListProtocolComplianceRuns(int limit = 50);
+
+    /// <summary>
     /// Adds or replaces a case work item.
     /// </summary>
     CaseWorkItem SaveWorkItem(CaseWorkItem workItem);

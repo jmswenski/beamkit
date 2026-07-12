@@ -36,6 +36,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Accept RT-PX protocol packages into managed rule-pack versions with institution profile provenance, optional ESAPI snapshot evidence, generated safety evidence, and optional promotion.
 - Serve versioned RT-PX authoring template and snippet libraries for Word add-ins and protocol-authoring clients.
 - Publish Word-authored RT-PX protocols as draft managed versions with protocol diff, safety evidence, and dashboard review actions.
+- Run active protocol compliance checks that bind a plan snapshot to the currently promoted RT-PX-derived rule-pack version and emit JSON/Markdown packets with accepted-variance tracking.
 - Persist run metadata and full CI artifacts in SQLite.
 - Persist vendor-neutral plan snapshots internally for field-level baseline comparison.
 - Promote stored runs as case baselines and compare later runs against baseline fingerprints and plan changes.
@@ -63,6 +64,10 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `GET` | `/api/baselines/{caseId}` | Get the promoted baseline for one case id. |
 | `GET` | `/api/rtpx/acceptance` | List recent RT-PX package acceptance records. |
 | `GET` | `/api/rtpx/acceptance/{id}` | Get one RT-PX acceptance record with serialized report and safety evidence. |
+| `GET` | `/api/protocol-compliance/runs` | List recent protocol compliance runs. |
+| `GET` | `/api/protocol-compliance/runs/{id}` | Get one protocol compliance run with stored JSON, Markdown, and plan snapshot artifacts. |
+| `GET` | `/api/protocol-compliance/runs/{id}/report.json` | Get the serialized protocol compliance report. |
+| `GET` | `/api/protocol-compliance/runs/{id}/report.md` | Get the Markdown protocol compliance packet. |
 | `GET` | `/api/rtpx/authoring/templates` | Get the configured RT-PX authoring template library. |
 | `GET` | `/api/rtpx/authoring/snippets` | Get the configured RT-PX authoring snippet library. |
 | `GET` | `/api/rtpx/drafts` | List accepted RT-PX draft review records with durable review state. |
@@ -81,6 +86,8 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `POST` | `/api/runs/{id}/baseline` | Promote a run as the baseline for its case id. |
 | `POST` | `/api/runs/from-plan-snapshot` | Create a run from uploaded BeamKit plan JSON or ESAPI snapshot JSON. |
 | `POST` | `/api/rtpx/acceptance` | Accept a `.rtpx.zip` package, persist the report, import the generated rule pack, and optionally promote it. |
+| `POST` | `/api/protocol-compliance/runs` | Run a synthetic case, BeamKit plan JSON, or ESAPI snapshot JSON against an active promoted RT-PX protocol. |
+| `POST` | `/api/protocol-compliance/runs/{id}/variances` | Accept or replace a documented variance for one blocking protocol compliance finding. |
 | `POST` | `/api/rtpx/word/extract` | Extract and validate RT-PX from a Word `.docx` upload; returns `rtpx.json` and a generated `.rtpx.zip` when valid. |
 | `POST` | `/api/rtpx/word/publish-draft` | Extract a Word `.docx`, accept it as RT-PX, import the generated rule pack as a draft, and return protocol diff evidence. |
 | `POST` | `/api/rtpx/drafts/{id}/review` | Mark a draft as actively under review with reviewer notes. |
@@ -321,6 +328,40 @@ curl -s "$API/api/rtpx/acceptance?limit=25" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
+Run a plan against an active RT-PX protocol:
+
+```bash
+curl -s "$API/api/protocol-compliance/runs" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "syntheticCaseId":"head-neck-pass",
+    "rulePackId":"institution-protocol-head-neck",
+    "inputSource":"beamkit-ci"
+  }'
+```
+
+The request can also bind directly to a promoted `rtpxAcceptanceId`, or use `planJson` / `esapiSnapshotJson` instead of `syntheticCaseId`. Compliance runs are stored with the plan snapshot, active managed rule-pack version, RT-PX acceptance id, protocol id/version, machine-readable JSON report, and Markdown review packet.
+
+Download review packets:
+
+```bash
+curl -s "$API/api/protocol-compliance/runs/{id}/report.json" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+
+curl -s "$API/api/protocol-compliance/runs/{id}/report.md" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+```
+
+Accept a documented variance for a blocking finding:
+
+```bash
+curl -s "$API/api/protocol-compliance/runs/{id}/variances" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"findingId":"plancheck:cord-max","acceptedBy":"physics","rationale":"Approved protocol exception documented in chart."}'
+```
+
 Recommend assignment:
 
 ```bash
@@ -416,7 +457,7 @@ The CI server is secure by default for API routes:
 - `/` and `/health` are public.
 - `/api/*` requires `X-BeamKit-Api-Key` unless `RequireApiKey` is explicitly set to `false`.
 - API-key labels, not raw key values, are stored in audit events.
-- `/api/runs/from-plan-snapshot`, `/api/rtpx/acceptance`, and `/api/rtpx/word/extract` reject payloads larger than `MaxPlanSnapshotUploadBytes` before model binding.
+- `/api/runs/from-plan-snapshot`, `/api/protocol-compliance/runs`, `/api/rtpx/acceptance`, `/api/rtpx/word/extract`, and `/api/rtpx/word/publish-draft` reject payloads larger than `MaxPlanSnapshotUploadBytes` before model binding.
 
 Configure local keys with environment variables:
 

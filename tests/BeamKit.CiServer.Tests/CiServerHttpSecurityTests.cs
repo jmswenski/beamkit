@@ -435,6 +435,74 @@ public sealed class CiServerHttpSecurityTests
     }
 
     [Fact]
+    public async Task ProtocolComplianceEndpointsRunActiveRtpxProtocolAndAcceptVariance()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var packagePath = CreatePassingHeadNeckRtpxPackage();
+        var acceptPayload = JsonSerializer.Serialize(new
+        {
+            packageBase64 = Convert.ToBase64String(File.ReadAllBytes(packagePath)),
+            institutionProfileJson = CreatePassingHeadNeckInstitutionProfileJson(),
+            rulePackId = "http-compliance-head-neck",
+            syntheticCaseId = "head-neck-pass",
+            runRegressionTests = true,
+            promote = true,
+            importedBy = "physics"
+        });
+        using var acceptRequest = CreateJsonRequest(HttpMethod.Post, "/api/rtpx/acceptance", acceptPayload);
+        var acceptResponse = await client.SendAsync(acceptRequest);
+        using var acceptResult = JsonDocument.Parse(await acceptResponse.Content.ReadAsStringAsync());
+        var acceptanceId = acceptResult.RootElement.GetProperty("acceptance").GetProperty("id").GetString()
+            ?? throw new InvalidOperationException("Acceptance id was not returned.");
+        var compliancePayload = JsonSerializer.Serialize(new
+        {
+            syntheticCaseId = "head-neck-cord-fail",
+            rtpxAcceptanceId = acceptanceId,
+            inputSource = "http-test"
+        });
+        using var complianceRequest = CreateJsonRequest(HttpMethod.Post, "/api/protocol-compliance/runs", compliancePayload);
+        var complianceResponse = await client.SendAsync(complianceRequest);
+        using var compliance = JsonDocument.Parse(await complianceResponse.Content.ReadAsStringAsync());
+        var runId = compliance.RootElement.GetProperty("id").GetString()
+            ?? throw new InvalidOperationException("Compliance run id was not returned.");
+        using var reportJson = await GetJson(client, $"/api/protocol-compliance/runs/{runId}/report.json");
+        var blockingFindingId = reportJson.RootElement
+            .GetProperty("findings")
+            .EnumerateArray()
+            .First(finding => finding.GetProperty("status").GetString() is "Fail" or "NotEvaluable")
+            .GetProperty("id")
+            .GetString()
+            ?? throw new InvalidOperationException("Blocking finding id was not returned.");
+        using var varianceRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/protocol-compliance/runs/{runId}/variances",
+            JsonSerializer.Serialize(new
+            {
+                findingId = blockingFindingId,
+                acceptedBy = "physics",
+                rationale = "Documented protocol-approved exception for endpoint test."
+            }));
+        var varianceResponse = await client.SendAsync(varianceRequest);
+        using var variance = JsonDocument.Parse(await varianceResponse.Content.ReadAsStringAsync());
+        using var runs = await GetJson(client, "/api/protocol-compliance/runs?limit=10");
+        using var markdownRequest = CreateRequest(HttpMethod.Get, $"/api/protocol-compliance/runs/{runId}/report.md");
+        var markdownResponse = await client.SendAsync(markdownRequest);
+        var markdown = await markdownResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, acceptResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, complianceResponse.StatusCode);
+        Assert.Equal("Fail", compliance.RootElement.GetProperty("status").GetString());
+        Assert.Equal(acceptanceId, compliance.RootElement.GetProperty("rtpxAcceptanceId").GetString());
+        Assert.Equal(HttpStatusCode.OK, varianceResponse.StatusCode);
+        Assert.Equal(1, variance.RootElement.GetProperty("summary").GetProperty("acceptedVarianceCount").GetInt32());
+        Assert.Contains(runs.RootElement.EnumerateArray(), run => run.GetProperty("id").GetString() == runId);
+        Assert.Equal(HttpStatusCode.OK, markdownResponse.StatusCode);
+        Assert.Contains("BeamKit Protocol Compliance Packet", markdown, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RtpxAcceptanceEndpointReturnsBadRequestForMissingServerPath()
     {
         using var database = TemporaryDatabase.Create();
@@ -591,7 +659,15 @@ public sealed class CiServerHttpSecurityTests
                     GoalComparison.GreaterThanOrEqual,
                     66.5m,
                     "Gy",
-                    description: "PTV D95 coverage objective.")
+                    description: "PTV D95 coverage objective."),
+                new ProtocolDoseConstraint(
+                    "cord.max",
+                    "Cord",
+                    "Max",
+                    GoalComparison.LessThanOrEqual,
+                    45m,
+                    "Gy",
+                    description: "Cord maximum dose limit.")
             });
         var manifest = new RtpxWordPackageManifest(
             "beamkit.rtpx.word-package/0.1",

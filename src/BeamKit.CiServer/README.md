@@ -18,6 +18,7 @@ This first slice supports:
 - RT-PX package acceptance into managed rule-pack versions, including institution profile fingerprints, optional ESAPI snapshot evidence, generated safety evidence, and optional promotion.
 - RT-PX Word extraction uploads for Word add-ins and protocol authoring clients.
 - RT-PX authoring template/snippet libraries and Word draft publishing into a durable review queue with protocol diff acknowledgement, approval, rejection, and promotion gates.
+- Active protocol compliance runs that bind a synthetic case, BeamKit plan JSON, or ESAPI snapshot JSON to the currently promoted RT-PX-derived rule-pack version and emit JSON/Markdown review packets with variance tracking.
 - CI run records with plan, prescription, and rule-pack provenance fingerprints.
 - SQLite-backed run metadata and artifact persistence.
 - Run history filters for status, case id, branch, and date ranges.
@@ -59,6 +60,10 @@ GET /api/baselines
 GET /api/baselines/{caseId}
 GET /api/rtpx/acceptance
 GET /api/rtpx/acceptance/{id}
+GET /api/protocol-compliance/runs
+GET /api/protocol-compliance/runs/{id}
+GET /api/protocol-compliance/runs/{id}/report.json
+GET /api/protocol-compliance/runs/{id}/report.md
 GET /api/rtpx/authoring/templates
 GET /api/rtpx/authoring/snippets
 GET /api/rtpx/drafts
@@ -77,6 +82,8 @@ POST /api/runs
 POST /api/runs/{id}/baseline
 POST /api/runs/from-plan-snapshot
 POST /api/rtpx/acceptance
+POST /api/protocol-compliance/runs
+POST /api/protocol-compliance/runs/{id}/variances
 POST /api/rtpx/word/extract
 POST /api/rtpx/word/publish-draft
 POST /api/rtpx/drafts/{id}/promote
@@ -219,6 +226,30 @@ curl -s "$API/api/rtpx/acceptance?limit=25" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
+Run a plan against the active RT-PX protocol:
+
+```bash
+curl -s "$API/api/protocol-compliance/runs" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "syntheticCaseId":"head-neck-pass",
+    "rulePackId":"institution-protocol-head-neck",
+    "inputSource":"beamkit-ci"
+  }'
+```
+
+The request can also use `rtpxAcceptanceId` to bind to a specific promoted acceptance record, or `planJson` / `esapiSnapshotJson` to check uploaded plan content. Compliance runs are persisted with protocol id/version, RT-PX acceptance id, active managed rule-pack version, plan snapshot, JSON report, and Markdown packet.
+
+Accept a documented variance for a blocking finding:
+
+```bash
+curl -s "$API/api/protocol-compliance/runs/{id}/variances" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"findingId":"plancheck:cord-max","acceptedBy":"physics","rationale":"Approved protocol exception documented in chart."}'
+```
+
 Filter run history:
 
 ```bash
@@ -305,7 +336,7 @@ curl -s "$API/api/audit-events?action=run.created&limit=25" \
 
 `/` and `/health` are public. `/api/*` requires the configured `X-BeamKit-Api-Key` header by default. API-key labels are recorded in audit events; raw key values are not.
 
-Plan snapshot and RT-PX acceptance uploads are capped by `BeamKit:CiServer:Security:MaxPlanSnapshotUploadBytes`, defaulting to 5 MB and clamped between 1 KB and 100 MB.
+Plan snapshot, protocol compliance, RT-PX acceptance, and RT-PX Word uploads are capped by `BeamKit:CiServer:Security:MaxPlanSnapshotUploadBytes`, defaulting to 5 MB and clamped between 1 KB and 100 MB.
 
 ## Rule-Pack Registry
 
