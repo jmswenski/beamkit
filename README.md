@@ -272,9 +272,19 @@ Validate and compile an RT-PX protocol package:
 dotnet run --project src/BeamKit.Cli -- rtpx lint-word \
   --docx protocol.docx
 
+dotnet run --project src/BeamKit.Cli -- rtpx template-word \
+  --output protocol-template.docx
+
 dotnet run --project src/BeamKit.Cli -- rtpx extract-word \
   --docx protocol.docx \
   --output artifacts/rtpx/protocol/rtpx.json
+
+dotnet run --project src/BeamKit.Cli -- rtpx package-word \
+  --docx protocol.docx \
+  --output artifacts/rtpx/protocol.rtpx.zip
+
+dotnet run --project src/BeamKit.Cli -- rtpx inspect-package \
+  --package artifacts/rtpx/protocol.rtpx.zip
 
 dotnet run --project src/BeamKit.Cli -- rtpx validate \
   --rtpx samples/rtpx/lung-sbrt-v1

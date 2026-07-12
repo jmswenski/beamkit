@@ -33,6 +33,8 @@ internal sealed record CliOptions
 
     public string? DocxPath { get; init; }
 
+    public string? PackagePath { get; init; }
+
     public string? TemplatePath { get; init; }
 
     public string? RuleCatalogPath { get; init; }
@@ -132,6 +134,8 @@ internal sealed record CliOptions
     public bool TreatmentReady { get; init; }
 
     public bool CaptureWriteUp { get; init; }
+
+    public bool IncludeSource { get; init; }
 
     public bool Overwrite { get; init; }
 
@@ -289,6 +293,11 @@ internal sealed record CliOptions
                 case "--word":
                 case "--word-protocol":
                     options = options with { DocxPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--package":
+                case "--rtpx-zip":
+                    options = options with { PackagePath = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
                 case "--template":
@@ -455,6 +464,11 @@ internal sealed record CliOptions
                 case "--capture-writeup":
                 case "--capture-write-up":
                     options = options with { CaptureWriteUp = true };
+                    index++;
+                    break;
+                case "--include-source":
+                case "--include-source-document":
+                    options = options with { IncludeSource = true };
                     index++;
                     break;
                 case "--overwrite":

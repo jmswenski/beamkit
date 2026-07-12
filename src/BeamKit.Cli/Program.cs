@@ -59,10 +59,16 @@ internal static class Program
                 "protocol-compile" => RunProtocolCompile(options),
                 "protocol-lint-word" => RunProtocolWordLint(options),
                 "protocol-extract-word" => RunProtocolWordExtract(options),
+                "protocol-template-word" => RunProtocolWordTemplate(options),
+                "protocol-package-word" => RunProtocolWordPackage(options),
+                "protocol-inspect-package" => RunProtocolPackageInspect(options),
                 "rtpx-validate" => RunProtocolValidate(options),
                 "rtpx-compile" => RunProtocolCompile(options),
                 "rtpx-lint-word" => RunProtocolWordLint(options),
                 "rtpx-extract-word" => RunProtocolWordExtract(options),
+                "rtpx-template-word" => RunProtocolWordTemplate(options),
+                "rtpx-package-word" => RunProtocolWordPackage(options),
+                "rtpx-inspect-package" => RunProtocolPackageInspect(options),
                 "ci-run" => RunCiRun(options),
                 "assignment-recommend" => RunAssignmentRecommend(options),
                 "assignment-recommend-team" => RunAssignmentRecommendTeam(options),
@@ -353,6 +359,34 @@ internal static class Program
             wrotePackage);
         WriteOutput(WriteProtocolWordExtractionReport(cliReport, options.Format), null);
         return wrotePackage ? 0 : 2;
+    }
+
+    private static int RunProtocolWordTemplate(CliOptions options)
+    {
+        var outputPath = options.OutputPath
+            ?? throw new ArgumentException("RT-PX Word template generation requires --output protocol-template.docx.");
+        var result = new RtpxWordTemplateGenerator().Create(outputPath, options.Overwrite);
+        WriteOutput(WriteProtocolWordTemplateReport(result, options.Format), null);
+        return 0;
+    }
+
+    private static int RunProtocolWordPackage(CliOptions options)
+    {
+        var docxPath = RequireDocxPath(options);
+        var outputPath = options.OutputPath
+            ?? throw new ArgumentException("RT-PX Word packaging requires --output protocol.rtpx.zip.");
+        var result = new RtpxWordPackageStore().Create(docxPath, outputPath, options.IncludeSource, options.Overwrite);
+        var report = new ProtocolWordPackageCliReport(Path.GetFullPath(docxPath), Path.GetFullPath(outputPath), result);
+        WriteOutput(WriteProtocolWordPackageReport(report, options.Format), null);
+        return result.WrotePackage ? 0 : 2;
+    }
+
+    private static int RunProtocolPackageInspect(CliOptions options)
+    {
+        var packagePath = RequirePackagePath(options);
+        var inspection = new RtpxWordPackageStore().Inspect(packagePath);
+        WriteOutput(WriteProtocolPackageInspectionReport(inspection, options.Format), options.OutputPath);
+        return inspection.Validation.IsValid ? 0 : 2;
     }
 
     private static int RunCiRun(CliOptions options)
@@ -763,6 +797,13 @@ internal static class Program
         return string.IsNullOrWhiteSpace(options.DocxPath)
             ? throw new ArgumentException("RT-PX Word command requires --docx path.")
             : options.DocxPath;
+    }
+
+    private static string RequirePackagePath(CliOptions options)
+    {
+        return string.IsNullOrWhiteSpace(options.PackagePath)
+            ? throw new ArgumentException("RT-PX package inspection requires --package path.")
+            : options.PackagePath;
     }
 
     private static string ResolveManifestReference(string manifestPath, string relativePath)
@@ -1487,10 +1528,16 @@ internal static class Program
         Console.Error.WriteLine("  beamkit rtpx compile --rtpx rtpx.json|directory --output rule-pack-directory [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit rtpx lint-word --docx protocol.docx [--format json|markdown|html] [--output report-path]");
         Console.Error.WriteLine("  beamkit rtpx extract-word --docx protocol.docx --output rtpx.json [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit rtpx template-word --output protocol-template.docx [--overwrite] [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit rtpx package-word --docx protocol.docx --output protocol.rtpx.zip [--include-source] [--overwrite] [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit rtpx inspect-package --package protocol.rtpx.zip [--format json|markdown|html] [--output report-path]");
         Console.Error.WriteLine("  beamkit protocol validate --protocol rtpx.json|directory [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit protocol compile --protocol rtpx.json|directory --output rule-pack-directory [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit protocol lint-word --docx protocol.docx [--format json|markdown|html] [--output report-path]");
         Console.Error.WriteLine("  beamkit protocol extract-word --docx protocol.docx --output rtpx.json [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit protocol template-word --output protocol-template.docx [--overwrite] [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit protocol package-word --docx protocol.docx --output protocol.rtpx.zip [--include-source] [--overwrite] [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit protocol inspect-package --package protocol.rtpx.zip [--format json|markdown|html] [--output report-path]");
         Console.Error.WriteLine("  beamkit ci run [--plan path | --esapi-snapshot path | --case id] [--rule-pack path] [--branch name] [--commit sha] [--build-id id] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit assignment recommend [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist] [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit assignment recommend-team [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist]... [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
@@ -2412,6 +2459,167 @@ internal static class Program
         return builder.ToString();
     }
 
+    private static string WriteProtocolWordTemplateReport(RtpxWordTemplateResult report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteProtocolWordTemplateMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit RT-PX Word Template", WriteProtocolWordTemplateMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteProtocolWordTemplateMarkdown(RtpxWordTemplateResult report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit RT-PX Word Template");
+        builder.AppendLine();
+        builder.AppendLine($"- Output: `{report.OutputPath}`");
+        builder.AppendLine($"- Overwrote existing file: {(report.OverwroteExistingFile ? "Yes" : "No")}");
+        builder.AppendLine();
+        builder.AppendLine("| Table |");
+        builder.AppendLine("| --- |");
+        foreach (var table in report.Tables)
+        {
+            builder.AppendLine($"| {table} |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteProtocolWordPackageReport(ProtocolWordPackageCliReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteProtocolWordPackageMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit RT-PX Word Package", WriteProtocolWordPackageMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteProtocolWordPackageMarkdown(ProtocolWordPackageCliReport report)
+    {
+        var result = report.Result;
+        var package = result.Package;
+        var validation = result.Validation;
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit RT-PX Word Package");
+        builder.AppendLine();
+        builder.AppendLine($"- Source: `{report.DocxPath}`");
+        builder.AppendLine($"- Output: `{report.OutputPath}`");
+        builder.AppendLine($"- Wrote package: {(result.WrotePackage ? "Yes" : "No")}");
+        if (result.Manifest is not null)
+        {
+            builder.AppendLine($"- Package format: `{result.Manifest.PackageFormat}`");
+            builder.AppendLine($"- Source hash: `{result.Manifest.SourceHash}`");
+            builder.AppendLine($"- Includes source document: {(result.Manifest.IncludesSourceDocument ? "Yes" : "No")}");
+        }
+
+        if (package is not null)
+        {
+            builder.AppendLine($"- Protocol: {package.Name} ({package.Version})");
+            builder.AppendLine($"- Protocol id: `{package.Id}`");
+            builder.AppendLine($"- Disease site: {package.DiseaseSite}");
+        }
+
+        builder.AppendLine($"- Word errors: {result.Extraction.ErrorCount}");
+        builder.AppendLine($"- Word warnings: {result.Extraction.WarningCount}");
+        builder.AppendLine($"- RT-PX valid: {(validation?.IsValid == true ? "Yes" : "No")}");
+        builder.AppendLine($"- RT-PX errors: {validation?.ErrorCount ?? 0}");
+        builder.AppendLine($"- RT-PX warnings: {validation?.WarningCount ?? 0}");
+        AppendWordAndValidationIssues(builder, result.Extraction.Issues, validation);
+        return builder.ToString();
+    }
+
+    private static string WriteProtocolPackageInspectionReport(RtpxWordPackageInspection inspection, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(inspection, CliJsonOptions),
+            ReportFormat.Markdown => WriteProtocolPackageInspectionMarkdown(inspection),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit RT-PX Package Inspection", WriteProtocolPackageInspectionMarkdown(inspection)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteProtocolPackageInspectionMarkdown(RtpxWordPackageInspection inspection)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit RT-PX Package Inspection");
+        builder.AppendLine();
+        builder.AppendLine($"- Package: `{inspection.PackagePath}`");
+        builder.AppendLine($"- Package format: `{inspection.Manifest.PackageFormat}`");
+        builder.AppendLine($"- Created UTC: `{inspection.Manifest.CreatedAtUtc}`");
+        builder.AppendLine($"- Protocol: {inspection.Package.Name} ({inspection.Package.Version})");
+        builder.AppendLine($"- Protocol id: `{inspection.Package.Id}`");
+        builder.AppendLine($"- Disease site: {inspection.Package.DiseaseSite}");
+        builder.AppendLine($"- Source file: `{inspection.Manifest.SourceFileName}`");
+        builder.AppendLine($"- Source hash: `{inspection.Manifest.SourceHash}`");
+        builder.AppendLine($"- Includes source document: {(inspection.Manifest.IncludesSourceDocument ? "Yes" : "No")}");
+        builder.AppendLine($"- Source hash verified: {FormatNullableBool(inspection.SourceHashVerified)}");
+        builder.AppendLine($"- RT-PX valid: {(inspection.Validation.IsValid ? "Yes" : "No")}");
+        builder.AppendLine($"- RT-PX errors: {inspection.Validation.ErrorCount}");
+        builder.AppendLine($"- RT-PX warnings: {inspection.Validation.WarningCount}");
+        builder.AppendLine();
+        builder.AppendLine("## Entries");
+        builder.AppendLine();
+        builder.AppendLine("| Entry |");
+        builder.AppendLine("| --- |");
+        foreach (var entry in inspection.Entries)
+        {
+            builder.AppendLine($"| `{entry}` |");
+        }
+
+        if (inspection.Validation.Issues.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## RT-PX Validation Issues");
+            builder.AppendLine();
+            builder.AppendLine("| Severity | Code | Subject | Message |");
+            builder.AppendLine("| --- | --- | --- | --- |");
+            foreach (var issue in inspection.Validation.Issues)
+            {
+                builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {EscapeMarkdownTable(issue.Message)} |");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static void AppendWordAndValidationIssues(
+        StringBuilder builder,
+        IReadOnlyList<RtpxWordExtractionIssue> wordIssues,
+        ProtocolValidationReport? validation)
+    {
+        if (wordIssues.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## Word Issues");
+            builder.AppendLine();
+            builder.AppendLine("| Severity | Code | Section | Anchor | Message |");
+            builder.AppendLine("| --- | --- | --- | --- | --- |");
+            foreach (var issue in wordIssues)
+            {
+                builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | {EscapeMarkdownTable(issue.Section ?? string.Empty)} | `{issue.Anchor ?? string.Empty}` | {EscapeMarkdownTable(issue.Message)} |");
+            }
+        }
+
+        if (validation?.Issues.Count > 0)
+        {
+            builder.AppendLine();
+            builder.AppendLine("## RT-PX Validation Issues");
+            builder.AppendLine();
+            builder.AppendLine("| Severity | Code | Subject | Message |");
+            builder.AppendLine("| --- | --- | --- | --- |");
+            foreach (var issue in validation.Issues)
+            {
+                builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {EscapeMarkdownTable(issue.Message)} |");
+            }
+        }
+    }
+
     private static string WriteSimpleHtml(string title, string markdown)
     {
         var builder = new StringBuilder();
@@ -3075,6 +3283,11 @@ internal static class Program
         return value.HasValue ? FormatNumber(value.Value) : "n/a";
     }
 
+    private static string FormatNullableBool(bool? value)
+    {
+        return value.HasValue ? (value.Value ? "Yes" : "No") : "n/a";
+    }
+
     private static string EscapeMarkdownTable(string value)
     {
         return value.Replace("|", "\\|", StringComparison.Ordinal);
@@ -3185,6 +3398,11 @@ internal static class Program
 
         public int WordWarningCount => WordIssues.Count(issue => issue.Severity == RtpxWordIssueSeverity.Warning);
     }
+
+    private sealed record ProtocolWordPackageCliReport(
+        string DocxPath,
+        string OutputPath,
+        RtpxWordPackageResult Result);
 
     private sealed record DoseCalculationCliReport(BiologicalDoseResult BiologicalDose, EquivalentFractionationResult? EquivalentFractionation);
 

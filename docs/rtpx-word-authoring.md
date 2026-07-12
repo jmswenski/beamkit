@@ -7,12 +7,22 @@ BeamKit supports a Word-first workflow where a normal `.docx` protocol contains 
 ## Workflow
 
 ```bash
+dotnet run --project src/BeamKit.Cli -- rtpx template-word \
+  --output protocol-template.docx
+
 dotnet run --project src/BeamKit.Cli -- rtpx lint-word \
   --docx protocol.docx
 
 dotnet run --project src/BeamKit.Cli -- rtpx extract-word \
   --docx protocol.docx \
   --output artifacts/rtpx/protocol/rtpx.json
+
+dotnet run --project src/BeamKit.Cli -- rtpx package-word \
+  --docx protocol.docx \
+  --output artifacts/rtpx/protocol.rtpx.zip
+
+dotnet run --project src/BeamKit.Cli -- rtpx inspect-package \
+  --package artifacts/rtpx/protocol.rtpx.zip
 
 dotnet run --project src/BeamKit.Cli -- rtpx compile \
   --rtpx artifacts/rtpx/protocol/rtpx.json \
@@ -22,6 +32,17 @@ dotnet run --project src/BeamKit.Cli -- rtpx compile \
 `lint-word` reports authoring problems without writing JSON.
 
 `extract-word` writes `rtpx.json` only when Word extraction and RT-PX validation pass.
+
+`package-word` writes a portable `.rtpx.zip` containing:
+
+- `rtpx.json`
+- `manifest.json`
+- `validation-report.json`
+- optionally `source/<protocol.docx>` when `--include-source` is provided
+
+Use `--include-source` only when the source document is appropriate to redistribute. Without that flag, the package still carries the source filename and SHA-256 hash for traceability.
+
+`inspect-package` summarizes the package, validates the bundled `rtpx.json`, lists zip entries, and verifies the source hash when the source `.docx` is included.
 
 ## Table Detection
 

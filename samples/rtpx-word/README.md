@@ -13,6 +13,9 @@ BeamKit does not currently check binary `.docx` files into the repository. The t
 5. Run:
 
 ```bash
+dotnet run --project src/BeamKit.Cli -- rtpx template-word --output protocol-template.docx
 dotnet run --project src/BeamKit.Cli -- rtpx lint-word --docx protocol.docx
 dotnet run --project src/BeamKit.Cli -- rtpx extract-word --docx protocol.docx --output artifacts/rtpx/lung-sbrt/rtpx.json
+dotnet run --project src/BeamKit.Cli -- rtpx package-word --docx protocol.docx --output artifacts/rtpx/lung-sbrt.rtpx.zip
+dotnet run --project src/BeamKit.Cli -- rtpx inspect-package --package artifacts/rtpx/lung-sbrt.rtpx.zip
 ```

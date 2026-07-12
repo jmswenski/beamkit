@@ -135,6 +135,31 @@ public sealed class CliBehaviorTests
             "--output",
             "rtpx.json"
         });
+        var templateWord = CliOptions.Parse(new[]
+        {
+            "rtpx",
+            "template-word",
+            "--output",
+            "protocol-template.docx",
+            "--overwrite"
+        });
+        var packageWord = CliOptions.Parse(new[]
+        {
+            "rtpx",
+            "package-word",
+            "--docx",
+            "protocol.docx",
+            "--output",
+            "protocol.rtpx.zip",
+            "--include-source"
+        });
+        var inspectPackage = CliOptions.Parse(new[]
+        {
+            "protocol",
+            "inspect-package",
+            "--package",
+            "protocol.rtpx.zip"
+        });
 
         Assert.Equal("rtpx-validate", validate.Command);
         Assert.Equal("rtpx.json", validate.ProtocolPath);
@@ -146,6 +171,15 @@ public sealed class CliBehaviorTests
         Assert.Equal("protocol-extract-word", extractWord.Command);
         Assert.Equal("protocol.docx", extractWord.DocxPath);
         Assert.Equal("rtpx.json", extractWord.OutputPath);
+        Assert.Equal("rtpx-template-word", templateWord.Command);
+        Assert.Equal("protocol-template.docx", templateWord.OutputPath);
+        Assert.True(templateWord.Overwrite);
+        Assert.Equal("rtpx-package-word", packageWord.Command);
+        Assert.Equal("protocol.docx", packageWord.DocxPath);
+        Assert.Equal("protocol.rtpx.zip", packageWord.OutputPath);
+        Assert.True(packageWord.IncludeSource);
+        Assert.Equal("protocol-inspect-package", inspectPackage.Command);
+        Assert.Equal("protocol.rtpx.zip", inspectPackage.PackagePath);
     }
 
     [Fact]

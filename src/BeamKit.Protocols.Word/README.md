@@ -30,3 +30,18 @@ if (report.IsValid && report.Package is not null)
     // Save with RadiotherapyProtocolPackageStore or compile into rule packs.
 }
 ```
+
+## Template And Package Workflow
+
+```csharp
+var template = new RtpxWordTemplateGenerator().Create("protocol-template.docx");
+
+var packaged = new RtpxWordPackageStore().Create(
+    "protocol.docx",
+    "protocol.rtpx.zip",
+    includeSourceDocument: false);
+
+var inspection = new RtpxWordPackageStore().Inspect("protocol.rtpx.zip");
+```
+
+Portable packages contain `rtpx.json`, `manifest.json`, and `validation-report.json`. When `includeSourceDocument` is enabled, the package also includes `source/<protocol.docx>` and inspection verifies the bundled source hash.

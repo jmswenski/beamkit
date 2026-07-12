@@ -19,6 +19,10 @@ dotnet run --project src/BeamKit.Cli -- rtpx lint-word \
 dotnet run --project src/BeamKit.Cli -- rtpx extract-word \
   --docx protocol.docx \
   --output artifacts/rtpx/protocol/rtpx.json
+
+dotnet run --project src/BeamKit.Cli -- rtpx package-word \
+  --docx protocol.docx \
+  --output artifacts/rtpx/protocol.rtpx.zip
 ```
 
 See [RT-PX Word Authoring](rtpx-word-authoring.md) and [RT-PX Word samples](../samples/rtpx-word/README.md).
