@@ -35,11 +35,27 @@ public static class RtpxInstitutionProfileStore
             throw new InvalidOperationException("Institution profile requires an institution name.");
         }
 
-        return profile with
-        {
-            StructureMappings = profile.StructureMappings ?? Array.Empty<RtpxStructureMapping>(),
-            Tags = profile.Tags ?? Array.Empty<string>()
-        };
+        var mappings = (profile.StructureMappings ?? Array.Empty<RtpxStructureMapping>())
+            .Select(mapping => new RtpxStructureMapping(
+                mapping.Protocol,
+                mapping.Local,
+                mapping.Aliases,
+                mapping.Notes))
+            .ToArray();
+
+        return new RtpxInstitutionProfile(
+            profile.Institution,
+            mappings,
+            profile.RequireExplicitStructureMappings,
+            profile.AcceptedBy,
+            profile.EffectiveDate,
+            profile.ReviewedBy,
+            profile.ReviewDueDate,
+            profile.LocalPolicyReference,
+            profile.Rationale,
+            profile.ChangeTicket,
+            profile.Owner,
+            profile.Tags);
     }
 
     /// <summary>

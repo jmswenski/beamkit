@@ -8,9 +8,12 @@ internal static class CiServerSecurity
 {
     public const string ActorItemKey = "BeamKit.CiServer.Actor";
 
-    public static bool IsPlanSnapshotUploadPath(PathString path)
+    public static bool IsLargeUploadPath(PathString path)
     {
-        return path.Equals("/api/runs/from-plan-snapshot", StringComparison.OrdinalIgnoreCase);
+        return path.Equals("/api/runs/from-plan-snapshot", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("/api/rtpx/acceptance", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("/api/rtpx/word/extract", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("/api/rtpx/word/publish-draft", StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool IsProtectedPath(PathString path)
@@ -73,7 +76,7 @@ internal static class CiServerSecurity
     {
         return Results.Problem(
             title: "BeamKit CI server upload is too large.",
-            detail: $"Plan snapshot uploads are limited to {maxBytes} bytes.",
+            detail: $"Plan snapshot, RT-PX acceptance, and RT-PX Word authoring uploads are limited to {maxBytes} bytes.",
             statusCode: StatusCodes.Status413PayloadTooLarge);
     }
 

@@ -44,6 +44,105 @@ Use `--include-source` only when the source document is appropriate to redistrib
 
 `inspect-package` summarizes the package, validates the bundled `rtpx.json`, lists zip entries, and verifies the source hash when the source `.docx` is included.
 
+## Word Add-in
+
+`src/BeamKit.WordAddIn` contains an Office.js task-pane scaffold for Microsoft Word. It can insert a complete RT-PX scaffold, insert editable disease-site starter templates, append common requirement snippets, repair recognized RT-PX tables, apply metadata fields, append structure/prescription/constraint/plan-check rows, post the active `.docx` to BeamKit CI, display extraction and RT-PX validation issues, render a plain-English protocol summary, navigate/comment on issue rows, offer one-click fixes for common metadata and table-shape issues, run quick checks without package generation, publish drafts to the BeamKit CI review queue, and download the generated `.rtpx.zip` package when the protocol is valid.
+
+Initial starter templates cover:
+
+- Head and neck VMAT
+- Lung SBRT
+- Prostate IMRT
+- Breast tangents
+- Brain SRS
+- Palliative bone
+
+Initial snippets cover:
+
+- Cord maximum dose
+- Lung V20
+- Mean heart dose
+- PTV D95 coverage
+- Dose grid resolution
+- Beam model policy
+- MU per degree minimum
+- QA plan match
+
+Templates and snippets are authoring aids, not clinical defaults. A protocol owner must review every value against the source protocol and institution policy before clinical use.
+
+Templates and snippets are served by BeamKit CI as versioned JSON libraries:
+
+```http
+GET /api/rtpx/authoring/templates
+GET /api/rtpx/authoring/snippets
+```
+
+Default libraries live in `src/BeamKit.CiServer/authoring`. Institutions can maintain their own libraries by configuring:
+
+```bash
+BeamKit__CiServer__RtpxAuthoring__TemplateLibraryPath=/path/to/rtpx-templates.json
+BeamKit__CiServer__RtpxAuthoring__SnippetLibraryPath=/path/to/rtpx-snippets.json
+```
+
+Run the CI server:
+
+```bash
+dotnet dev-certs https --trust
+export BeamKit__CiServer__Security__ApiKeys__0__Label=local-admin
+export BeamKit__CiServer__Security__ApiKeys__0__Key=dev-secret
+dotnet run --project src/BeamKit.CiServer --urls https://localhost:5088
+```
+
+Run the add-in task pane:
+
+```bash
+cd src/BeamKit.WordAddIn
+npm install
+npm run dev
+```
+
+Then sideload `src/BeamKit.WordAddIn/manifest.xml` in Word and configure the task pane with `https://localhost:5088` and the CI server API key. The task pane runs over HTTPS, so browser webviews will block requests to a plain HTTP CI API. If port `5088` is already occupied, run BeamKit CI on another HTTPS port such as `5089` and enter that URL in the task pane.
+
+## CI Server Upload
+
+Word add-ins and API clients can post directly to the CI server:
+
+```http
+POST /api/rtpx/word/extract
+```
+
+Minimal JSON request:
+
+```json
+{
+  "fileName": "protocol.docx",
+  "docxBase64": "<base64 .docx>",
+  "includeSourceDocument": false,
+  "generatePackage": true
+}
+```
+
+The response includes extraction issues, validation issues, extracted `rtpxJson`, and `rtpxPackageBase64` when the Word document is valid and `generatePackage` is `true`. Set `generatePackage` to `false` for add-in quick checks that need validation feedback and protocol summary data without building a zip package.
+
+Draft publish request:
+
+```http
+POST /api/rtpx/word/publish-draft
+```
+
+The draft endpoint extracts the Word document, creates a `.rtpx.zip`, accepts it through the RT-PX institution workflow, imports the generated rule pack as a non-active managed version, generates safety evidence, and returns a protocol diff against the active accepted RT-PX package. If no institution profile is supplied, the server creates a draft profile with one-to-one structure mapping and no promotion.
+
+Draft review endpoints:
+
+```http
+GET /api/rtpx/drafts
+GET /api/rtpx/drafts/{id}
+POST /api/rtpx/drafts/{id}/promote
+POST /api/rtpx/drafts/{id}/reject
+```
+
+Promotion uses the same managed rule-pack safety-evidence gate as normal RT-PX acceptance. Rejection is audit-only in this slice.
+
 ## Table Detection
 
 The extractor supports either pattern:

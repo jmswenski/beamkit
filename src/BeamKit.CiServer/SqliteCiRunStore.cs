@@ -683,6 +683,144 @@ public sealed class SqliteCiRunStore : ICiRunStore
     }
 
     /// <summary>
+    /// Adds or replaces an RT-PX package acceptance record.
+    /// </summary>
+    public CiServerRtpxAcceptanceRecord SaveRtpxAcceptance(CiServerRtpxAcceptanceRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ci_rtpx_acceptances (
+                    id,
+                    created_at_utc,
+                    institution,
+                    package_path,
+                    output_directory,
+                    accepted,
+                    promoted,
+                    rule_pack_id,
+                    version_id,
+                    source_protocol_id,
+                    source_protocol_name,
+                    source_protocol_version,
+                    local_protocol_id,
+                    package_fingerprint,
+                    institution_profile_fingerprint,
+                    esapi_snapshot_fingerprint,
+                    has_esapi_evidence,
+                    error_count,
+                    warning_count,
+                    report_json,
+                    safety_evidence_json
+                )
+                VALUES (
+                    $id,
+                    $created_at_utc,
+                    $institution,
+                    $package_path,
+                    $output_directory,
+                    $accepted,
+                    $promoted,
+                    $rule_pack_id,
+                    $version_id,
+                    $source_protocol_id,
+                    $source_protocol_name,
+                    $source_protocol_version,
+                    $local_protocol_id,
+                    $package_fingerprint,
+                    $institution_profile_fingerprint,
+                    $esapi_snapshot_fingerprint,
+                    $has_esapi_evidence,
+                    $error_count,
+                    $warning_count,
+                    $report_json,
+                    $safety_evidence_json
+                )
+                ON CONFLICT(id) DO UPDATE SET
+                    created_at_utc = excluded.created_at_utc,
+                    institution = excluded.institution,
+                    package_path = excluded.package_path,
+                    output_directory = excluded.output_directory,
+                    accepted = excluded.accepted,
+                    promoted = excluded.promoted,
+                    rule_pack_id = excluded.rule_pack_id,
+                    version_id = excluded.version_id,
+                    source_protocol_id = excluded.source_protocol_id,
+                    source_protocol_name = excluded.source_protocol_name,
+                    source_protocol_version = excluded.source_protocol_version,
+                    local_protocol_id = excluded.local_protocol_id,
+                    package_fingerprint = excluded.package_fingerprint,
+                    institution_profile_fingerprint = excluded.institution_profile_fingerprint,
+                    esapi_snapshot_fingerprint = excluded.esapi_snapshot_fingerprint,
+                    has_esapi_evidence = excluded.has_esapi_evidence,
+                    error_count = excluded.error_count,
+                    warning_count = excluded.warning_count,
+                    report_json = excluded.report_json,
+                    safety_evidence_json = excluded.safety_evidence_json;
+                """;
+            AddRtpxAcceptanceParameters(command, record);
+            command.ExecuteNonQuery();
+        }
+
+        return record;
+    }
+
+    /// <summary>
+    /// Finds an RT-PX package acceptance record.
+    /// </summary>
+    public CiServerRtpxAcceptanceRecord? FindRtpxAcceptance(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectRtpxAcceptanceColumns()}
+                WHERE id = $id COLLATE NOCASE;
+                """;
+            command.Parameters.AddWithValue("$id", id.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadRtpxAcceptance(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Lists recent RT-PX package acceptance records.
+    /// </summary>
+    public IReadOnlyList<CiServerRtpxAcceptanceSummary> ListRtpxAcceptances(int limit = 50)
+    {
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectRtpxAcceptanceColumns()}
+                ORDER BY created_at_utc DESC, id ASC
+                LIMIT $limit;
+                """;
+            command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 500));
+
+            var records = new List<CiServerRtpxAcceptanceSummary>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                records.Add(new CiServerRtpxAcceptanceSummary(ReadRtpxAcceptance(reader)));
+            }
+
+            return records;
+        }
+    }
+
+    /// <summary>
     /// Adds or replaces a case work item.
     /// </summary>
     public CaseWorkItem SaveWorkItem(CaseWorkItem workItem)
@@ -1082,6 +1220,35 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_active ON ci_rule_pack_versions(rule_pack_id, is_active);
                 CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_imported_at ON ci_rule_pack_versions(imported_at_utc);
 
+                CREATE TABLE IF NOT EXISTS ci_rtpx_acceptances (
+                    id TEXT PRIMARY KEY,
+                    created_at_utc TEXT NOT NULL,
+                    institution TEXT NOT NULL,
+                    package_path TEXT NOT NULL,
+                    output_directory TEXT NOT NULL,
+                    accepted INTEGER NOT NULL,
+                    promoted INTEGER NOT NULL,
+                    rule_pack_id TEXT NULL,
+                    version_id TEXT NULL,
+                    source_protocol_id TEXT NOT NULL,
+                    source_protocol_name TEXT NOT NULL,
+                    source_protocol_version TEXT NOT NULL,
+                    local_protocol_id TEXT NOT NULL,
+                    package_fingerprint TEXT NOT NULL,
+                    institution_profile_fingerprint TEXT NOT NULL,
+                    esapi_snapshot_fingerprint TEXT NULL,
+                    has_esapi_evidence INTEGER NOT NULL,
+                    error_count INTEGER NOT NULL,
+                    warning_count INTEGER NOT NULL,
+                    report_json TEXT NOT NULL,
+                    safety_evidence_json TEXT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_ci_rtpx_acceptances_created_at ON ci_rtpx_acceptances(created_at_utc);
+                CREATE INDEX IF NOT EXISTS ix_ci_rtpx_acceptances_rule_pack ON ci_rtpx_acceptances(rule_pack_id, version_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_rtpx_acceptances_accepted ON ci_rtpx_acceptances(accepted);
+                CREATE INDEX IF NOT EXISTS ix_ci_rtpx_acceptances_package_fingerprint ON ci_rtpx_acceptances(package_fingerprint);
+
                 CREATE TABLE IF NOT EXISTS ci_work_items (
                     id TEXT PRIMARY KEY,
                     created_at_utc TEXT NOT NULL,
@@ -1233,6 +1400,31 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$activated_by", ToDbValue(version.ActivatedBy));
         command.Parameters.AddWithValue("$activation_note", ToDbValue(version.ActivationNote));
         command.Parameters.AddWithValue("$safety_evidence_json", ToDbValue(version.SafetyEvidenceJson));
+    }
+
+    private static void AddRtpxAcceptanceParameters(SqliteCommand command, CiServerRtpxAcceptanceRecord record)
+    {
+        command.Parameters.AddWithValue("$id", record.Id);
+        command.Parameters.AddWithValue("$created_at_utc", ToStoredTimestamp(record.CreatedAtUtc));
+        command.Parameters.AddWithValue("$institution", record.Institution);
+        command.Parameters.AddWithValue("$package_path", record.PackagePath);
+        command.Parameters.AddWithValue("$output_directory", record.OutputDirectory);
+        command.Parameters.AddWithValue("$accepted", record.Accepted ? 1 : 0);
+        command.Parameters.AddWithValue("$promoted", record.Promoted ? 1 : 0);
+        command.Parameters.AddWithValue("$rule_pack_id", ToDbValue(record.RulePackId));
+        command.Parameters.AddWithValue("$version_id", ToDbValue(record.VersionId));
+        command.Parameters.AddWithValue("$source_protocol_id", record.SourceProtocolId);
+        command.Parameters.AddWithValue("$source_protocol_name", record.SourceProtocolName);
+        command.Parameters.AddWithValue("$source_protocol_version", record.SourceProtocolVersion);
+        command.Parameters.AddWithValue("$local_protocol_id", record.LocalProtocolId);
+        command.Parameters.AddWithValue("$package_fingerprint", record.PackageFingerprint);
+        command.Parameters.AddWithValue("$institution_profile_fingerprint", record.InstitutionProfileFingerprint);
+        command.Parameters.AddWithValue("$esapi_snapshot_fingerprint", ToDbValue(record.EsapiSnapshotFingerprint));
+        command.Parameters.AddWithValue("$has_esapi_evidence", record.HasEsapiEvidence ? 1 : 0);
+        command.Parameters.AddWithValue("$error_count", record.ErrorCount);
+        command.Parameters.AddWithValue("$warning_count", record.WarningCount);
+        command.Parameters.AddWithValue("$report_json", record.ReportJson);
+        command.Parameters.AddWithValue("$safety_evidence_json", ToDbValue(record.SafetyEvidenceJson));
     }
 
     private static void AddWorkItemParameters(SqliteCommand command, CaseWorkItem workItem)
@@ -1409,6 +1601,61 @@ public sealed class SqliteCiRunStore : ICiRunStore
             GetNullableString(reader, 21),
             GetNullableString(reader, 8),
             GetNullableString(reader, 22));
+    }
+
+    private static string SelectRtpxAcceptanceColumns()
+    {
+        return """
+            SELECT
+                id,
+                created_at_utc,
+                institution,
+                package_path,
+                output_directory,
+                accepted,
+                promoted,
+                rule_pack_id,
+                version_id,
+                source_protocol_id,
+                source_protocol_name,
+                source_protocol_version,
+                local_protocol_id,
+                package_fingerprint,
+                institution_profile_fingerprint,
+                esapi_snapshot_fingerprint,
+                has_esapi_evidence,
+                error_count,
+                warning_count,
+                report_json,
+                safety_evidence_json
+            FROM ci_rtpx_acceptances
+            """;
+    }
+
+    private static CiServerRtpxAcceptanceRecord ReadRtpxAcceptance(SqliteDataReader reader)
+    {
+        return new CiServerRtpxAcceptanceRecord(
+            reader.GetString(0),
+            DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            reader.GetString(2),
+            reader.GetString(3),
+            reader.GetString(4),
+            reader.GetInt32(5) != 0,
+            reader.GetInt32(6) != 0,
+            GetNullableString(reader, 7),
+            GetNullableString(reader, 8),
+            reader.GetString(9),
+            reader.GetString(10),
+            reader.GetString(11),
+            reader.GetString(12),
+            reader.GetString(13),
+            reader.GetString(14),
+            GetNullableString(reader, 15),
+            reader.GetInt32(16) != 0,
+            reader.GetInt32(17),
+            reader.GetInt32(18),
+            reader.GetString(19),
+            GetNullableString(reader, 20));
     }
 
     private static RulePackValidationReport ReadRulePackValidationReport(string json)

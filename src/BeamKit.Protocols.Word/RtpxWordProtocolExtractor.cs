@@ -1,8 +1,10 @@
+using System.Collections;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using BeamKit.Core.Domain;
 using BeamKit.Protocols;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 
@@ -80,8 +82,9 @@ public sealed class RtpxWordProtocolExtractor
     private static void WalkBody(Body body, ExtractionState state)
     {
         var currentSection = string.Empty;
+        RtpxWordTableInfo? previousTableInfo = null;
         var tableIndex = 0;
-        foreach (var element in body.Elements())
+        foreach (var element in EnumerateBlockElements(body))
         {
             if (element is Paragraph paragraph)
             {
@@ -89,6 +92,7 @@ public sealed class RtpxWordProtocolExtractor
                 if (!string.IsNullOrWhiteSpace(text) && IsHeading(paragraph, text))
                 {
                     currentSection = text;
+                    previousTableInfo = null;
                 }
 
                 continue;
@@ -106,7 +110,8 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
-            var tableInfo = ResolveTable(rows, currentSection);
+            var tableInfo = ResolveTable(rows, currentSection)
+                ?? ResolveContinuationTable(rows, previousTableInfo);
             if (tableInfo is null)
             {
                 continue;
@@ -114,9 +119,27 @@ public sealed class RtpxWordProtocolExtractor
 
             state.TablesSeen++;
             ParseTable(rows, tableInfo, tableIndex, state);
-            if (tableInfo.ResolvedFromHeading)
+            currentSection = string.Empty;
+            previousTableInfo = tableInfo;
+        }
+    }
+
+    private static IEnumerable<OpenXmlElement> EnumerateBlockElements(OpenXmlElement container)
+    {
+        foreach (var child in container.Elements())
+        {
+            if (child is Paragraph or Table)
             {
-                currentSection = string.Empty;
+                yield return child;
+                continue;
+            }
+
+            if (child is SdtBlock { SdtContentBlock: not null } sdtBlock)
+            {
+                foreach (var nested in EnumerateBlockElements(sdtBlock.SdtContentBlock))
+                {
+                    yield return nested;
+                }
             }
         }
     }
@@ -128,17 +151,73 @@ public sealed class RtpxWordProtocolExtractor
             || text.StartsWith(RtpxWordConventions.TablePrefix, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static IReadOnlyList<IReadOnlyList<string>> ReadRows(Table table)
+    private static IReadOnlyList<RtpxWordRow> ReadRows(Table table)
     {
         return table.Elements<TableRow>()
-            .Select(row => row.Elements<TableCell>().Select(cell => NormalizeWhitespace(cell.InnerText)).ToArray())
-            .Where(cells => cells.Any(cell => !string.IsNullOrWhiteSpace(cell)))
+            .Select((row, index) => ReadRow(row, index + 1))
+            .Where(row => row.Cells.Any(cell => !string.IsNullOrWhiteSpace(cell)))
             .ToArray();
     }
 
-    private static RtpxWordTableInfo? ResolveTable(IReadOnlyList<IReadOnlyList<string>> rows, string currentSection)
+    private static RtpxWordRow ReadRow(TableRow row, int rowNumber)
     {
-        if (TryResolveTableKind(rows[0].FirstOrDefault(), out var titleKind))
+        var cells = new List<string>();
+        var hasUnsupportedMerge = false;
+        foreach (var cell in row.Elements<TableCell>())
+        {
+            var properties = cell.TableCellProperties;
+            var gridSpan = properties?.GridSpan?.Val?.Value;
+            if (gridSpan is not null && gridSpan > 1)
+            {
+                hasUnsupportedMerge = true;
+            }
+
+            if (properties?.VerticalMerge is not null)
+            {
+                hasUnsupportedMerge = true;
+            }
+
+            cells.Add(ReadCellText(cell));
+        }
+
+        return new RtpxWordRow(rowNumber, cells, hasUnsupportedMerge);
+    }
+
+    private static string ReadCellText(TableCell cell)
+    {
+        var paragraphs = cell.Elements<Paragraph>()
+            .Select(ReadParagraphText)
+            .Select(NormalizeWhitespace)
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .ToArray();
+        return string.Join("; ", paragraphs);
+    }
+
+    private static string ReadParagraphText(Paragraph paragraph)
+    {
+        var builder = new StringBuilder();
+        foreach (var element in paragraph.Descendants())
+        {
+            switch (element)
+            {
+                case Text text:
+                    builder.Append(text.Text);
+                    break;
+                case TabChar:
+                    builder.Append(' ');
+                    break;
+                case Break:
+                    builder.Append("; ");
+                    break;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private static RtpxWordTableInfo? ResolveTable(IReadOnlyList<RtpxWordRow> rows, string currentSection)
+    {
+        if (TryResolveTableKind(rows[0].Cells.FirstOrDefault(), out var titleKind))
         {
             return new RtpxWordTableInfo(titleKind, TableTitle(titleKind), 1, ResolvedFromHeading: false);
         }
@@ -146,6 +225,33 @@ public sealed class RtpxWordProtocolExtractor
         return TryResolveTableKind(currentSection, out var headingKind)
             ? new RtpxWordTableInfo(headingKind, TableTitle(headingKind), 0, ResolvedFromHeading: true)
             : null;
+    }
+
+    private static RtpxWordTableInfo? ResolveContinuationTable(IReadOnlyList<RtpxWordRow> rows, RtpxWordTableInfo? previousTableInfo)
+    {
+        if (previousTableInfo is null)
+        {
+            return null;
+        }
+
+        return LooksLikeHeaderFor(rows[0], previousTableInfo.Kind)
+            ? previousTableInfo with { HeaderRowIndex = 0, ResolvedFromHeading = false }
+            : null;
+    }
+
+    private static bool LooksLikeHeaderFor(RtpxWordRow row, RtpxWordTableKind kind)
+    {
+        var keys = row.Select(NormalizeKey).Where(key => key.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return kind switch
+        {
+            RtpxWordTableKind.Metadata => keys.Contains("field") && keys.Contains("value"),
+            RtpxWordTableKind.Structures => keys.Contains("id") && keys.Contains("name") && keys.Contains("role"),
+            RtpxWordTableKind.Prescriptions => keys.Contains("id") && keys.Contains("target") && keys.Contains("totaldosegy") && keys.Contains("fractions"),
+            RtpxWordTableKind.DoseConstraints => keys.Contains("id") && keys.Contains("structure") && keys.Contains("metric") && keys.Contains("comparison") && keys.Contains("value") && keys.Contains("unit"),
+            RtpxWordTableKind.PlanChecks => keys.Contains("id") && keys.Contains("title") && keys.Contains("type"),
+            RtpxWordTableKind.Workflow => keys.Contains("id") && keys.Contains("title") && keys.Contains("type"),
+            _ => false
+        };
     }
 
     private static bool TryResolveTableKind(string? text, out RtpxWordTableKind tableKind)
@@ -160,7 +266,7 @@ public sealed class RtpxWordProtocolExtractor
     }
 
     private static void ParseTable(
-        IReadOnlyList<IReadOnlyList<string>> rows,
+        IReadOnlyList<RtpxWordRow> rows,
         RtpxWordTableInfo tableInfo,
         int tableIndex,
         ExtractionState state)
@@ -202,12 +308,24 @@ public sealed class RtpxWordProtocolExtractor
     }
 
     private static void ParseMetadata(
-        IReadOnlyList<IReadOnlyList<string>> rows,
+        IReadOnlyList<RtpxWordRow> rows,
         RtpxWordTableInfo tableInfo,
         int tableIndex,
         ExtractionState state)
     {
-        if (rows[tableInfo.HeaderRowIndex].Count < 2)
+        var headerRow = rows[tableInfo.HeaderRowIndex];
+        if (headerRow.HasUnsupportedMerge)
+        {
+            state.Add(
+                "rtpx.word.header-merged-cells",
+                RtpxWordIssueSeverity.Error,
+                $"Table '{tableInfo.Title}' header row contains merged cells. Split merged header cells before extraction.",
+                tableInfo.Title,
+                $"table {tableIndex} row {headerRow.Number}");
+            return;
+        }
+
+        if (headerRow.Count < 2)
         {
             state.Add(
                 "rtpx.word.metadata-columns-missing",
@@ -226,12 +344,17 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
+            if (!TryValidateRowShape(row, headerRow, tableInfo, tableIndex, state))
+            {
+                continue;
+            }
+
             state.Metadata[NormalizeKey(row[0])] = row[1];
         }
     }
 
     private static void ParseStructures(
-        IReadOnlyList<IReadOnlyList<string>> rows,
+        IReadOnlyList<RtpxWordRow> rows,
         RtpxWordTableInfo tableInfo,
         int tableIndex,
         ExtractionState state)
@@ -250,11 +373,16 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
-            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
-            var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
-            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
-                || !TryGetRequired(row, header, "name", tableInfo, tableIndex, rowIndex, state, out var name)
-                || !TryParseEnum(Get(row, header, "role"), tableInfo, tableIndex, rowIndex, state, ParseStructureRole, out var role, "role"))
+            if (!TryValidateRowShape(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, state))
+            {
+                continue;
+            }
+
+            var rowIndexForMessages = row.Number - 1;
+            var source = Source(tableInfo, tableIndex, row.Number, row);
+            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndexForMessages, state, out var id)
+                || !TryGetRequired(row, header, "name", tableInfo, tableIndex, rowIndexForMessages, state, out var name)
+                || !TryParseEnum(Get(row, header, "role"), tableInfo, tableIndex, rowIndexForMessages, state, ParseStructureRole, out var role, "role"))
             {
                 continue;
             }
@@ -263,16 +391,16 @@ public sealed class RtpxWordProtocolExtractor
                 id,
                 name,
                 role,
-                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndexForMessages, state),
                 SplitList(Get(row, header, "aliases")),
-                ParseBool(Get(row, header, "musthavecontours"), defaultValue: true, tableInfo, tableIndex, rowIndex, state, "mustHaveContours"),
+                ParseBool(Get(row, header, "musthavecontours"), defaultValue: true, tableInfo, tableIndex, rowIndexForMessages, state, "mustHaveContours"),
                 Get(row, header, "description"),
                 source));
         }
     }
 
     private static void ParsePrescriptions(
-        IReadOnlyList<IReadOnlyList<string>> rows,
+        IReadOnlyList<RtpxWordRow> rows,
         RtpxWordTableInfo tableInfo,
         int tableIndex,
         ExtractionState state)
@@ -291,17 +419,22 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
-            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
-            var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
-            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
-                || !TryGetRequired(row, header, "target", tableInfo, tableIndex, rowIndex, state, out var target)
-                || !TryParseDecimal(Get(row, header, "totaldosegy"), tableInfo, tableIndex, rowIndex, state, "totalDoseGy", out var totalDoseGy)
-                || !TryParseInt(Get(row, header, "fractions"), tableInfo, tableIndex, rowIndex, state, "fractions", out var fractions))
+            if (!TryValidateRowShape(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, state))
             {
                 continue;
             }
 
-            var dosePerFraction = TryParseOptionalDecimal(Get(row, header, "doseperfractiongy"), tableInfo, tableIndex, rowIndex, state, "dosePerFractionGy");
+            var rowIndexForMessages = row.Number - 1;
+            var source = Source(tableInfo, tableIndex, row.Number, row);
+            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndexForMessages, state, out var id)
+                || !TryGetRequired(row, header, "target", tableInfo, tableIndex, rowIndexForMessages, state, out var target)
+                || !TryParseDecimal(Get(row, header, "totaldosegy"), tableInfo, tableIndex, rowIndexForMessages, state, "totalDoseGy", out var totalDoseGy)
+                || !TryParseInt(Get(row, header, "fractions"), tableInfo, tableIndex, rowIndexForMessages, state, "fractions", out var fractions))
+            {
+                continue;
+            }
+
+            var dosePerFraction = TryParseOptionalDecimal(Get(row, header, "doseperfractiongy"), tableInfo, tableIndex, rowIndexForMessages, state, "dosePerFractionGy");
             state.Prescriptions.Add(new ProtocolPrescription(
                 id,
                 target,
@@ -310,14 +443,14 @@ public sealed class RtpxWordProtocolExtractor
                 dosePerFraction,
                 Get(row, header, "technique"),
                 Get(row, header, "energy"),
-                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndexForMessages, state),
                 Get(row, header, "description"),
                 source));
         }
     }
 
     private static void ParseDoseConstraints(
-        IReadOnlyList<IReadOnlyList<string>> rows,
+        IReadOnlyList<RtpxWordRow> rows,
         RtpxWordTableInfo tableInfo,
         int tableIndex,
         ExtractionState state)
@@ -336,14 +469,19 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
-            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
-            var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
-            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
-                || !TryGetRequired(row, header, "structure", tableInfo, tableIndex, rowIndex, state, out var structure)
-                || !TryGetRequired(row, header, "metric", tableInfo, tableIndex, rowIndex, state, out var metric)
-                || !TryParseEnum(Get(row, header, "comparison"), tableInfo, tableIndex, rowIndex, state, ParseComparison, out var comparison, "comparison")
-                || !TryParseDecimal(Get(row, header, "value"), tableInfo, tableIndex, rowIndex, state, "value", out var value)
-                || !TryGetRequired(row, header, "unit", tableInfo, tableIndex, rowIndex, state, out var unit))
+            if (!TryValidateRowShape(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, state))
+            {
+                continue;
+            }
+
+            var rowIndexForMessages = row.Number - 1;
+            var source = Source(tableInfo, tableIndex, row.Number, row);
+            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndexForMessages, state, out var id)
+                || !TryGetRequired(row, header, "structure", tableInfo, tableIndex, rowIndexForMessages, state, out var structure)
+                || !TryGetRequired(row, header, "metric", tableInfo, tableIndex, rowIndexForMessages, state, out var metric)
+                || !TryParseEnum(Get(row, header, "comparison"), tableInfo, tableIndex, rowIndexForMessages, state, ParseComparison, out var comparison, "comparison")
+                || !TryParseDecimal(Get(row, header, "value"), tableInfo, tableIndex, rowIndexForMessages, state, "value", out var value)
+                || !TryGetRequired(row, header, "unit", tableInfo, tableIndex, rowIndexForMessages, state, out var unit))
             {
                 continue;
             }
@@ -355,15 +493,15 @@ public sealed class RtpxWordProtocolExtractor
                 comparison,
                 value,
                 unit,
-                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndexForMessages, state),
                 Get(row, header, "description"),
                 source,
-                ParseBool(Get(row, header, "active"), defaultValue: true, tableInfo, tableIndex, rowIndex, state, "active")));
+                ParseBool(Get(row, header, "active"), defaultValue: true, tableInfo, tableIndex, rowIndexForMessages, state, "active")));
         }
     }
 
     private static void ParsePlanChecks(
-        IReadOnlyList<IReadOnlyList<string>> rows,
+        IReadOnlyList<RtpxWordRow> rows,
         RtpxWordTableInfo tableInfo,
         int tableIndex,
         ExtractionState state)
@@ -382,11 +520,16 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
-            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
-            var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
-            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
-                || !TryGetRequired(row, header, "title", tableInfo, tableIndex, rowIndex, state, out var title)
-                || !TryGetRequired(row, header, "type", tableInfo, tableIndex, rowIndex, state, out var type))
+            if (!TryValidateRowShape(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, state))
+            {
+                continue;
+            }
+
+            var rowIndexForMessages = row.Number - 1;
+            var source = Source(tableInfo, tableIndex, row.Number, row);
+            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndexForMessages, state, out var id)
+                || !TryGetRequired(row, header, "title", tableInfo, tableIndex, rowIndexForMessages, state, out var title)
+                || !TryGetRequired(row, header, "type", tableInfo, tableIndex, rowIndexForMessages, state, out var type))
             {
                 continue;
             }
@@ -395,16 +538,16 @@ public sealed class RtpxWordProtocolExtractor
                 id,
                 title,
                 type,
-                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndexForMessages, state),
                 ParseParameters(Get(row, header, "parameters")),
                 Get(row, header, "description"),
                 source,
-                ParseBool(Get(row, header, "active"), defaultValue: true, tableInfo, tableIndex, rowIndex, state, "active")));
+                ParseBool(Get(row, header, "active"), defaultValue: true, tableInfo, tableIndex, rowIndexForMessages, state, "active")));
         }
     }
 
     private static void ParseWorkflow(
-        IReadOnlyList<IReadOnlyList<string>> rows,
+        IReadOnlyList<RtpxWordRow> rows,
         RtpxWordTableInfo tableInfo,
         int tableIndex,
         ExtractionState state)
@@ -423,11 +566,16 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
-            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
-            var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
-            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
-                || !TryGetRequired(row, header, "title", tableInfo, tableIndex, rowIndex, state, out var title)
-                || !TryGetRequired(row, header, "type", tableInfo, tableIndex, rowIndex, state, out var type))
+            if (!TryValidateRowShape(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, state))
+            {
+                continue;
+            }
+
+            var rowIndexForMessages = row.Number - 1;
+            var source = Source(tableInfo, tableIndex, row.Number, row);
+            if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndexForMessages, state, out var id)
+                || !TryGetRequired(row, header, "title", tableInfo, tableIndex, rowIndexForMessages, state, out var title)
+                || !TryGetRequired(row, header, "type", tableInfo, tableIndex, rowIndexForMessages, state, out var type))
             {
                 continue;
             }
@@ -436,10 +584,10 @@ public sealed class RtpxWordProtocolExtractor
                 id,
                 title,
                 type,
-                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndexForMessages, state),
                 Get(row, header, "description"),
                 source,
-                ParseBool(Get(row, header, "active"), defaultValue: true, tableInfo, tableIndex, rowIndex, state, "active")));
+                ParseBool(Get(row, header, "active"), defaultValue: true, tableInfo, tableIndex, rowIndexForMessages, state, "active")));
         }
     }
 
@@ -518,12 +666,24 @@ public sealed class RtpxWordProtocolExtractor
     }
 
     private static bool TryCreateHeader(
-        IReadOnlyList<string> row,
+        RtpxWordRow row,
         RtpxWordTableInfo tableInfo,
         int tableIndex,
         ExtractionState state,
         out IReadOnlyDictionary<string, int> header)
     {
+        if (row.HasUnsupportedMerge)
+        {
+            header = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            state.Add(
+                "rtpx.word.header-merged-cells",
+                RtpxWordIssueSeverity.Error,
+                $"Table '{tableInfo.Title}' header row contains merged cells. Split merged header cells before extraction.",
+                tableInfo.Title,
+                $"table {tableIndex} row {row.Number}");
+            return false;
+        }
+
         var mapped = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (var index = 0; index < row.Count; index++)
         {
@@ -568,7 +728,7 @@ public sealed class RtpxWordProtocolExtractor
     }
 
     private static bool TryGetRequired(
-        IReadOnlyList<string> row,
+        RtpxWordRow row,
         IReadOnlyDictionary<string, int> header,
         string key,
         RtpxWordTableInfo tableInfo,
@@ -686,7 +846,7 @@ public sealed class RtpxWordProtocolExtractor
         return false;
     }
 
-    private static string? Get(IReadOnlyList<string> row, IReadOnlyDictionary<string, int> header, string key)
+    private static string? Get(RtpxWordRow row, IReadOnlyDictionary<string, int> header, string key)
     {
         return header.TryGetValue(key, out var index) && index < row.Count ? ProtocolText(row[index]) : null;
     }
@@ -719,7 +879,7 @@ public sealed class RtpxWordProtocolExtractor
             .ToArray();
     }
 
-    private static ProtocolSourceReference Source(RtpxWordTableInfo tableInfo, int tableIndex, int rowNumber, IReadOnlyList<string> row)
+    private static ProtocolSourceReference Source(RtpxWordTableInfo tableInfo, int tableIndex, int rowNumber, RtpxWordRow row)
     {
         return new ProtocolSourceReference(
             tableInfo.Title,
@@ -893,30 +1053,41 @@ public sealed class RtpxWordProtocolExtractor
         return null;
     }
 
-    private static bool IsBlankDataRow(IReadOnlyList<string> row)
+    private static bool IsBlankDataRow(RtpxWordRow row)
     {
         return row.All(string.IsNullOrWhiteSpace);
     }
 
-    private static void WarnIfColumnCountDiffers(
-        IReadOnlyList<string> row,
-        IReadOnlyList<string> headerRow,
+    private static bool TryValidateRowShape(
+        RtpxWordRow row,
+        RtpxWordRow headerRow,
         RtpxWordTableInfo tableInfo,
         int tableIndex,
-        int rowIndex,
         ExtractionState state)
     {
+        if (row.HasUnsupportedMerge)
+        {
+            state.Add(
+                "rtpx.word.row-merged-cells",
+                RtpxWordIssueSeverity.Error,
+                $"Table '{tableInfo.Title}' row {row.Number} contains merged cells. Split merged data cells before extraction.",
+                tableInfo.Title,
+                $"table {tableIndex} row {row.Number}");
+            return false;
+        }
+
         if (row.Count == headerRow.Count)
         {
-            return;
+            return true;
         }
 
         state.Add(
             "rtpx.word.row-width-mismatch",
-            RtpxWordIssueSeverity.Warning,
-            $"Table '{tableInfo.Title}' row {rowIndex + 1} has {row.Count} cells but the header has {headerRow.Count}. Merged or ragged cells are not supported.",
+            RtpxWordIssueSeverity.Error,
+            $"Table '{tableInfo.Title}' row {row.Number} has {row.Count} cells but the header has {headerRow.Count}. Merged or ragged cells are not supported.",
             tableInfo.Title,
-            $"table {tableIndex} row {rowIndex + 1}");
+            $"table {tableIndex} row {row.Number}");
+        return false;
     }
 
     private static string TableTitle(RtpxWordTableKind kind)
@@ -1017,4 +1188,21 @@ public sealed class RtpxWordProtocolExtractor
     }
 
     private sealed record RtpxWordTableInfo(RtpxWordTableKind Kind, string Title, int HeaderRowIndex, bool ResolvedFromHeading);
+
+    private sealed record RtpxWordRow(int Number, IReadOnlyList<string> Cells, bool HasUnsupportedMerge) : IReadOnlyList<string>
+    {
+        public int Count => Cells.Count;
+
+        public string this[int index] => Cells[index];
+
+        public IEnumerator<string> GetEnumerator()
+        {
+            return Cells.GetEnumerator();
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
+        }
+    }
 }

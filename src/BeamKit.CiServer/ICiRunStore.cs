@@ -76,6 +76,21 @@ public interface ICiRunStore
         string? note = null);
 
     /// <summary>
+    /// Adds or replaces an RT-PX package acceptance record.
+    /// </summary>
+    CiServerRtpxAcceptanceRecord SaveRtpxAcceptance(CiServerRtpxAcceptanceRecord record);
+
+    /// <summary>
+    /// Finds an RT-PX package acceptance record.
+    /// </summary>
+    CiServerRtpxAcceptanceRecord? FindRtpxAcceptance(string id);
+
+    /// <summary>
+    /// Lists recent RT-PX package acceptance records.
+    /// </summary>
+    IReadOnlyList<CiServerRtpxAcceptanceSummary> ListRtpxAcceptances(int limit = 50);
+
+    /// <summary>
     /// Adds or replaces a case work item.
     /// </summary>
     CaseWorkItem SaveWorkItem(CaseWorkItem workItem);

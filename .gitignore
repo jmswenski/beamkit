@@ -7,6 +7,8 @@ coverage/
 artifacts/
 reports/
 manifests/
+node_modules/
+dist/
 *.user
 *.suo
 *.nupkg

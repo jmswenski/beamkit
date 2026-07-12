@@ -1,0 +1,246 @@
+{
+  "schemaVersion": "beamkit.rtpx.authoring.templates.v1",
+  "libraryId": "beamkit.defaults.rtpx.templates",
+  "version": "0.1.0",
+  "owner": "BeamKit",
+  "templates": [
+    {
+      "key": "head-neck",
+      "label": "Head & Neck VMAT",
+      "metadata": {
+        "id": "rtpx.head-neck.vmat",
+        "name": "Head & Neck VMAT Protocol",
+        "version": "0.1.0",
+        "diseaseSite": "Head and Neck",
+        "intent": "Definitive",
+        "status": "Draft",
+        "owner": "Radiation Oncology",
+        "tags": "head-neck; vmat; authoring-template",
+        "sourceTitle": "Head & Neck protocol",
+        "sourceVersion": "draft"
+      },
+      "structures": [
+        ["ptv.high", "PTV_High", "Target", "Required", "PTV; PTV_HR", "yes", "High-risk planning target"],
+        ["ctv.high", "CTV_High", "Target", "Recommended", "CTV; CTV_HR", "yes", "High-risk clinical target"],
+        ["cord", "Cord", "OAR", "Required", "SpinalCord; Spinal Cord", "yes", "Spinal cord"],
+        ["brainstem", "Brainstem", "OAR", "Required", "Brain Stem", "yes", "Brainstem"],
+        ["parotid.l", "Parotid_L", "OAR", "Recommended", "Lt Parotid; Left Parotid", "yes", "Left parotid"],
+        ["parotid.r", "Parotid_R", "OAR", "Recommended", "Rt Parotid; Right Parotid", "yes", "Right parotid"]
+      ],
+      "prescriptions": [
+        ["rx.high", "PTV_High", "70", "35", "2", "VMAT", "6X", "Required", "Primary definitive prescription"]
+      ],
+      "constraints": [
+        ["cord.max", "Cord", "Max", "<=", "45", "Gy", "Required", "Cord maximum dose", "yes"],
+        ["brainstem.max", "Brainstem", "Max", "<=", "54", "Gy", "Required", "Brainstem maximum dose", "yes"],
+        ["parotid.l.mean", "Parotid_L", "Mean", "<=", "26", "Gy", "Recommended", "Left parotid mean dose", "yes"],
+        ["parotid.r.mean", "Parotid_R", "Mean", "<=", "26", "Gy", "Recommended", "Right parotid mean dose", "yes"],
+        ["ptv.high.d95", "PTV_High", "D95", ">=", "95", "%", "Required", "High-risk target coverage", "yes"]
+      ],
+      "checks": [
+        ["dose-grid", "Dose grid <= 2.5 mm", "DoseGridResolution", "Required", "maxMm=2.5", "Protocol grid check", "yes"],
+        ["beam-model", "Beam model matches policy", "BeamModel", "Required", "allowed=6X", "Beam model policy", "yes"],
+        ["qa-plan-match", "QA plan matches treatment plan", "TreatmentQaPlanMatch", "Required", "", "QA plan integrity check", "yes"]
+      ],
+      "workflow": [
+        ["physics.review", "Physics review before treatment", "Approval", "Required", "Protocol cases need physics review", "yes"],
+        ["peer.review", "Peer review before approval", "Review", "Recommended", "Review target and OAR tradeoffs", "yes"]
+      ]
+    },
+    {
+      "key": "lung-sbrt",
+      "label": "Lung SBRT",
+      "metadata": {
+        "id": "rtpx.lung-sbrt",
+        "name": "Lung SBRT Protocol",
+        "version": "0.1.0",
+        "diseaseSite": "Lung",
+        "intent": "Definitive",
+        "status": "Draft",
+        "owner": "Radiation Oncology",
+        "tags": "lung; sbrt; authoring-template",
+        "sourceTitle": "Lung SBRT protocol",
+        "sourceVersion": "draft"
+      },
+      "structures": [
+        ["ptv", "PTV_5000", "Target", "Required", "PTV; PTV50", "yes", "SBRT planning target"],
+        ["itv", "ITV", "Target", "Recommended", "Internal Target Volume", "yes", "Internal target volume"],
+        ["lung.total", "Lung_Total", "OAR", "Required", "Total Lung; Lungs", "yes", "Total lung excluding target when institution policy requires"],
+        ["cord", "Cord", "OAR", "Required", "SpinalCord; Spinal Cord", "yes", "Spinal cord"],
+        ["heart", "Heart", "OAR", "Recommended", "", "yes", "Heart"],
+        ["esophagus", "Esophagus", "OAR", "Recommended", "Oesophagus", "yes", "Esophagus"]
+      ],
+      "prescriptions": [
+        ["rx.primary", "PTV_5000", "50", "5", "10", "SBRT", "6X-FFF", "Required", "Common lung SBRT fractionation placeholder"]
+      ],
+      "constraints": [
+        ["ptv.d95", "PTV_5000", "D95", ">=", "95", "%", "Required", "PTV coverage", "yes"],
+        ["lung.v20", "Lung_Total", "V20", "<=", "10", "%", "Recommended", "Total lung V20", "yes"],
+        ["cord.max", "Cord", "Max", "<=", "30", "Gy", "Required", "Cord maximum dose", "yes"],
+        ["heart.mean", "Heart", "Mean", "<=", "10", "Gy", "Recommended", "Mean heart dose", "yes"]
+      ],
+      "checks": [
+        ["dose-grid", "Dose grid <= 2.0 mm", "DoseGridResolution", "Required", "maxMm=2.0", "SBRT grid check", "yes"],
+        ["mu-per-degree", "MU per degree >= minimum", "MuPerDegree", "Required", "minMuPerDegree=0.1", "Delivery modulation check", "yes"],
+        ["qa-plan-match", "QA plan matches treatment plan", "TreatmentQaPlanMatch", "Required", "", "QA plan integrity check", "yes"]
+      ],
+      "workflow": [
+        ["physics.review", "Physics review before treatment", "Approval", "Required", "SBRT physics review", "yes"],
+        ["image.guidance", "Image guidance documented", "Documentation", "Required", "Confirm SBRT setup and imaging expectations", "yes"]
+      ]
+    },
+    {
+      "key": "prostate",
+      "label": "Prostate IMRT",
+      "metadata": {
+        "id": "rtpx.prostate.imrt",
+        "name": "Prostate IMRT Protocol",
+        "version": "0.1.0",
+        "diseaseSite": "Prostate",
+        "intent": "Definitive",
+        "status": "Draft",
+        "owner": "Radiation Oncology",
+        "tags": "prostate; imrt; authoring-template",
+        "sourceTitle": "Prostate protocol",
+        "sourceVersion": "draft"
+      },
+      "structures": [
+        ["ptv", "PTV_7000", "Target", "Required", "PTV", "yes", "Primary prostate planning target"],
+        ["prostate", "Prostate", "Target", "Recommended", "", "yes", "Prostate gland"],
+        ["rectum", "Rectum", "OAR", "Required", "", "yes", "Rectum"],
+        ["bladder", "Bladder", "OAR", "Required", "", "yes", "Bladder"],
+        ["femur.l", "Femur_Head_L", "OAR", "Recommended", "Left Femoral Head", "yes", "Left femoral head"],
+        ["femur.r", "Femur_Head_R", "OAR", "Recommended", "Right Femoral Head", "yes", "Right femoral head"]
+      ],
+      "prescriptions": [
+        ["rx.primary", "PTV_7000", "70", "28", "2.5", "IMRT", "6X", "Required", "Moderate hypofractionation placeholder"]
+      ],
+      "constraints": [
+        ["ptv.d95", "PTV_7000", "D95", ">=", "95", "%", "Required", "PTV coverage", "yes"],
+        ["rectum.v70", "Rectum", "V70", "<=", "15", "%", "Recommended", "Rectum high-dose volume", "yes"],
+        ["bladder.v70", "Bladder", "V70", "<=", "25", "%", "Recommended", "Bladder high-dose volume", "yes"],
+        ["femurs.max", "Femur_Head_L", "Max", "<=", "50", "Gy", "Recommended", "Femoral head max placeholder", "yes"]
+      ],
+      "checks": [
+        ["dose-grid", "Dose grid <= 2.5 mm", "DoseGridResolution", "Required", "maxMm=2.5", "Protocol grid check", "yes"],
+        ["beam-model", "Beam model matches policy", "BeamModel", "Required", "allowed=6X;10X", "Beam model policy", "yes"]
+      ],
+      "workflow": [
+        ["physics.review", "Physics review before treatment", "Approval", "Required", "Physics review", "yes"]
+      ]
+    },
+    {
+      "key": "breast",
+      "label": "Breast Tangents",
+      "metadata": {
+        "id": "rtpx.breast.tangents",
+        "name": "Breast Tangents Protocol",
+        "version": "0.1.0",
+        "diseaseSite": "Breast",
+        "intent": "Adjuvant",
+        "status": "Draft",
+        "owner": "Radiation Oncology",
+        "tags": "breast; tangents; authoring-template",
+        "sourceTitle": "Breast protocol",
+        "sourceVersion": "draft"
+      },
+      "structures": [
+        ["ptv.breast", "PTV_Breast", "Target", "Required", "Breast PTV", "yes", "Breast planning target"],
+        ["heart", "Heart", "OAR", "Required", "", "yes", "Heart"],
+        ["lung.ipsi", "Lung_Ipsi", "OAR", "Required", "Ipsilateral Lung", "yes", "Ipsilateral lung"],
+        ["body", "Body", "External", "Required", "External", "yes", "External body"]
+      ],
+      "prescriptions": [
+        ["rx.primary", "PTV_Breast", "40.05", "15", "2.67", "3D", "6X", "Required", "Whole breast placeholder"]
+      ],
+      "constraints": [
+        ["ptv.d95", "PTV_Breast", "D95", ">=", "95", "%", "Required", "Target coverage", "yes"],
+        ["heart.mean", "Heart", "Mean", "<=", "4", "Gy", "Recommended", "Mean heart dose placeholder", "yes"],
+        ["lung.ipsi.v20", "Lung_Ipsi", "V20", "<=", "20", "%", "Recommended", "Ipsilateral lung V20", "yes"]
+      ],
+      "checks": [
+        ["dose-grid", "Dose grid <= 3.0 mm", "DoseGridResolution", "Required", "maxMm=3.0", "Protocol grid check", "yes"],
+        ["qa-plan-match", "QA plan matches treatment plan", "TreatmentQaPlanMatch", "Required", "", "QA plan integrity check", "yes"]
+      ],
+      "workflow": [
+        ["physics.review", "Physics review before treatment", "Approval", "Required", "Physics review", "yes"]
+      ]
+    },
+    {
+      "key": "brain-srs",
+      "label": "Brain SRS",
+      "metadata": {
+        "id": "rtpx.brain-srs",
+        "name": "Brain SRS Protocol",
+        "version": "0.1.0",
+        "diseaseSite": "Brain",
+        "intent": "Definitive",
+        "status": "Draft",
+        "owner": "Radiation Oncology",
+        "tags": "brain; srs; authoring-template",
+        "sourceTitle": "Brain SRS protocol",
+        "sourceVersion": "draft"
+      },
+      "structures": [
+        ["ptv", "PTV_2000", "Target", "Required", "PTV", "yes", "SRS planning target"],
+        ["gtv", "GTV", "Target", "Recommended", "", "yes", "Gross target volume"],
+        ["brainstem", "Brainstem", "OAR", "Required", "Brain Stem", "yes", "Brainstem"],
+        ["optic.chiasm", "OpticChiasm", "OAR", "Recommended", "Chiasm", "yes", "Optic chiasm"],
+        ["optic.nerve.l", "OpticNrv_L", "OAR", "Recommended", "Left Optic Nerve", "yes", "Left optic nerve"],
+        ["optic.nerve.r", "OpticNrv_R", "OAR", "Recommended", "Right Optic Nerve", "yes", "Right optic nerve"]
+      ],
+      "prescriptions": [
+        ["rx.primary", "PTV_2000", "20", "1", "20", "SRS", "6X-FFF", "Required", "Single-fraction SRS placeholder"]
+      ],
+      "constraints": [
+        ["ptv.d95", "PTV_2000", "D95", ">=", "95", "%", "Required", "Target coverage", "yes"],
+        ["brainstem.max", "Brainstem", "Max", "<=", "12.5", "Gy", "Required", "Brainstem max placeholder", "yes"],
+        ["chiasm.max", "OpticChiasm", "Max", "<=", "8", "Gy", "Recommended", "Optic chiasm max placeholder", "yes"]
+      ],
+      "checks": [
+        ["dose-grid", "Dose grid <= 1.25 mm", "DoseGridResolution", "Required", "maxMm=1.25", "SRS grid check", "yes"],
+        ["mu-per-degree", "MU per degree >= minimum", "MuPerDegree", "Required", "minMuPerDegree=0.1", "Delivery modulation check", "yes"],
+        ["qa-plan-match", "QA plan matches treatment plan", "TreatmentQaPlanMatch", "Required", "", "QA plan integrity check", "yes"]
+      ],
+      "workflow": [
+        ["physics.review", "Physics review before treatment", "Approval", "Required", "SRS physics review", "yes"],
+        ["peer.review", "Peer review before approval", "Review", "Required", "SRS peer review", "yes"]
+      ]
+    },
+    {
+      "key": "palliative-bone",
+      "label": "Palliative Bone",
+      "metadata": {
+        "id": "rtpx.palliative-bone",
+        "name": "Palliative Bone Protocol",
+        "version": "0.1.0",
+        "diseaseSite": "Bone",
+        "intent": "Palliative",
+        "status": "Draft",
+        "owner": "Radiation Oncology",
+        "tags": "bone; palliative; authoring-template",
+        "sourceTitle": "Palliative bone protocol",
+        "sourceVersion": "draft"
+      },
+      "structures": [
+        ["ptv", "PTV_3000", "Target", "Required", "PTV", "yes", "Palliative planning target"],
+        ["body", "Body", "External", "Required", "External", "yes", "External body"],
+        ["cord", "Cord", "OAR", "Recommended", "SpinalCord; Spinal Cord", "yes", "Cord when near treatment field"]
+      ],
+      "prescriptions": [
+        ["rx.primary", "PTV_3000", "30", "10", "3", "3D", "6X", "Required", "Common palliative placeholder"]
+      ],
+      "constraints": [
+        ["ptv.d95", "PTV_3000", "D95", ">=", "95", "%", "Required", "Target coverage", "yes"],
+        ["cord.max", "Cord", "Max", "<=", "30", "Gy", "Recommended", "Cord maximum dose if relevant", "yes"]
+      ],
+      "checks": [
+        ["dose-grid", "Dose grid <= 3.0 mm", "DoseGridResolution", "Required", "maxMm=3.0", "Protocol grid check", "yes"],
+        ["qa-plan-match", "QA plan matches treatment plan", "TreatmentQaPlanMatch", "Required", "", "QA plan integrity check", "yes"]
+      ],
+      "workflow": [
+        ["physics.review", "Physics review before treatment", "Approval", "Required", "Physics review", "yes"]
+      ]
+    }
+  ]
+}

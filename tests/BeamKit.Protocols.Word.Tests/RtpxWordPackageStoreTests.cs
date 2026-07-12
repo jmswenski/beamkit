@@ -63,6 +63,23 @@ public sealed class RtpxWordPackageStoreTests
     }
 
     [Fact]
+    public void InspectReportsMissingIncludedSourceAsHashFailure()
+    {
+        var templatePath = TempPath(".docx");
+        var packagePath = TempPath(".rtpx.zip");
+        new RtpxWordTemplateGenerator().Create(templatePath);
+        new RtpxWordPackageStore().Create(templatePath, packagePath, includeSourceDocument: true);
+        using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+        {
+            archive.GetEntry($"source/{Path.GetFileName(templatePath)}")?.Delete();
+        }
+
+        var inspection = new RtpxWordPackageStore().Inspect(packagePath);
+
+        Assert.False(inspection.SourceHashVerified);
+    }
+
+    [Fact]
     public void PackageStoreDoesNotWritePackageWhenWordExtractionIsInvalid()
     {
         var invalidDocx = CreateNarrativeDocument();
@@ -77,7 +94,7 @@ public sealed class RtpxWordPackageStoreTests
     }
 
     [Fact]
-    public void PackageStoreRemovesExistingPackageWhenOverwriteExtractionFails()
+    public void PackageStorePreservesExistingPackageWhenOverwriteExtractionFails()
     {
         var invalidDocx = CreateNarrativeDocument();
         var packagePath = TempPath(".rtpx.zip");
@@ -86,7 +103,8 @@ public sealed class RtpxWordPackageStoreTests
         var result = new RtpxWordPackageStore().Create(invalidDocx, packagePath, overwrite: true);
 
         Assert.False(result.WrotePackage);
-        Assert.False(File.Exists(packagePath));
+        Assert.True(File.Exists(packagePath));
+        Assert.Equal("stale package", File.ReadAllText(packagePath));
     }
 
     [Fact]

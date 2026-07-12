@@ -110,7 +110,8 @@ internal static class Program
             or UnauthorizedAccessException
             or InvalidOperationException
             or JsonException
-            || ex.GetType().FullName is "System.IO.Packaging.FileFormatException"
+            || ex.GetType().FullName is "System.IO.FileFormatException"
+                or "System.IO.Packaging.FileFormatException"
                 or "DocumentFormat.OpenXml.Packaging.OpenXmlPackageException";
     }
 
@@ -407,7 +408,7 @@ internal static class Program
         var packagePath = RequirePackagePath(options);
         var inspection = new RtpxWordPackageStore().Inspect(packagePath);
         WriteOutput(WriteProtocolPackageInspectionReport(inspection, options.Format), options.OutputPath);
-        return inspection.Validation.IsValid ? 0 : 2;
+        return inspection.Validation.IsValid && inspection.SourceHashVerified != false ? 0 : 2;
     }
 
     private static int RunProtocolPackageAccept(CliOptions options)

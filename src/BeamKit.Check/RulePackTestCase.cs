@@ -1,4 +1,5 @@
 using BeamKit.Core.Domain;
+using BeamKit.Workflow;
 
 namespace BeamKit.Check;
 
@@ -15,13 +16,15 @@ public sealed record RulePackTestCase
         string description,
         Plan plan,
         BeamKitCheckStatus expectedStatus,
-        IEnumerable<string>? expectedFindingIds = null)
+        IEnumerable<string>? expectedFindingIds = null,
+        PlanReadinessInput? readinessInput = null)
     {
         Id = CheckText.Required(id, nameof(id));
         Description = CheckText.Required(description, nameof(description));
         Plan = plan ?? throw new ArgumentNullException(nameof(plan));
         ExpectedStatus = expectedStatus;
         ExpectedFindingIds = CheckText.CleanTags(expectedFindingIds);
+        ReadinessInput = readinessInput;
     }
 
     /// <summary>
@@ -48,4 +51,9 @@ public sealed record RulePackTestCase
     /// Finding ids expected to appear as non-passing plan-check or clinical-rule results.
     /// </summary>
     public IReadOnlyList<string> ExpectedFindingIds { get; init; }
+
+    /// <summary>
+    /// Optional explicit readiness evidence for this test case. Rule-pack defaults are used when omitted.
+    /// </summary>
+    public PlanReadinessInput? ReadinessInput { get; init; }
 }

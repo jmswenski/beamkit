@@ -177,6 +177,30 @@ internal static class DashboardHtml
                 </div>
               </section>
               <section>
+                <h2>RT-PX Acceptance</h2>
+                <div class="stack" style="margin-top:12px">
+                  <label>Package path
+                    <input id="rtpxPackagePath" placeholder="protocol.rtpx.zip">
+                  </label>
+                  <label>Institution profile
+                    <input id="rtpxInstitutionPath" placeholder="institution.json">
+                  </label>
+                  <label>ESAPI snapshot
+                    <input id="rtpxEsapiPath" placeholder="snapshot.json">
+                  </label>
+                  <label>Synthetic case
+                    <input id="rtpxSyntheticCaseId" value="head-neck-pass">
+                  </label>
+                  <label>
+                    <span><input id="rtpxPromote" type="checkbox" style="width:auto; min-height:auto; margin-right:6px">Promote active</span>
+                  </label>
+                </div>
+                <div class="actions">
+                  <button onclick="acceptRtpxPackage()">Accept package</button>
+                  <button class="secondary" onclick="loadRtpxAcceptances()">Refresh</button>
+                </div>
+              </section>
+              <section>
                 <h2>Assignment</h2>
                 <div class="stack" style="margin-top:12px">
                   <label>Disease site
@@ -259,6 +283,20 @@ internal static class DashboardHtml
                 </thead>
                 <tbody id="runs"></tbody>
               </table>
+              <h2 style="margin-top:22px">RT-PX Acceptance</h2>
+              <table>
+                <thead>
+                  <tr><th>Acceptance</th><th>Protocol</th><th>Institution</th><th>Status</th><th>Rule Pack</th><th>Evidence</th><th>Created</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="rtpxAcceptances"></tbody>
+              </table>
+              <h2 style="margin-top:22px">RT-PX Draft Review</h2>
+              <table>
+                <thead>
+                  <tr><th>Draft</th><th>Protocol</th><th>Rule Pack</th><th>Validation</th><th>Diff</th><th>Evidence</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="rtpxDrafts"></tbody>
+              </table>
               <h2 style="margin-top:22px">Work Queue</h2>
               <table>
                 <thead>
@@ -294,8 +332,31 @@ internal static class DashboardHtml
               const data = text ? JSON.parse(text) : null;
               document.getElementById("output").textContent = JSON.stringify(data, null, 2);
               await loadRuns();
+              await loadRtpxAcceptances();
+              await loadRtpxDrafts();
               await loadWorkItems();
               return data;
+            }
+
+            function escapeHtml(value) {
+              return String(value ?? "").replace(/[&<>"']/g, ch => {
+                switch (ch) {
+                  case "&": return "&amp;";
+                  case "<": return "&lt;";
+                  case ">": return "&gt;";
+                  case '"': return "&quot;";
+                  case "'": return "&#39;";
+                  default: return ch;
+                }
+              });
+            }
+
+            function escapeOnclickString(value) {
+              return escapeHtml(String(value ?? "")
+                .replace(/\\/g, "\\\\")
+                .replace(/'/g, "\\'")
+                .replace(/\r/g, "\\r")
+                .replace(/\n/g, "\\n"));
             }
 
             async function createRun() {
@@ -322,6 +383,25 @@ internal static class DashboardHtml
 
             async function testPolicy() {
               await api("/api/rule-packs/test", { method: "POST", body: "{}" });
+            }
+
+            async function acceptRtpxPackage() {
+              const packagePath = document.getElementById("rtpxPackagePath").value.trim();
+              const institutionProfilePath = document.getElementById("rtpxInstitutionPath").value.trim();
+              if (!packagePath || !institutionProfilePath) return;
+              await api("/api/rtpx/acceptance", {
+                method: "POST",
+                body: JSON.stringify({
+                  packagePath,
+                  institutionProfilePath,
+                  esapiSnapshotPath: document.getElementById("rtpxEsapiPath").value.trim() || null,
+                  rulePackId: document.getElementById("rulePackId").value || null,
+                  syntheticCaseId: document.getElementById("rtpxSyntheticCaseId").value || null,
+                  promote: document.getElementById("rtpxPromote").checked,
+                  importedBy: "dashboard",
+                  note: "Accepted from local BeamKit CI dashboard."
+                })
+              });
             }
 
             async function recommendAssignment() {
@@ -443,19 +523,20 @@ internal static class DashboardHtml
 
               const runs = await response.json();
               document.getElementById("runs").innerHTML = runs.map(run => {
-                const status = String(run.status).toLowerCase();
+                const runId = escapeOnclickString(run.id);
+                const status = String(run.status || "").toLowerCase();
                 return `<tr>
-                  <td><code>${run.id}</code></td>
-                  <td>${formatInputKind(run.inputKind)}</td>
-                  <td>${run.caseId || run.syntheticCaseId}</td>
-                  <td class="status-${status}">${run.status}</td>
+                  <td><code>${escapeHtml(run.id)}</code></td>
+                  <td>${escapeHtml(formatInputKind(run.inputKind))}</td>
+                  <td>${escapeHtml(run.caseId || run.syntheticCaseId || "")}</td>
+                  <td class="status-${escapeHtml(status)}">${escapeHtml(run.status)}</td>
                   <td>${run.hasPlanSnapshot ? "Plan" : "Metadata"}</td>
-                  <td>${run.exitCode}</td>
-                  <td>${new Date(run.createdAtUtc).toLocaleString()}</td>
+                  <td>${escapeHtml(run.exitCode)}</td>
+                  <td>${escapeHtml(new Date(run.createdAtUtc).toLocaleString())}</td>
                   <td>
-                    <button class="secondary" style="min-height:28px; padding:0 8px" onclick="downloadArtifact('${run.id}')">JSON</button>
-                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="promoteBaseline('${run.id}')">Baseline</button>
-                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="compareBaseline('${run.id}')">Compare</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px" onclick="downloadArtifact('${runId}')">JSON</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="promoteBaseline('${runId}')">Baseline</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="compareBaseline('${runId}')">Compare</button>
                   </td>
                 </tr>`;
               }).join("");
@@ -470,18 +551,106 @@ internal static class DashboardHtml
 
               const items = await response.json();
               document.getElementById("workItems").innerHTML = items.map(item => {
+                const workItemId = escapeOnclickString(item.id);
                 return `<tr>
-                  <td><code>${item.id}</code></td>
-                  <td>${item.caseId}</td>
-                  <td>${item.status}</td>
-                  <td>${item.diseaseSite || ""}</td>
-                  <td>${item.dueDate || ""}</td>
-                  <td>${item.assignedDosimetristName || item.assignedDosimetristId || ""}</td>
-                  <td>${item.assignedPhysicistName || item.assignedPhysicistId || ""}</td>
-                  <td>${new Date(item.updatedAtUtc).toLocaleString()}</td>
-                  <td><button class="secondary" style="min-height:28px; padding:0 8px" onclick="selectWorkItem('${item.id}')">Use</button></td>
+                  <td><code>${escapeHtml(item.id)}</code></td>
+                  <td>${escapeHtml(item.caseId)}</td>
+                  <td>${escapeHtml(item.status)}</td>
+                  <td>${escapeHtml(item.diseaseSite || "")}</td>
+                  <td>${escapeHtml(item.dueDate || "")}</td>
+                  <td>${escapeHtml(item.assignedDosimetristName || item.assignedDosimetristId || "")}</td>
+                  <td>${escapeHtml(item.assignedPhysicistName || item.assignedPhysicistId || "")}</td>
+                  <td>${escapeHtml(new Date(item.updatedAtUtc).toLocaleString())}</td>
+                  <td><button class="secondary" style="min-height:28px; padding:0 8px" onclick="selectWorkItem('${workItemId}')">Use</button></td>
                 </tr>`;
               }).join("");
+            }
+
+            async function loadRtpxAcceptances() {
+              const response = await fetch("/api/rtpx/acceptance?limit=25", { headers: requestHeaders() });
+              if (!response.ok) {
+                document.getElementById("rtpxAcceptances").innerHTML = "";
+                return;
+              }
+
+              const records = await response.json();
+              document.getElementById("rtpxAcceptances").innerHTML = records.map(record => {
+                const recordId = escapeOnclickString(record.id);
+                const status = record.accepted ? (record.promoted ? "Active" : "Accepted") : "Rejected";
+                const statusClass = record.accepted ? "status-pass" : "status-fail";
+                const rulePack = record.rulePackId
+                  ? `<code>${escapeHtml(record.rulePackId)}</code><br><code>${escapeHtml(record.versionId || "")}</code>`
+                  : "";
+                return `<tr>
+                  <td><code>${escapeHtml(record.id)}</code></td>
+                  <td>${escapeHtml(record.sourceProtocolName)}<br><code>${escapeHtml(record.sourceProtocolVersion)}</code></td>
+                  <td>${escapeHtml(record.institution)}</td>
+                  <td class="${statusClass}">${status}</td>
+                  <td>${rulePack}</td>
+                  <td>${record.hasEsapiEvidence ? "ESAPI" : "Package"}<br>${escapeHtml(record.errorCount)} error / ${escapeHtml(record.warningCount)} warn</td>
+                  <td>${escapeHtml(new Date(record.createdAtUtc).toLocaleString())}</td>
+                  <td><button class="secondary" style="min-height:28px; padding:0 8px" onclick="viewRtpxAcceptance('${recordId}')">View</button></td>
+                </tr>`;
+              }).join("");
+            }
+
+            async function loadRtpxDrafts() {
+              const response = await fetch("/api/rtpx/drafts?limit=25", { headers: requestHeaders() });
+              if (!response.ok) {
+                document.getElementById("rtpxDrafts").innerHTML = "";
+                return;
+              }
+
+              const drafts = await response.json();
+              document.getElementById("rtpxDrafts").innerHTML = drafts.map(draft => {
+                const acceptance = draft.acceptance || {};
+                const version = draft.version || {};
+                const diff = draft.protocolDiff || {};
+                const draftId = escapeOnclickString(acceptance.id);
+                const validationClass = version.isValid ? "status-pass" : "status-fail";
+                const testText = version.testPassed === true ? "tests pass" : version.testPassed === false ? "tests fail" : "tests not run";
+                return `<tr id="rtpx-draft-${escapeHtml(acceptance.id)}">
+                  <td><code>${escapeHtml(acceptance.id)}</code><br>${escapeHtml(new Date(acceptance.createdAtUtc).toLocaleString())}</td>
+                  <td>${escapeHtml(acceptance.sourceProtocolName)}<br><code>${escapeHtml(acceptance.sourceProtocolVersion)}</code></td>
+                  <td><code>${escapeHtml(acceptance.rulePackId || "")}</code><br><code>${escapeHtml(acceptance.versionId || "")}</code></td>
+                  <td class="${validationClass}">${version.isValid ? "valid" : "invalid"}<br>${escapeHtml(testText)}</td>
+                  <td>${diff.isInitial ? "Initial package" : escapeHtml(diff.changeCount || 0) + " change(s)"}</td>
+                  <td>${draft.safetyEvidence ? "safety evidence" : "missing"}<br>${draft.isPromotable ? "promotable" : "needs review"}</td>
+                  <td>
+                    <button class="secondary" style="min-height:28px; padding:0 8px" onclick="viewRtpxDraft('${draftId}')">View</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="promoteRtpxDraft('${draftId}')">Promote</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="rejectRtpxDraft('${draftId}')">Reject</button>
+                  </td>
+                </tr>`;
+              }).join("");
+            }
+
+            async function viewRtpxAcceptance(id) {
+              await api(`/api/rtpx/acceptance/${id}`, { method: "GET" });
+            }
+
+            async function viewRtpxDraft(id) {
+              await api(`/api/rtpx/drafts/${id}`, { method: "GET" });
+            }
+
+            async function promoteRtpxDraft(id) {
+              await api(`/api/rtpx/drafts/${id}/promote`, {
+                method: "POST",
+                body: JSON.stringify({
+                  reviewedBy: "dashboard",
+                  note: "Promoted from local BeamKit CI dashboard."
+                })
+              });
+            }
+
+            async function rejectRtpxDraft(id) {
+              await api(`/api/rtpx/drafts/${id}/reject`, {
+                method: "POST",
+                body: JSON.stringify({
+                  reviewedBy: "dashboard",
+                  note: "Rejected from local BeamKit CI dashboard."
+                })
+              });
             }
 
             function selectWorkItem(id) {
@@ -497,6 +666,8 @@ internal static class DashboardHtml
             }
 
             loadRuns();
+            loadRtpxAcceptances();
+            loadRtpxDrafts();
             loadWorkItems();
           </script>
         </body>

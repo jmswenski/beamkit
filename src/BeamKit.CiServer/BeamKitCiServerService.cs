@@ -1,15 +1,22 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using BeamKit.ChangeDetection;
 using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
 using BeamKit.Esapi;
 using BeamKit.Intelligence;
+using BeamKit.Protocols;
+using BeamKit.Protocols.Acceptance;
+using BeamKit.Protocols.Word;
 using BeamKit.RulePacks;
 using BeamKit.Safety;
 using BeamKit.Samples;
 using BeamKit.Sdk;
 using BeamKit.Workflow;
+using Microsoft.Extensions.Options;
 
 namespace BeamKit.CiServer;
 
@@ -22,6 +29,7 @@ public sealed class BeamKitCiServerService
     private readonly ICiRunStore store;
     private readonly TimeProvider timeProvider;
     private readonly CiServerRulePackRegistry rulePacks;
+    private readonly CiServerRtpxAuthoringOptions rtpxAuthoringOptions;
 
     /// <summary>
     /// Creates a hosted CI server service.
@@ -30,12 +38,14 @@ public sealed class BeamKitCiServerService
         BeamKitClient client,
         ICiRunStore store,
         TimeProvider? timeProvider = null,
-        CiServerRulePackRegistry? rulePacks = null)
+        CiServerRulePackRegistry? rulePacks = null,
+        IOptions<CiServerRtpxAuthoringOptions>? rtpxAuthoringOptions = null)
     {
         this.client = client ?? throw new ArgumentNullException(nameof(client));
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.rulePacks = rulePacks ?? new CiServerRulePackRegistry(new CiServerRulePackRegistryOptions());
+        this.rtpxAuthoringOptions = rtpxAuthoringOptions?.Value ?? new CiServerRtpxAuthoringOptions();
     }
 
     /// <summary>
@@ -52,6 +62,42 @@ public sealed class BeamKitCiServerService
                 clinicalCase.ExpectedToPass,
                 clinicalCase.ExpectedFindings))
             .ToArray();
+    }
+
+    /// <summary>
+    /// Loads the configured RT-PX authoring template library.
+    /// </summary>
+    public RtpxAuthoringTemplateLibrary GetRtpxAuthoringTemplates()
+    {
+        var path = ResolveRtpxAuthoringLibraryPath(
+            rtpxAuthoringOptions.TemplateLibraryPath,
+            "rtpx-templates.json");
+        var library = JsonSerializer.Deserialize<RtpxAuthoringTemplateLibrary>(File.ReadAllText(path), CiServerJson.Options)
+            ?? throw new InvalidOperationException($"RT-PX template library '{path}' did not produce a library.");
+        if (library.Templates.Count == 0)
+        {
+            throw new InvalidOperationException($"RT-PX template library '{path}' does not contain any templates.");
+        }
+
+        return library;
+    }
+
+    /// <summary>
+    /// Loads the configured RT-PX authoring snippet library.
+    /// </summary>
+    public RtpxAuthoringSnippetLibrary GetRtpxAuthoringSnippets()
+    {
+        var path = ResolveRtpxAuthoringLibraryPath(
+            rtpxAuthoringOptions.SnippetLibraryPath,
+            "rtpx-snippets.json");
+        var library = JsonSerializer.Deserialize<RtpxAuthoringSnippetLibrary>(File.ReadAllText(path), CiServerJson.Options)
+            ?? throw new InvalidOperationException($"RT-PX snippet library '{path}' did not produce a library.");
+        if (library.Snippets.Count == 0)
+        {
+            throw new InvalidOperationException($"RT-PX snippet library '{path}' does not contain any snippets.");
+        }
+
+        return library;
     }
 
     /// <summary>
@@ -560,6 +606,14 @@ public sealed class BeamKitCiServerService
     /// </summary>
     public CiServerRulePackImportResult ImportRulePack(RulePackImportServerRequest request, CiServerAuditContext? auditContext = null)
     {
+        return ImportRulePack(request, auditContext, useCompleteSyntheticReadiness: false);
+    }
+
+    private CiServerRulePackImportResult ImportRulePack(
+        RulePackImportServerRequest request,
+        CiServerAuditContext? auditContext,
+        bool useCompleteSyntheticReadiness)
+    {
         ArgumentNullException.ThrowIfNull(request);
 
         var rulePackId = NormalizeManagedRulePackId(request.RulePackId);
@@ -569,7 +623,7 @@ public sealed class BeamKitCiServerService
             : RulePackBundleLoader.ToRulePack(source.Bundle);
         var validation = client.ValidateRulePack(rulePack);
         var testReport = request.RunRegressionTests
-            ? client.TestRulePack(rulePack, LoadRulePackTestCases(request.SyntheticCaseId))
+            ? client.TestRulePack(rulePack, LoadRulePackTestCases(request.SyntheticCaseId, useCompleteSyntheticReadiness))
             : source.Bundle?.TestReport;
         var importedBy = CiServerText.Optional(request.ImportedBy) ?? auditContext?.Actor;
         var bundle = source.Bundle ?? new RulePackBundleBuilder(timeProvider).FromJson(
@@ -844,6 +898,437 @@ public sealed class BeamKitCiServerService
     }
 
     /// <summary>
+    /// Extracts and validates RT-PX protocol intent from a Word document upload.
+    /// </summary>
+    public RtpxWordAuthoringServerResult ExtractRtpxWordProtocol(
+        RtpxWordAuthoringServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var authoringId = CreateRtpxWordAuthoringId();
+        var createdAtUtc = timeProvider.GetUtcNow();
+        var outputDirectory = ResolveRtpxWordAuthoringOutputDirectory(request.OutputDirectory, authoringId);
+        Directory.CreateDirectory(outputDirectory);
+
+        var source = ResolveRtpxWordDocxSource(request, outputDirectory);
+        var extraction = new RtpxWordProtocolExtractor().Extract(source.Path);
+        string? rtpxJson = null;
+        if (extraction.Package is not null)
+        {
+            rtpxJson = RadiotherapyProtocolPackageStore.ToJson(extraction.Package);
+            File.WriteAllText(Path.Combine(outputDirectory, "rtpx.json"), rtpxJson);
+        }
+
+        string? packageBase64 = null;
+        string? packageFileName = null;
+        string? packageFingerprint = null;
+        if (request.GeneratePackage && extraction.IsValid && extraction.Package is not null)
+        {
+            packageFileName = $"{Slug(extraction.Package.Id)}.rtpx.zip";
+            var packagePath = Path.Combine(outputDirectory, packageFileName);
+            var packageResult = new RtpxWordPackageStore().Create(
+                source.Path,
+                packagePath,
+                request.IncludeSourceDocument,
+                overwrite: true);
+            if (packageResult.WrotePackage)
+            {
+                var packageBytes = File.ReadAllBytes(packagePath);
+                packageBase64 = Convert.ToBase64String(packageBytes);
+                packageFingerprint = HashBytes(packageBytes);
+            }
+        }
+
+        Audit(
+            "rtpx.word.extracted",
+            auditContext,
+            runId: authoringId,
+            caseId: extraction.Package?.Id,
+            status: extraction.IsValid ? "Valid" : "Invalid",
+            details: $"{source.Fingerprint}:{extraction.ErrorCount}/{extraction.WarningCount}");
+
+        return new RtpxWordAuthoringServerResult(
+            authoringId,
+            createdAtUtc,
+            source.FileName,
+            source.Fingerprint,
+            outputDirectory,
+            extraction,
+            rtpxJson,
+            packageBase64,
+            packageFileName,
+            packageFingerprint);
+    }
+
+    /// <summary>
+    /// Extracts a Word-authored RT-PX protocol and publishes it as a draft managed rule-pack version.
+    /// </summary>
+    public RtpxWordDraftPublishServerResult PublishRtpxWordDraft(
+        RtpxWordDraftPublishServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var publishId = CreateRtpxWordAuthoringId();
+        var createdAtUtc = timeProvider.GetUtcNow();
+        var outputDirectory = ResolveRtpxWordAuthoringOutputDirectory(request.OutputDirectory, publishId);
+        Directory.CreateDirectory(outputDirectory);
+
+        var source = ResolveRtpxWordDocxSource(request, outputDirectory);
+        var extraction = new RtpxWordProtocolExtractor().Extract(source.Path);
+        if (!extraction.IsValid || extraction.Package is null)
+        {
+            Audit(
+                "rtpx.word-draft.rejected",
+                auditContext,
+                runId: publishId,
+                caseId: extraction.Package?.Id,
+                status: "Invalid",
+                details: $"{source.Fingerprint}:{extraction.ErrorCount}/{extraction.WarningCount}");
+            return new RtpxWordDraftPublishServerResult(
+                publishId,
+                createdAtUtc,
+                source.FileName,
+                source.Fingerprint,
+                extraction,
+                Acceptance: null,
+                RulePackImport: null,
+                SafetyEvidence: null,
+                SafetyReview: null,
+                ProtocolDiff: null,
+                DashboardUrl: null);
+        }
+
+        var packageFileName = $"{Slug(extraction.Package.Id)}.rtpx.zip";
+        var packagePath = Path.Combine(outputDirectory, packageFileName);
+        var packageResult = new RtpxWordPackageStore().Create(
+            source.Path,
+            packagePath,
+            request.IncludeSourceDocument,
+            overwrite: true);
+        if (!packageResult.WrotePackage)
+        {
+            throw new InvalidOperationException($"RT-PX draft package '{packagePath}' was not written.");
+        }
+
+        var acceptanceRequest = new RtpxAcceptanceServerRequest
+        {
+            PackagePath = packagePath,
+            InstitutionProfilePath = request.InstitutionProfilePath,
+            InstitutionProfile = request.InstitutionProfile,
+            InstitutionProfileJson = ResolveDraftInstitutionProfileJson(request, extraction.Package),
+            RulePackId = request.RulePackId,
+            ImportedBy = CiServerText.Optional(request.ImportedBy) ?? auditContext?.Actor,
+            RunRegressionTests = request.RunRegressionTests,
+            SyntheticCaseId = request.SyntheticCaseId,
+            Promote = false,
+            Note = CiServerText.Optional(request.Note) ?? "Published as a draft from BeamKit Word authoring.",
+            OutputDirectory = Path.Combine(outputDirectory, "acceptance"),
+            Overwrite = true
+        };
+        var acceptance = AcceptRtpxPackage(acceptanceRequest, auditContext);
+        var rulePackId = acceptance.RulePackImport?.Version.RulePackId ?? acceptance.Acceptance.RulePackId ?? acceptance.Report.LocalPackage.Id;
+        var diff = CompareRtpxProtocolDraft(rulePackId, acceptance.Report.LocalPackage);
+
+        Audit(
+            "rtpx.word-draft.published",
+            auditContext,
+            runId: acceptance.Acceptance.Id,
+            caseId: rulePackId,
+            status: acceptance.Acceptance.Accepted ? "Draft" : "Rejected",
+            details: $"{acceptance.Acceptance.PackageFingerprint}:{diff.ChangeCount}");
+
+        return new RtpxWordDraftPublishServerResult(
+            publishId,
+            createdAtUtc,
+            source.FileName,
+            source.Fingerprint,
+            extraction,
+            acceptance.Acceptance,
+            acceptance.RulePackImport,
+            acceptance.SafetyEvidence,
+            acceptance.SafetyReview,
+            diff,
+            $"/#rtpx-draft-{acceptance.Acceptance.Id}");
+    }
+
+    /// <summary>
+    /// Accepts a portable RT-PX package, persists acceptance evidence, imports the generated rule pack, and optionally promotes it.
+    /// </summary>
+    public RtpxAcceptanceServerResult AcceptRtpxPackage(
+        RtpxAcceptanceServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var acceptanceId = CreateRtpxAcceptanceId();
+        var createdAtUtc = timeProvider.GetUtcNow();
+        var outputDirectory = ResolveRtpxAcceptanceOutputDirectory(request.OutputDirectory, acceptanceId);
+        Directory.CreateDirectory(outputDirectory);
+
+        var packageSource = ResolveRtpxPackageSource(request, outputDirectory);
+        var profileSource = ResolveRtpxInstitutionProfile(request);
+        var esapiSource = ResolveOptionalRtpxEsapiSnapshot(request);
+
+        var report = new RtpxPackageAcceptanceEngine().Accept(new RtpxAcceptanceRequest(
+            packageSource.Path,
+            profileSource.Profile,
+            outputDirectory,
+            esapiSource?.Snapshot,
+            esapiSource?.Path,
+            request.Overwrite,
+            createdAtUtc));
+        var reportJson = RtpxAcceptanceReportWriter.ToJson(report);
+        var record = SaveRtpxAcceptanceRecord(
+            acceptanceId,
+            createdAtUtc,
+            report,
+            packageSource,
+            profileSource,
+            esapiSource,
+            reportJson,
+            rulePackId: null,
+            versionId: null,
+            promoted: false,
+            safetyEvidenceJson: null);
+        Audit(
+            "rtpx.acceptance.created",
+            auditContext,
+            runId: record.Id,
+            caseId: record.LocalProtocolId,
+            status: report.IsAccepted ? "Accepted" : "Rejected",
+            details: $"{record.PackageFingerprint}:{record.ErrorCount}/{record.WarningCount}");
+
+        CiServerRulePackImportResult? importResult = null;
+        ValidationEvidencePackage? safetyEvidence = null;
+        SafetyEvidenceReviewResult? safetyReview = null;
+        CiServerManagedRulePackVersionSummary? promotedVersion = null;
+
+        if (!report.IsAccepted)
+        {
+            return new RtpxAcceptanceServerResult(
+                new CiServerRtpxAcceptanceSummary(record),
+                report,
+                importResult,
+                promotedVersion,
+                safetyEvidence,
+                safetyReview);
+        }
+
+        var rulePackManifestPath = Path.Combine(outputDirectory, "rule-pack", "beamkit-rule-pack.json");
+        if (!File.Exists(rulePackManifestPath))
+        {
+            throw new InvalidOperationException($"Accepted RT-PX package did not produce expected rule-pack manifest '{rulePackManifestPath}'.");
+        }
+
+        var importedBy = CiServerText.Optional(request.ImportedBy) ?? auditContext?.Actor;
+        importResult = ImportRulePack(
+            new RulePackImportServerRequest
+            {
+                RulePackId = CiServerText.Optional(request.RulePackId) ?? report.LocalPackage.Id,
+                ManifestPath = rulePackManifestPath,
+                ImportedBy = importedBy,
+                RunRegressionTests = request.RunRegressionTests,
+                SyntheticCaseId = request.SyntheticCaseId,
+                Source = $"rtpx-acceptance:{acceptanceId}",
+                Promote = false,
+                Note = request.Note
+            },
+            auditContext,
+            useCompleteSyntheticReadiness: true);
+        safetyEvidence = CreateRtpxAcceptanceSafetyEvidence(
+            acceptanceId,
+            report,
+            profileSource.Profile,
+            outputDirectory,
+            importResult.Version,
+            importResult.TestReport,
+            esapiSource is not null);
+        var importedVersion = FindRequiredManagedRulePackVersion(importResult.Version.RulePackId, importResult.Version.VersionId);
+        store.SaveRulePackVersion(importedVersion with { SafetyEvidenceJson = SerializeSafetyEvidence(safetyEvidence) });
+        safetyReview = new SafetyEvidenceReviewer().ReviewRulePackPromotion(
+            safetyEvidence,
+            importResult.Version.RulePackId,
+            importResult.Version.VersionId,
+            importResult.Version.Fingerprint);
+        record = SaveRtpxAcceptanceRecord(
+            acceptanceId,
+            createdAtUtc,
+            report,
+            packageSource,
+            profileSource,
+            esapiSource,
+            reportJson,
+            importResult.Version.RulePackId,
+            importResult.Version.VersionId,
+            promoted: false,
+            SerializeSafetyEvidence(safetyEvidence));
+        Audit(
+            "rtpx.acceptance.rule-pack-imported",
+            auditContext,
+            runId: record.Id,
+            caseId: importResult.Version.RulePackId,
+            status: importResult.Validation.IsValid ? "Valid" : "Invalid",
+            details: $"{importResult.Version.VersionId}:{importResult.Version.Fingerprint}");
+
+        if (request.Promote)
+        {
+            try
+            {
+                var promoted = PromoteManagedRulePackVersion(
+                    importResult.Version.RulePackId,
+                    importResult.Version.VersionId,
+                    new RulePackPromotionServerRequest
+                    {
+                        PromotedBy = importedBy,
+                        Note = request.Note,
+                        SafetyEvidence = safetyEvidence
+                    },
+                    auditContext);
+                promotedVersion = promoted.ToSummary();
+                record = SaveRtpxAcceptanceRecord(
+                    acceptanceId,
+                    createdAtUtc,
+                    report,
+                    packageSource,
+                    profileSource,
+                    esapiSource,
+                    reportJson,
+                    importResult.Version.RulePackId,
+                    importResult.Version.VersionId,
+                    promoted: true,
+                    SerializeSafetyEvidence(safetyEvidence));
+                Audit(
+                    "rtpx.acceptance.promoted",
+                    auditContext,
+                    runId: record.Id,
+                    caseId: promoted.RulePackId,
+                    status: "Active",
+                    details: promoted.VersionId);
+            }
+            catch (InvalidOperationException)
+            {
+                Audit(
+                    "rtpx.acceptance.promotion-blocked",
+                    auditContext,
+                    runId: record.Id,
+                    caseId: importResult.Version.RulePackId,
+                    status: "Blocked",
+                    details: importResult.Version.VersionId);
+                throw;
+            }
+        }
+
+        return new RtpxAcceptanceServerResult(
+            new CiServerRtpxAcceptanceSummary(record),
+            report,
+            importResult,
+            promotedVersion,
+            safetyEvidence,
+            safetyReview);
+    }
+
+    /// <summary>
+    /// Lists recent RT-PX acceptance records.
+    /// </summary>
+    public IReadOnlyList<CiServerRtpxAcceptanceSummary> ListRtpxAcceptances(int limit = 50)
+    {
+        return store.ListRtpxAcceptances(limit);
+    }
+
+    /// <summary>
+    /// Finds one RT-PX acceptance record.
+    /// </summary>
+    public CiServerRtpxAcceptanceDetail? FindRtpxAcceptance(string id)
+    {
+        var record = store.FindRtpxAcceptance(id);
+        return record is null ? null : new CiServerRtpxAcceptanceDetail(record);
+    }
+
+    /// <summary>
+    /// Lists RT-PX drafts awaiting promotion review.
+    /// </summary>
+    public IReadOnlyList<RtpxDraftReviewSummary> ListRtpxDraftReviews(int limit = 50)
+    {
+        return store.ListRtpxAcceptances(Math.Clamp(limit, 1, 500))
+            .Select(summary => store.FindRtpxAcceptance(summary.Id))
+            .Where(record => record is not null && record.Accepted && !IsRtpxAcceptanceActive(record))
+            .Select(record => CreateRtpxDraftReview(record!))
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Finds one RT-PX draft review record.
+    /// </summary>
+    public RtpxDraftReviewSummary? FindRtpxDraftReview(string id)
+    {
+        var record = store.FindRtpxAcceptance(id);
+        return record is null ? null : CreateRtpxDraftReview(record);
+    }
+
+    /// <summary>
+    /// Promotes an RT-PX draft's managed rule-pack version active.
+    /// </summary>
+    public RtpxDraftReviewSummary PromoteRtpxDraft(
+        string id,
+        RtpxDraftReviewActionRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var record = store.FindRtpxAcceptance(id)
+            ?? throw new InvalidOperationException($"RT-PX draft '{id}' was not found.");
+        if (string.IsNullOrWhiteSpace(record.RulePackId) || string.IsNullOrWhiteSpace(record.VersionId))
+        {
+            throw new InvalidOperationException($"RT-PX draft '{id}' does not have an imported managed rule-pack version.");
+        }
+
+        var evidence = DeserializeSafetyEvidence(record.SafetyEvidenceJson)
+            ?? throw new InvalidOperationException($"RT-PX draft '{id}' cannot be promoted without safety evidence.");
+        PromoteManagedRulePackVersion(
+            record.RulePackId,
+            record.VersionId,
+            new RulePackPromotionServerRequest
+            {
+                PromotedBy = CiServerText.Optional(request.ReviewedBy) ?? auditContext?.Actor,
+                Note = CiServerText.Optional(request.Note) ?? "Promoted from RT-PX draft review.",
+                SafetyEvidence = evidence
+            },
+            auditContext);
+
+        var promotedRecord = store.SaveRtpxAcceptance(record with { Promoted = true });
+        Audit(
+            "rtpx.draft.promoted",
+            auditContext,
+            runId: promotedRecord.Id,
+            caseId: promotedRecord.RulePackId,
+            status: "Active",
+            details: promotedRecord.VersionId);
+        return CreateRtpxDraftReview(promotedRecord);
+    }
+
+    /// <summary>
+    /// Records an audit-only rejection for an RT-PX draft.
+    /// </summary>
+    public RtpxDraftReviewSummary RejectRtpxDraft(
+        string id,
+        RtpxDraftReviewActionRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var record = store.FindRtpxAcceptance(id)
+            ?? throw new InvalidOperationException($"RT-PX draft '{id}' was not found.");
+        Audit(
+            "rtpx.draft.rejected",
+            auditContext,
+            runId: record.Id,
+            caseId: record.RulePackId,
+            status: "Rejected",
+            details: CiServerText.Optional(request.Note) ?? "Rejected from RT-PX draft review.");
+        return CreateRtpxDraftReview(record);
+    }
+
+    /// <summary>
     /// Records artifact download audit evidence.
     /// </summary>
     public void RecordArtifactDownloaded(string runId, CiServerAuditContext? auditContext = null)
@@ -904,6 +1389,617 @@ public sealed class BeamKitCiServerService
         return string.IsNullOrWhiteSpace(json)
             ? null
             : System.Text.Json.JsonSerializer.Deserialize<ValidationEvidencePackage>(json, CiServerJson.Options);
+    }
+
+    private CiServerRtpxAcceptanceRecord SaveRtpxAcceptanceRecord(
+        string acceptanceId,
+        DateTimeOffset createdAtUtc,
+        RtpxAcceptanceReport report,
+        RtpxPackageSource packageSource,
+        RtpxInstitutionProfileSource profileSource,
+        RtpxEsapiSnapshotSource? esapiSource,
+        string reportJson,
+        string? rulePackId,
+        string? versionId,
+        bool promoted,
+        string? safetyEvidenceJson)
+    {
+        var record = new CiServerRtpxAcceptanceRecord(
+            acceptanceId,
+            createdAtUtc,
+            report.Institution,
+            packageSource.Path,
+            report.OutputDirectory,
+            report.IsAccepted,
+            promoted,
+            rulePackId,
+            versionId,
+            report.SourcePackage.Id,
+            report.SourcePackage.Name,
+            report.SourcePackage.Version,
+            report.LocalPackage.Id,
+            packageSource.Fingerprint,
+            profileSource.Fingerprint,
+            esapiSource?.Fingerprint,
+            report.EsapiEvidence is not null,
+            report.ErrorCount,
+            report.WarningCount,
+            reportJson,
+            safetyEvidenceJson);
+        return store.SaveRtpxAcceptance(record);
+    }
+
+    private RtpxDraftReviewSummary CreateRtpxDraftReview(CiServerRtpxAcceptanceRecord record)
+    {
+        var version = string.IsNullOrWhiteSpace(record.RulePackId) || string.IsNullOrWhiteSpace(record.VersionId)
+            ? null
+            : store.FindRulePackVersion(record.RulePackId, record.VersionId);
+        var report = DeserializeRtpxAcceptanceReport(record.ReportJson);
+        var rulePackId = record.RulePackId ?? report.LocalPackage.Id;
+        var diff = CompareRtpxProtocolDraft(rulePackId, report.LocalPackage);
+        return new RtpxDraftReviewSummary(
+            new CiServerRtpxAcceptanceSummary(record),
+            version?.ToSummary(),
+            version?.ValidationReport,
+            version?.TestReport,
+            DeserializeSafetyEvidence(record.SafetyEvidenceJson),
+            diff);
+    }
+
+    private bool IsRtpxAcceptanceActive(CiServerRtpxAcceptanceRecord? record)
+    {
+        if (record is null || string.IsNullOrWhiteSpace(record.RulePackId) || string.IsNullOrWhiteSpace(record.VersionId))
+        {
+            return false;
+        }
+
+        var activeVersion = store.FindActiveRulePackVersion(record.RulePackId);
+        return string.Equals(activeVersion?.VersionId, record.VersionId, StringComparison.OrdinalIgnoreCase)
+            || record.Promoted;
+    }
+
+    private RtpxProtocolDiffReport CompareRtpxProtocolDraft(string rulePackId, RadiotherapyProtocolPackage draft)
+    {
+        var activeRecord = FindActiveRtpxAcceptanceForRulePack(rulePackId);
+        if (activeRecord is null)
+        {
+            return new RtpxProtocolDiffReport(
+                draft.Id,
+                ComparedToAcceptanceId: null,
+                ComparedToVersionId: null,
+                ComparedToFingerprint: null,
+                new[]
+                {
+                    new RtpxProtocolDiffChange(
+                        "Package",
+                        draft.Id,
+                        "Initial",
+                        "Info",
+                        "No active accepted RT-PX package exists for this rule pack.",
+                        Before: null,
+                        After: ProtocolPackageSummary(draft))
+                });
+        }
+
+        var activeReport = DeserializeRtpxAcceptanceReport(activeRecord.ReportJson);
+        var changes = new List<RtpxProtocolDiffChange>();
+        AddMetadataChange(changes, "Name", activeReport.LocalPackage.Name, draft.Name);
+        AddMetadataChange(changes, "Version", activeReport.LocalPackage.Version, draft.Version);
+        AddMetadataChange(changes, "Disease Site", activeReport.LocalPackage.DiseaseSite, draft.DiseaseSite);
+        AddMetadataChange(changes, "Intent", activeReport.LocalPackage.Intent, draft.Intent);
+        AddMetadataChange(changes, "Status", activeReport.LocalPackage.Status.ToString(), draft.Status.ToString());
+        AddCollectionChanges(
+            changes,
+            "Structure",
+            activeReport.LocalPackage.Structures,
+            draft.Structures,
+            item => item.Id,
+            item => $"{item.Name} | {item.Role} | {item.Level} | contours={(item.MustHaveContours ? "yes" : "no")}");
+        AddCollectionChanges(
+            changes,
+            "Prescription",
+            activeReport.LocalPackage.Prescriptions,
+            draft.Prescriptions,
+            item => item.Id,
+            item => $"{item.Target} | {item.TotalDoseGy} Gy | {item.FractionCount} fx | {item.Technique} | {item.Energy}");
+        AddCollectionChanges(
+            changes,
+            "DoseConstraint",
+            activeReport.LocalPackage.Constraints,
+            draft.Constraints,
+            item => item.Id,
+            item => $"{item.Structure} {item.Metric} {item.Comparison} {item.Value} {item.Unit} | {item.Level} | active={(item.IsActive ? "yes" : "no")}");
+        AddCollectionChanges(
+            changes,
+            "PlanCheck",
+            activeReport.LocalPackage.PlanChecks,
+            draft.PlanChecks,
+            item => item.Id,
+            item => $"{item.Title} | {item.Type} | {item.Level} | active={(item.IsActive ? "yes" : "no")}");
+        AddCollectionChanges(
+            changes,
+            "Workflow",
+            activeReport.LocalPackage.Workflow,
+            draft.Workflow,
+            item => item.Id,
+            item => $"{item.Title} | {item.Type} | {item.Level} | active={(item.IsActive ? "yes" : "no")}");
+
+        return new RtpxProtocolDiffReport(
+            draft.Id,
+            activeRecord.Id,
+            activeRecord.VersionId,
+            activeRecord.PackageFingerprint,
+            changes);
+    }
+
+    private CiServerRtpxAcceptanceRecord? FindActiveRtpxAcceptanceForRulePack(string rulePackId)
+    {
+        var activeVersion = store.FindActiveRulePackVersion(rulePackId);
+        var records = store.ListRtpxAcceptances(500)
+            .Select(summary => store.FindRtpxAcceptance(summary.Id))
+            .Where(record => record is not null && record.Accepted)
+            .Select(record => record!)
+            .Where(record => string.Equals(record.RulePackId, rulePackId, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        if (activeVersion is not null)
+        {
+            var byActiveVersion = records.FirstOrDefault(record =>
+                string.Equals(record.VersionId, activeVersion.VersionId, StringComparison.OrdinalIgnoreCase));
+            if (byActiveVersion is not null)
+            {
+                return byActiveVersion;
+            }
+        }
+
+        return records.FirstOrDefault(record => record.Promoted);
+    }
+
+    private static void AddMetadataChange(
+        ICollection<RtpxProtocolDiffChange> changes,
+        string key,
+        string? before,
+        string? after)
+    {
+        if (string.Equals(before, after, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        changes.Add(new RtpxProtocolDiffChange(
+            "Metadata",
+            key,
+            "Changed",
+            "Review",
+            $"{key} changed.",
+            before,
+            after));
+    }
+
+    private static void AddCollectionChanges<T>(
+        ICollection<RtpxProtocolDiffChange> changes,
+        string category,
+        IReadOnlyList<T> before,
+        IReadOnlyList<T> after,
+        Func<T, string> keySelector,
+        Func<T, string> describe)
+    {
+        var beforeByKey = before
+            .Where(item => !string.IsNullOrWhiteSpace(keySelector(item)))
+            .ToDictionary(keySelector, StringComparer.OrdinalIgnoreCase);
+        var afterByKey = after
+            .Where(item => !string.IsNullOrWhiteSpace(keySelector(item)))
+            .ToDictionary(keySelector, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (key, beforeItem) in beforeByKey.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!afterByKey.TryGetValue(key, out var afterItem))
+            {
+                changes.Add(new RtpxProtocolDiffChange(
+                    category,
+                    key,
+                    "Removed",
+                    "Review",
+                    $"{category} '{key}' was removed.",
+                    describe(beforeItem),
+                    null));
+                continue;
+            }
+
+            var beforeDescription = describe(beforeItem);
+            var afterDescription = describe(afterItem);
+            if (!string.Equals(beforeDescription, afterDescription, StringComparison.Ordinal))
+            {
+                changes.Add(new RtpxProtocolDiffChange(
+                    category,
+                    key,
+                    "Changed",
+                    "Review",
+                    $"{category} '{key}' changed.",
+                    beforeDescription,
+                    afterDescription));
+            }
+        }
+
+        foreach (var (key, afterItem) in afterByKey.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (beforeByKey.ContainsKey(key))
+            {
+                continue;
+            }
+
+            changes.Add(new RtpxProtocolDiffChange(
+                category,
+                key,
+                "Added",
+                "Review",
+                $"{category} '{key}' was added.",
+                null,
+                describe(afterItem)));
+        }
+    }
+
+    private static string ProtocolPackageSummary(RadiotherapyProtocolPackage package)
+    {
+        return $"{package.Name} {package.Version} | {package.DiseaseSite} | {package.Intent} | structures={package.Structures.Count} | prescriptions={package.Prescriptions.Count} | constraints={package.Constraints.Count}";
+    }
+
+    private static RtpxAcceptanceReport DeserializeRtpxAcceptanceReport(string json)
+    {
+        return JsonSerializer.Deserialize<RtpxAcceptanceReport>(json, CiServerJson.Options)
+            ?? throw new InvalidOperationException("Stored RT-PX acceptance report could not be deserialized.");
+    }
+
+    private static string? ResolveDraftInstitutionProfileJson(
+        RtpxWordDraftPublishServerRequest request,
+        RadiotherapyProtocolPackage package)
+    {
+        if (!string.IsNullOrWhiteSpace(request.InstitutionProfilePath)
+            || !string.IsNullOrWhiteSpace(GetJson(request.InstitutionProfile, request.InstitutionProfileJson)))
+        {
+            return request.InstitutionProfileJson;
+        }
+
+        var mappings = package.Structures.Select(structure => new RtpxStructureMapping(
+            structure.Name,
+            structure.Name,
+            structure.Aliases,
+            "Draft one-to-one mapping generated from Word authoring."));
+        var profile = new RtpxInstitutionProfile(
+            "BeamKit Draft Review",
+            mappings,
+            requireExplicitStructureMappings: false,
+            owner: package.Owner ?? "BeamKit Draft Review",
+            tags: new[] { "draft", "word-authoring" });
+        return RtpxInstitutionProfileStore.ToJson(profile);
+    }
+
+    private static RtpxPackageSource ResolveRtpxPackageSource(RtpxAcceptanceServerRequest request, string outputDirectory)
+    {
+        var hasPath = !string.IsNullOrWhiteSpace(request.PackagePath);
+        var hasBase64 = !string.IsNullOrWhiteSpace(request.PackageBase64);
+        if (new[] { hasPath, hasBase64 }.Count(value => value) != 1)
+        {
+            throw new ArgumentException("RT-PX acceptance requires exactly one of 'packagePath' or 'packageBase64'.", nameof(request));
+        }
+
+        if (hasPath)
+        {
+            var fullPath = ResolveServerLocalFilePath(request.PackagePath!);
+            if (!File.Exists(fullPath))
+            {
+                throw new FileNotFoundException($"RT-PX package '{fullPath}' was not found.", fullPath);
+            }
+
+            return new RtpxPackageSource(fullPath, HashFile(fullPath));
+        }
+
+        var packageBytes = Convert.FromBase64String(request.PackageBase64!.Trim());
+        var packagePath = Path.Combine(outputDirectory, "incoming.rtpx.zip");
+        if (File.Exists(packagePath) && !request.Overwrite)
+        {
+            throw new IOException($"RT-PX package upload target '{packagePath}' already exists. Use overwrite to replace it.");
+        }
+
+        File.WriteAllBytes(packagePath, packageBytes);
+        return new RtpxPackageSource(packagePath, HashBytes(packageBytes));
+    }
+
+    private static RtpxInstitutionProfileSource ResolveRtpxInstitutionProfile(RtpxAcceptanceServerRequest request)
+    {
+        var profileJson = GetJson(request.InstitutionProfile, request.InstitutionProfileJson);
+        var hasPath = !string.IsNullOrWhiteSpace(request.InstitutionProfilePath);
+        var hasJson = !string.IsNullOrWhiteSpace(profileJson);
+        if (new[] { hasPath, hasJson }.Count(value => value) != 1)
+        {
+            throw new ArgumentException("RT-PX acceptance requires exactly one of 'institutionProfilePath', 'institutionProfile', or 'institutionProfileJson'.", nameof(request));
+        }
+
+        if (hasPath)
+        {
+            var fullPath = ResolveServerLocalFilePath(request.InstitutionProfilePath!);
+            if (!File.Exists(fullPath))
+            {
+                throw new FileNotFoundException($"RT-PX institution profile '{fullPath}' was not found.", fullPath);
+            }
+
+            profileJson = File.ReadAllText(fullPath);
+        }
+
+        var profile = RtpxInstitutionProfileStore.FromJson(profileJson ?? throw new ArgumentException("Institution profile JSON is required.", nameof(request)));
+        return new RtpxInstitutionProfileSource(profile, HashText(RtpxInstitutionProfileStore.ToJson(profile)));
+    }
+
+    private static RtpxEsapiSnapshotSource? ResolveOptionalRtpxEsapiSnapshot(RtpxAcceptanceServerRequest request)
+    {
+        var snapshotJson = GetJson(request.EsapiSnapshot, request.EsapiSnapshotJson);
+        var hasPath = !string.IsNullOrWhiteSpace(request.EsapiSnapshotPath);
+        var hasJson = !string.IsNullOrWhiteSpace(snapshotJson);
+        var sourceCount = new[] { hasPath, hasJson }.Count(value => value);
+        if (sourceCount == 0)
+        {
+            return null;
+        }
+
+        if (sourceCount != 1)
+        {
+            throw new ArgumentException("Use only one of 'esapiSnapshotPath', 'esapiSnapshot', or 'esapiSnapshotJson'.", nameof(request));
+        }
+
+        string? fullPath = null;
+        if (hasPath)
+        {
+            fullPath = ResolveServerLocalFilePath(request.EsapiSnapshotPath!);
+            if (!File.Exists(fullPath))
+            {
+                throw new FileNotFoundException($"ESAPI snapshot '{fullPath}' was not found.", fullPath);
+            }
+
+            snapshotJson = File.ReadAllText(fullPath);
+        }
+
+        var json = snapshotJson ?? throw new ArgumentException("ESAPI snapshot JSON is required.", nameof(request));
+        return new RtpxEsapiSnapshotSource(EsapiPlanSnapshotJson.FromJson(json), fullPath, HashText(json));
+    }
+
+    private static RtpxWordDocxSource ResolveRtpxWordDocxSource(RtpxWordAuthoringServerRequest request, string outputDirectory)
+    {
+        return ResolveRtpxWordDocxSource(request.DocxPath, request.DocxBase64, request.FileName, outputDirectory);
+    }
+
+    private static RtpxWordDocxSource ResolveRtpxWordDocxSource(RtpxWordDraftPublishServerRequest request, string outputDirectory)
+    {
+        return ResolveRtpxWordDocxSource(request.DocxPath, request.DocxBase64, request.FileName, outputDirectory);
+    }
+
+    private static RtpxWordDocxSource ResolveRtpxWordDocxSource(
+        string? docxPath,
+        string? docxBase64,
+        string? fileName,
+        string outputDirectory)
+    {
+        var hasPath = !string.IsNullOrWhiteSpace(docxPath);
+        var hasBase64 = !string.IsNullOrWhiteSpace(docxBase64);
+        if (new[] { hasPath, hasBase64 }.Count(value => value) != 1)
+        {
+            throw new ArgumentException("RT-PX Word extraction requires exactly one of 'docxPath' or 'docxBase64'.");
+        }
+
+        if (hasPath)
+        {
+            var fullPath = ResolveServerLocalFilePath(docxPath!);
+            if (!File.Exists(fullPath))
+            {
+                throw new FileNotFoundException($"RT-PX Word document '{fullPath}' was not found.", fullPath);
+            }
+
+            return new RtpxWordDocxSource(fullPath, Path.GetFileName(fullPath), HashFile(fullPath));
+        }
+
+        var docxBytes = Convert.FromBase64String(docxBase64!.Trim());
+        var safeFileName = SafeDocxFileName(fileName);
+        var uploadPath = Path.Combine(outputDirectory, safeFileName);
+        File.WriteAllBytes(uploadPath, docxBytes);
+        return new RtpxWordDocxSource(uploadPath, safeFileName, HashBytes(docxBytes));
+    }
+
+    private ValidationEvidencePackage CreateRtpxAcceptanceSafetyEvidence(
+        string acceptanceId,
+        RtpxAcceptanceReport report,
+        RtpxInstitutionProfile profile,
+        string outputDirectory,
+        CiServerManagedRulePackVersionSummary version,
+        RulePackTestReport? testReport,
+        bool esapiSnapshotWasSupplied)
+    {
+        var generatedAtUtc = timeProvider.GetUtcNow();
+        var regressionStatus = testReport is null
+            ? ValidationEvidenceStatus.NotRun
+            : testReport.Passed ? ValidationEvidenceStatus.Pass : ValidationEvidenceStatus.Fail;
+        var clinicalStatus = report.LocalPackage.Status == ProtocolPackageStatus.Approved
+            ? ValidationEvidenceStatus.Pass
+            : ValidationEvidenceStatus.NotRun;
+        var evidenceItems = new List<ValidationEvidenceItem>
+        {
+            new(
+                "EV-RTPX-ACCEPTANCE",
+                "RT-PX local acceptance review",
+                ValidationEvidenceKind.ClinicalReview,
+                clinicalStatus,
+                report.AcceptedAtUtc,
+                Path.Combine(outputDirectory, "acceptance-report.md"),
+                reviewedBy: profile.ReviewedBy ?? profile.AcceptedBy,
+                summary: clinicalStatus == ValidationEvidenceStatus.Pass
+                    ? "Institution profile supplied reviewer, approver, and effective-date metadata."
+                    : "Institution profile is accepted for review artifacts but lacks complete local approval metadata.",
+                linkedControlIds: new[] { "CTRL-RTPX-CLINICAL-REVIEW" }),
+            new(
+                "EV-RTPX-REGRESSION",
+                "Generated rule-pack regression tests",
+                ValidationEvidenceKind.RegressionTest,
+                regressionStatus,
+                generatedAtUtc,
+                "BeamKit.CiServer managed rule-pack regression tests",
+                summary: testReport is null
+                    ? "Regression tests were not requested during RT-PX package import."
+                    : $"{testReport.PassedCount}/{testReport.Results.Count} regression case(s) passed.",
+                linkedControlIds: new[] { "CTRL-RTPX-REGRESSION" })
+        };
+
+        if (report.EsapiEvidence is not null)
+        {
+            var esapiStatus = report.EsapiEvidence.SnapshotValidation.ErrorCount == 0
+                && report.Issues.All(issue => !issue.Code.StartsWith("rtpx.acceptance.esapi.", StringComparison.OrdinalIgnoreCase)
+                    || issue.Severity != RtpxAcceptanceIssueSeverity.Error)
+                    ? ValidationEvidenceStatus.Pass
+                    : ValidationEvidenceStatus.Fail;
+            evidenceItems.Add(new ValidationEvidenceItem(
+                "EV-RTPX-ESAPI",
+                "Optional ESAPI plan snapshot acceptance evidence",
+                ValidationEvidenceKind.IntegrationTest,
+                esapiStatus,
+                generatedAtUtc,
+                report.EsapiEvidence.SnapshotPath,
+                summary: $"{report.EsapiEvidence.StructureChecks.Count} structure check(s), {report.EsapiEvidence.PrescriptionChecks.Count} prescription check(s).",
+                linkedControlIds: new[] { "CTRL-RTPX-ESAPI" }));
+        }
+
+        var controls = new List<SafetyControl>
+        {
+            new(
+                "CTRL-RTPX-PACKAGE-ACCEPTED",
+                "RT-PX package accepted",
+                "The package accepted without blocking structure, validation, or optional ESAPI evidence errors.",
+                SafetyControlType.Verification,
+                isSatisfied: report.IsAccepted,
+                evidenceIds: new[] { "EV-RTPX-ACCEPTANCE" }),
+            new(
+                "CTRL-RTPX-REGRESSION",
+                "Generated rule pack regression tests pass",
+                "The generated rule pack was tested against BeamKit synthetic regression cases before promotion.",
+                SafetyControlType.Verification,
+                isSatisfied: regressionStatus == ValidationEvidenceStatus.Pass,
+                evidenceIds: new[] { "EV-RTPX-REGRESSION" }),
+            new(
+                "CTRL-RTPX-CLINICAL-REVIEW",
+                "Local clinical acceptance metadata is complete",
+                "The institution profile includes reviewer, approver, and effective-date metadata for local use.",
+                SafetyControlType.Process,
+                isSatisfied: clinicalStatus == ValidationEvidenceStatus.Pass,
+                evidenceIds: new[] { "EV-RTPX-ACCEPTANCE" })
+        };
+        if (esapiSnapshotWasSupplied)
+        {
+            controls.Add(new SafetyControl(
+                "CTRL-RTPX-ESAPI",
+                "Optional ESAPI snapshot evidence evaluated",
+                "The acceptance workflow compared the package against an ESAPI-exported plan snapshot.",
+                SafetyControlType.Verification,
+                isRequired: false,
+                isSatisfied: report.EsapiEvidence is not null,
+                evidenceIds: report.EsapiEvidence is null ? Array.Empty<string>() : new[] { "EV-RTPX-ESAPI" }));
+        }
+
+        return new ValidationEvidencePackage(
+            $"evidence-{acceptanceId}",
+            "RulePack",
+            version.RulePackId,
+            version.VersionId,
+            version.Fingerprint,
+            generatedAtUtc,
+            ClinicalUseClassification.ClinicalDecisionSupport,
+            evidenceItems,
+            new SafetyControlChecklist("RT-PX acceptance promotion controls", "1", controls),
+            owner: report.LocalPackage.Owner ?? profile.Owner ?? report.Institution,
+            reviewer: profile.ReviewedBy ?? profile.AcceptedBy,
+            summary: $"Safety evidence generated from RT-PX acceptance record {acceptanceId}.");
+    }
+
+    private static string ResolveRtpxWordAuthoringOutputDirectory(string? outputDirectory, string authoringId)
+    {
+        var value = CiServerText.Optional(outputDirectory)
+            ?? Path.Combine("artifacts", "beamkit-ci-server", "rtpx-word", authoringId);
+        return Path.GetFullPath(value);
+    }
+
+    private static string ResolveRtpxAcceptanceOutputDirectory(string? outputDirectory, string acceptanceId)
+    {
+        var value = CiServerText.Optional(outputDirectory)
+            ?? Path.Combine("artifacts", "beamkit-ci-server", "rtpx-acceptance", acceptanceId);
+        return Path.GetFullPath(value);
+    }
+
+    private static string ResolveRtpxAuthoringLibraryPath(string? configuredPath, string fileName)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredPath))
+        {
+            var fullConfiguredPath = ResolveServerLocalFilePath(configuredPath);
+            if (!File.Exists(fullConfiguredPath))
+            {
+                throw new FileNotFoundException($"RT-PX authoring library '{fullConfiguredPath}' was not found.", fullConfiguredPath);
+            }
+
+            return fullConfiguredPath;
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "authoring", fileName),
+            Path.Combine(Directory.GetCurrentDirectory(), "authoring", fileName),
+            Path.Combine(Directory.GetCurrentDirectory(), "src", "BeamKit.CiServer", "authoring", fileName)
+        };
+
+        foreach (var candidate in candidates.Select(Path.GetFullPath))
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException($"Default RT-PX authoring library '{fileName}' was not found.");
+    }
+
+    private static string SafeDocxFileName(string? fileName)
+    {
+        var raw = Path.GetFileName(CiServerText.Optional(fileName) ?? "protocol.docx");
+        var stem = Path.GetFileNameWithoutExtension(raw);
+        if (string.IsNullOrWhiteSpace(stem))
+        {
+            stem = "protocol";
+        }
+
+        return $"{Slug(stem)}.docx";
+    }
+
+    private static string Slug(string value)
+    {
+        var characters = value.Trim().ToLowerInvariant()
+            .Select(character => char.IsLetterOrDigit(character) ? character : '-')
+            .ToArray();
+        var slug = string.Join('-', new string(characters).Split('-', StringSplitOptions.RemoveEmptyEntries));
+        return string.IsNullOrWhiteSpace(slug) ? "protocol" : slug;
+    }
+
+    private static string HashFile(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return HashStream(stream);
+    }
+
+    private static string HashText(string text)
+    {
+        return HashBytes(Encoding.UTF8.GetBytes(text));
+    }
+
+    private static string HashBytes(byte[] bytes)
+    {
+        return "sha256:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+    }
+
+    private static string HashStream(Stream stream)
+    {
+        return "sha256:" + Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
     }
 
     private CiServerManagedRulePackVersion FindRequiredManagedRulePackVersion(string rulePackId, string versionId)
@@ -1053,29 +2149,42 @@ public sealed class BeamKitCiServerService
             details));
     }
 
-    private static IReadOnlyList<RulePackTestCase> LoadRulePackTestCases(string? syntheticCaseId)
+    private static IReadOnlyList<RulePackTestCase> LoadRulePackTestCases(string? syntheticCaseId, bool useCompleteSyntheticReadiness = false)
     {
         if (!string.IsNullOrWhiteSpace(syntheticCaseId))
         {
-            return new[] { CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find(syntheticCaseId)) };
+            return new[] { CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find(syntheticCaseId), useCompleteSyntheticReadiness) };
         }
 
         return new[]
         {
-            CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find("head-neck-pass")),
-            CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find("head-neck-cord-fail")),
-            CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find("head-neck-missing-structure"))
+            CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find("head-neck-pass"), useCompleteSyntheticReadiness),
+            CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find("head-neck-cord-fail"), useCompleteSyntheticReadiness),
+            CreateRulePackTestCase(SyntheticClinicalCaseLibrary.Find("head-neck-missing-structure"), useCompleteSyntheticReadiness)
         };
     }
 
-    private static RulePackTestCase CreateRulePackTestCase(SyntheticClinicalCase clinicalCase)
+    private static RulePackTestCase CreateRulePackTestCase(SyntheticClinicalCase clinicalCase, bool useCompleteSyntheticReadiness)
     {
         return new RulePackTestCase(
             clinicalCase.Id,
             clinicalCase.Description,
             clinicalCase.Plan,
             clinicalCase.ExpectedToPass ? BeamKitCheckStatus.Pass : BeamKitCheckStatus.Fail,
-            ExpectedFindingIdsForCase(clinicalCase.Id));
+            ExpectedFindingIdsForCase(clinicalCase.Id),
+            useCompleteSyntheticReadiness ? CreateCompleteSyntheticReadinessInput(clinicalCase.Plan) : null);
+    }
+
+    private static PlanReadinessInput CreateCompleteSyntheticReadinessInput(Plan plan)
+    {
+        return new PlanReadinessInput(plan)
+        {
+            CtImported = true,
+            OptimizationFinished = true,
+            PhysicsQaComplete = true,
+            PhysicianApprovalComplete = true,
+            TreatmentReady = true
+        };
     }
 
     private static IReadOnlyList<string> ExpectedFindingIdsForCase(string caseId)
@@ -1185,6 +2294,14 @@ public sealed class BeamKitCiServerService
     private sealed record UploadedPlan(Plan Plan, CiRunInputKind InputKind, string DefaultInputSource);
 
     private sealed record RulePackImportSource(string ManifestJson, string BaseDirectory, string SourceKind, string Source, RulePackBundle? Bundle);
+
+    private sealed record RtpxWordDocxSource(string Path, string FileName, string Fingerprint);
+
+    private sealed record RtpxPackageSource(string Path, string Fingerprint);
+
+    private sealed record RtpxInstitutionProfileSource(RtpxInstitutionProfile Profile, string Fingerprint);
+
+    private sealed record RtpxEsapiSnapshotSource(EsapiPlanSnapshot Snapshot, string? Path, string Fingerprint);
 
     private sealed record AssignmentRequestContext(PlannerAssignmentRequest Request, AssignmentIntelligenceSummary? Intelligence);
 
@@ -1664,6 +2781,16 @@ public sealed class BeamKitCiServerService
     private string CreateAuditEventId()
     {
         return $"audit-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..39];
+    }
+
+    private string CreateRtpxAcceptanceId()
+    {
+        return $"rtpx-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..38];
+    }
+
+    private string CreateRtpxWordAuthoringId()
+    {
+        return $"rtpxw-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..39];
     }
 
     private static DateOnly? ParseDueDate(string? value)

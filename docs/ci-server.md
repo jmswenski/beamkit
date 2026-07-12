@@ -33,6 +33,9 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Review and store safety and validation evidence required for managed rule-pack promotion.
 - Review draft rule packs before import or promotion, including validation, optional synthetic regression evidence, and a diff against the active baseline.
 - Compare two managed rule-pack versions with a field-level diff report.
+- Accept RT-PX protocol packages into managed rule-pack versions with institution profile provenance, optional ESAPI snapshot evidence, generated safety evidence, and optional promotion.
+- Serve versioned RT-PX authoring template and snippet libraries for Word add-ins and protocol-authoring clients.
+- Publish Word-authored RT-PX protocols as draft managed versions with protocol diff, safety evidence, and dashboard review actions.
 - Persist run metadata and full CI artifacts in SQLite.
 - Persist vendor-neutral plan snapshots internally for field-level baseline comparison.
 - Promote stored runs as case baselines and compare later runs against baseline fingerprints and plan changes.
@@ -43,6 +46,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Recommend single-role and dosimetrist/physicist team assignments from disease site, skills, workload, schedule, PTO, physician compatibility rules, complexity, priority, and due-date context.
 - Infer assignment complexity, required skills, QA risk, and effort estimates from `syntheticCaseId`, BeamKit plan JSON, or ESAPI snapshot JSON when assignment requests include plan content.
 - Persist case work queues with assignment history, status tracking, linked run metadata, and live workload-aware recommendation scoring.
+- Extract RT-PX protocol intent directly from uploaded Word `.docx` content for Word add-ins and authoring workflows.
 
 ## Endpoints
 
@@ -57,6 +61,12 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `GET` | `/api/runs/{id}/baseline-comparison` | Compare a run to the promoted baseline for its case id. |
 | `GET` | `/api/baselines` | List promoted baselines. |
 | `GET` | `/api/baselines/{caseId}` | Get the promoted baseline for one case id. |
+| `GET` | `/api/rtpx/acceptance` | List recent RT-PX package acceptance records. |
+| `GET` | `/api/rtpx/acceptance/{id}` | Get one RT-PX acceptance record with serialized report and safety evidence. |
+| `GET` | `/api/rtpx/authoring/templates` | Get the configured RT-PX authoring template library. |
+| `GET` | `/api/rtpx/authoring/snippets` | Get the configured RT-PX authoring snippet library. |
+| `GET` | `/api/rtpx/drafts` | List accepted RT-PX drafts awaiting active-version review. |
+| `GET` | `/api/rtpx/drafts/{id}` | Get one draft with validation, test evidence, safety evidence, and protocol diff. |
 | `GET` | `/api/rule-packs` | List built-in, configured, and active managed rule packs. |
 | `GET` | `/api/rule-packs/versions` | List managed rule-pack versions. Supports `rulePackId`. |
 | `GET` | `/api/rule-packs/{id}` | Get validation detail for one registered rule pack. |
@@ -70,6 +80,11 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `POST` | `/api/runs` | Create a run from a synthetic case. |
 | `POST` | `/api/runs/{id}/baseline` | Promote a run as the baseline for its case id. |
 | `POST` | `/api/runs/from-plan-snapshot` | Create a run from uploaded BeamKit plan JSON or ESAPI snapshot JSON. |
+| `POST` | `/api/rtpx/acceptance` | Accept a `.rtpx.zip` package, persist the report, import the generated rule pack, and optionally promote it. |
+| `POST` | `/api/rtpx/word/extract` | Extract and validate RT-PX from a Word `.docx` upload; returns `rtpx.json` and a generated `.rtpx.zip` when valid. |
+| `POST` | `/api/rtpx/word/publish-draft` | Extract a Word `.docx`, accept it as RT-PX, import the generated rule pack as a draft, and return protocol diff evidence. |
+| `POST` | `/api/rtpx/drafts/{id}/promote` | Promote a draft managed version active using stored safety evidence. |
+| `POST` | `/api/rtpx/drafts/{id}/reject` | Record an audit-only draft rejection. |
 | `POST` | `/api/rule-packs/import` | Import a managed rule-pack version from manifest JSON, a server-local manifest path, bundle JSON, or a server-local bundle path. |
 | `POST` | `/api/rule-packs/validate` | Validate a rule pack. |
 | `POST` | `/api/rule-packs/test` | Run rule-pack regression tests. |
@@ -199,7 +214,83 @@ Run rule-pack tests:
 curl -s "$API/api/rule-packs/test" \
   -H 'content-type: application/json' \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
-  -d '{}'
+      -d '{}'
+```
+
+Extract RT-PX from a Word protocol document:
+
+```bash
+DOCX_BASE64=$(base64 -w0 protocol.docx)
+
+curl -s "$API/api/rtpx/word/extract" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d "{\"fileName\":\"protocol.docx\",\"docxBase64\":\"$DOCX_BASE64\",\"includeSourceDocument\":false,\"generatePackage\":true}"
+```
+
+The endpoint is intended for the `src/BeamKit.WordAddIn` task pane and for API clients that want to submit Word-authored protocols without shelling out to the CLI. Set `generatePackage` to `false` for quick validation and parsed `rtpxJson` without returning a zip payload. Use an HTTPS CI server URL from the Word task pane; Office browser webviews block HTTPS task panes from posting to plain HTTP APIs. BeamKit CI allows local CORS preflight from `https://localhost:3000` and `https://127.0.0.1:3000`.
+
+Load RT-PX authoring libraries:
+
+```bash
+curl -s "$API/api/rtpx/authoring/templates" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+
+curl -s "$API/api/rtpx/authoring/snippets" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+```
+
+Override the default libraries with institution-owned JSON files:
+
+```bash
+export BeamKit__CiServer__RtpxAuthoring__TemplateLibraryPath=/path/to/rtpx-templates.json
+export BeamKit__CiServer__RtpxAuthoring__SnippetLibraryPath=/path/to/rtpx-snippets.json
+```
+
+Publish a Word-authored protocol as a draft managed version:
+
+```bash
+DOCX_BASE64=$(base64 -w0 protocol.docx)
+
+curl -s "$API/api/rtpx/word/publish-draft" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d "{\"fileName\":\"protocol.docx\",\"docxBase64\":\"$DOCX_BASE64\",\"rulePackId\":\"institution-protocol-draft\",\"runRegressionTests\":true}"
+```
+
+List and review drafts:
+
+```bash
+curl -s "$API/api/rtpx/drafts" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+
+curl -s "$API/api/rtpx/drafts/{id}" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+```
+
+Accept an RT-PX package into the managed rule-pack workflow:
+
+```bash
+curl -s "$API/api/rtpx/acceptance" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "packagePath":"artifacts/rtpx/protocol.rtpx.zip",
+    "institutionProfilePath":"samples/rtpx-acceptance/synthetic-hospital.json",
+    "esapiSnapshotPath":"samples/rtpx-acceptance/synthetic-esapi-snapshot.json",
+    "rulePackId":"institution-protocol-head-neck",
+    "syntheticCaseId":"head-neck-pass",
+    "promote":false
+  }'
+```
+
+The same endpoint accepts `packageBase64`, `institutionProfileJson`, and `esapiSnapshotJson` for API uploads. Every accepted or rejected package is persisted as an RT-PX acceptance record. Accepted packages are imported as immutable managed rule-pack versions; setting `promote` to `true` asks the server to run the normal promotion gate using generated safety evidence.
+
+List acceptance history:
+
+```bash
+curl -s "$API/api/rtpx/acceptance?limit=25" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
 Recommend assignment:
@@ -297,7 +388,7 @@ The CI server is secure by default for API routes:
 - `/` and `/health` are public.
 - `/api/*` requires `X-BeamKit-Api-Key` unless `RequireApiKey` is explicitly set to `false`.
 - API-key labels, not raw key values, are stored in audit events.
-- `/api/runs/from-plan-snapshot` rejects payloads larger than `MaxPlanSnapshotUploadBytes` before model binding.
+- `/api/runs/from-plan-snapshot`, `/api/rtpx/acceptance`, and `/api/rtpx/word/extract` reject payloads larger than `MaxPlanSnapshotUploadBytes` before model binding.
 
 Configure local keys with environment variables:
 
@@ -466,6 +557,8 @@ The `ci_rule_pack_versions` table stores managed rule-pack version history, immu
 ## Current Boundaries
 
 This is a development server, not a production clinical deployment. It persists run history locally and accepts uploaded JSON snapshots. Keep it behind trusted network boundaries, use synthetic data by default, and assume uploaded plan snapshots may contain identifiers unless they were scrubbed before submission.
+
+Path-based request fields such as `manifestPath`, `bundlePath`, `rosterPath`, `packagePath`, `institutionProfilePath`, and `esapiSnapshotPath` are server-local file reads. Treat API-key holders who can submit those fields as trusted operators with access to files readable by the server process. For untrusted clients, prefer inline JSON or base64 upload fields and add a stricter storage sandbox before exposing path-based requests.
 
 Production hardening still needs:
 

@@ -15,6 +15,9 @@ This first slice supports:
 - Managed rule-pack version import from manifests or immutable bundles, regression evidence, and active-version promotion.
 - Safety and validation evidence review for managed rule-pack promotion.
 - Draft rule-pack review and managed-version diff reports.
+- RT-PX package acceptance into managed rule-pack versions, including institution profile fingerprints, optional ESAPI snapshot evidence, generated safety evidence, and optional promotion.
+- RT-PX Word extraction uploads for Word add-ins and protocol authoring clients.
+- RT-PX authoring template/snippet libraries and Word draft publishing into a review queue with protocol diff evidence.
 - CI run records with plan, prescription, and rule-pack provenance fingerprints.
 - SQLite-backed run metadata and artifact persistence.
 - Run history filters for status, case id, branch, and date ranges.
@@ -54,6 +57,12 @@ GET /api/runs/{id}/artifact/download
 GET /api/runs/{id}/baseline-comparison
 GET /api/baselines
 GET /api/baselines/{caseId}
+GET /api/rtpx/acceptance
+GET /api/rtpx/acceptance/{id}
+GET /api/rtpx/authoring/templates
+GET /api/rtpx/authoring/snippets
+GET /api/rtpx/drafts
+GET /api/rtpx/drafts/{id}
 GET /api/rule-packs
 GET /api/rule-packs/versions
 GET /api/rule-packs/{id}
@@ -67,6 +76,11 @@ GET /api/audit-events
 POST /api/runs
 POST /api/runs/{id}/baseline
 POST /api/runs/from-plan-snapshot
+POST /api/rtpx/acceptance
+POST /api/rtpx/word/extract
+POST /api/rtpx/word/publish-draft
+POST /api/rtpx/drafts/{id}/promote
+POST /api/rtpx/drafts/{id}/reject
 POST /api/rule-packs/import
 POST /api/rule-packs/validate
 POST /api/rule-packs/test
@@ -144,6 +158,65 @@ jq -n --rawfile snapshot path/to/esapi-plan-snapshot.json \
       -H 'content-type: application/json' \
       -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
       -d @-
+```
+
+Extract RT-PX directly from a Word protocol document:
+
+```bash
+DOCX_BASE64=$(base64 -w0 protocol.docx)
+
+curl -s "$API/api/rtpx/word/extract" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d "{\"fileName\":\"protocol.docx\",\"docxBase64\":\"$DOCX_BASE64\",\"includeSourceDocument\":false,\"generatePackage\":true}"
+```
+
+This is the endpoint used by `src/BeamKit.WordAddIn`. When extraction and validation pass, the response includes extracted `rtpxJson` and a generated `rtpxPackageBase64` payload. Set `generatePackage` to `false` for quick checks that only need validation feedback and parsed `rtpxJson`. Use an HTTPS CI server URL from the Word task pane; BeamKit CI allows local CORS preflight from `https://localhost:3000` and `https://127.0.0.1:3000`.
+
+The Word add-in can also load authoring libraries and publish drafts:
+
+```bash
+curl -s "$API/api/rtpx/authoring/templates" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+
+curl -s "$API/api/rtpx/authoring/snippets" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+```
+
+```bash
+DOCX_BASE64=$(base64 -w0 protocol.docx)
+
+curl -s "$API/api/rtpx/word/publish-draft" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d "{\"fileName\":\"protocol.docx\",\"docxBase64\":\"$DOCX_BASE64\",\"rulePackId\":\"institution-protocol-draft\",\"runRegressionTests\":true}"
+```
+
+Drafts appear in the dashboard RT-PX Draft Review table and are available through `GET /api/rtpx/drafts`. Configure institution-owned libraries with `BeamKit:CiServer:RtpxAuthoring:TemplateLibraryPath` and `BeamKit:CiServer:RtpxAuthoring:SnippetLibraryPath`.
+
+Accept an RT-PX package into the managed rule-pack workflow:
+
+```bash
+curl -s "$API/api/rtpx/acceptance" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "packagePath":"artifacts/rtpx/protocol.rtpx.zip",
+    "institutionProfilePath":"samples/rtpx-acceptance/synthetic-hospital.json",
+    "esapiSnapshotPath":"samples/rtpx-acceptance/synthetic-esapi-snapshot.json",
+    "rulePackId":"institution-protocol-head-neck",
+    "syntheticCaseId":"head-neck-pass",
+    "promote":false
+  }'
+```
+
+The request also accepts `packageBase64`, `institutionProfileJson`, and `esapiSnapshotJson` for API-driven uploads. Accepted packages are always stored as acceptance records and imported as immutable managed rule-pack versions. Set `promote` to `true` only when the generated rule pack has passing regression tests and the institution profile contains complete local review metadata; the server generates and stores the safety evidence used by the existing promotion gate.
+
+Review acceptance history:
+
+```bash
+curl -s "$API/api/rtpx/acceptance?limit=25" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
 Filter run history:
@@ -232,7 +305,7 @@ curl -s "$API/api/audit-events?action=run.created&limit=25" \
 
 `/` and `/health` are public. `/api/*` requires the configured `X-BeamKit-Api-Key` header by default. API-key labels are recorded in audit events; raw key values are not.
 
-Plan snapshot uploads are capped by `BeamKit:CiServer:Security:MaxPlanSnapshotUploadBytes`, defaulting to 5 MB and clamped between 1 KB and 100 MB.
+Plan snapshot and RT-PX acceptance uploads are capped by `BeamKit:CiServer:Security:MaxPlanSnapshotUploadBytes`, defaulting to 5 MB and clamped between 1 KB and 100 MB.
 
 ## Rule-Pack Registry
 
@@ -329,5 +402,7 @@ Configure it under `BeamKit:CiServer:Storage`:
 ## Current Boundaries
 
 This server persists local run history, artifacts, internal BeamKit plan snapshots, and audit events, and can run checks from synthetic cases, BeamKit plan JSON, or ESAPI snapshot JSON. It is suitable for local demos, API shape validation, and future dashboard development.
+
+Path-based fields such as `manifestPath`, `bundlePath`, `rosterPath`, `packagePath`, `institutionProfilePath`, and `esapiSnapshotPath` read files from the server filesystem. Treat callers who can submit those fields as trusted operators, or disable/sandbox path-based requests before exposing the server beyond a controlled clinical engineering environment.
 
 Before clinical or production use, BeamKit still needs production database deployment guidance, formal audit retention policy, role-based access control, identity-provider integration, bundled rule-pack dependency snapshots, network hardening, deployment documentation, PHI handling guidance, and clinical validation.

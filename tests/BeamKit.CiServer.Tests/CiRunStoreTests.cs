@@ -160,6 +160,22 @@ public sealed class CiRunStoreTests
         Assert.False(store.FindRulePackVersion("institution-head-neck", "v1")!.IsActive);
     }
 
+    [Fact]
+    public void SaveRtpxAcceptanceStoresQueryableAcceptanceHistory()
+    {
+        var store = new CiRunStore();
+        store.SaveRtpxAcceptance(CreateRtpxAcceptance("old", DateTimeOffset.UtcNow.AddMinutes(-1), accepted: false));
+        store.SaveRtpxAcceptance(CreateRtpxAcceptance("new", DateTimeOffset.UtcNow, accepted: true));
+
+        var records = store.ListRtpxAcceptances();
+        var found = store.FindRtpxAcceptance("NEW");
+
+        Assert.Equal(new[] { "new", "old" }, records.Select(record => record.Id));
+        Assert.NotNull(found);
+        Assert.True(found.Accepted);
+        Assert.Equal("rtpx-head-neck", found.RulePackId);
+    }
+
     private static BeamKitCiRunRecord CreateArtifact(BeamKitCheckStatus status)
     {
         return new BeamKitCiRunRecord(
@@ -231,6 +247,32 @@ public sealed class CiRunStoreTests
             $"sha256:{versionId}",
             new RulePackValidationReport("Rule pack", versionId, $"sha256:{versionId}", Array.Empty<RulePackPolicyIssue>()),
             new RulePackTestReport("Rule pack", versionId, importedAtUtc, Array.Empty<RulePackTestResult>()));
+    }
+
+    private static CiServerRtpxAcceptanceRecord CreateRtpxAcceptance(string id, DateTimeOffset createdAtUtc, bool accepted)
+    {
+        return new CiServerRtpxAcceptanceRecord(
+            id,
+            createdAtUtc,
+            "Synthetic Hospital",
+            "/tmp/protocol.rtpx.zip",
+            "/tmp/accepted",
+            accepted,
+            promoted: false,
+            "rtpx-head-neck",
+            "version-1",
+            "rtpx.synthetic.head-neck",
+            "Synthetic Head and Neck",
+            "1.0",
+            "rtpx.synthetic.head-neck.accepted.synthetic-hospital",
+            "sha256:package",
+            "sha256:profile",
+            null,
+            hasEsapiEvidence: false,
+            errorCount: accepted ? 0 : 1,
+            warningCount: 0,
+            """{"accepted":true}""",
+            """{"subjectType":"RulePack"}""");
     }
 
     private static CaseWorkItem CreateWorkItem(

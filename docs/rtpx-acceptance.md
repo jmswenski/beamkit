@@ -114,13 +114,40 @@ The optional ESAPI snapshot check compares local plan evidence against the accep
 
 - Required mapped structures must exist.
 - Required contour-bearing structures must have contours.
-- Prescription total dose must match.
-- Fraction count must match.
-- Prescription target must match the mapped local target.
-- Requested energy must match when the protocol specifies energy.
-- Requested technique must match when the protocol specifies technique.
+- Required same-target prescriptions must match total dose, fraction count, mapped local target, requested energy when specified, and requested technique when specified.
+- Recommended same-target prescription alternatives that are not selected by the snapshot are retained as warnings for clinical review.
+- Informational same-target prescription alternatives that are not selected by the snapshot are retained as informational evidence.
 
 The ESAPI evidence is included in both JSON and Markdown acceptance reports. Errors block rule-pack output; warnings remain visible as review evidence.
+
+## CI Server Workflow
+
+The CI server can run the same hospital-side acceptance workflow over HTTP and then import the generated rule pack into managed rule-pack storage.
+
+```bash
+curl -s "$API/api/rtpx/acceptance" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "packagePath":"artifacts/rtpx/protocol.rtpx.zip",
+    "institutionProfilePath":"samples/rtpx-acceptance/synthetic-hospital.json",
+    "esapiSnapshotPath":"samples/rtpx-acceptance/synthetic-esapi-snapshot.json",
+    "rulePackId":"institution-protocol-head-neck",
+    "syntheticCaseId":"head-neck-pass",
+    "promote":false
+  }'
+```
+
+Use `packageBase64`, `institutionProfileJson`, and `esapiSnapshotJson` when a caller needs to upload content instead of referencing server-local files.
+
+The server persists:
+
+- The acceptance report JSON.
+- Package, institution profile, and optional ESAPI snapshot fingerprints.
+- The generated managed rule-pack version id.
+- Generated safety evidence for the promotion gate.
+
+When `promote` is `true`, the generated rule pack must pass policy validation, regression testing, and safety-evidence review before becoming active. This keeps protocol acceptance separate from clinical activation.
 
 ## Intended Use Boundary
 

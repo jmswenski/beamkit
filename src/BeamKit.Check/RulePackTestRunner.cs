@@ -34,7 +34,11 @@ public sealed class RulePackTestRunner
 
     private RulePackTestResult RunCase(BeamKitRulePack rulePack, RulePackTestCase testCase)
     {
-        var report = checkEngine.Evaluate(new BeamKitCheckRequest(testCase.Plan, rulePack, inputSource: $"test-case:{testCase.Id}"));
+        var report = checkEngine.Evaluate(new BeamKitCheckRequest(
+            testCase.Plan,
+            rulePack,
+            testCase.ReadinessInput,
+            inputSource: $"test-case:{testCase.Id}"));
         var findings = report.PlanCheckReport.Results
             .Where(result => result.Status != PlanCheckStatus.Pass)
             .Select(result => result.CheckId)

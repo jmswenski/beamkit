@@ -1,4 +1,5 @@
 using BeamKit.Core.Domain;
+using BeamKit.Protocols;
 using BeamKit.Protocols.Word;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -133,7 +134,7 @@ public sealed class RtpxWordProtocolExtractorTests
     }
 
     [Fact]
-    public void ExtractWarnsWhenDataRowWidthDiffersFromHeader()
+    public void ExtractRejectsWhenDataRowWidthDiffersFromHeader()
     {
         var path = CreateProtocolDocument(prescriptionRows: new[]
         {
@@ -143,8 +144,81 @@ public sealed class RtpxWordProtocolExtractorTests
 
         var report = new RtpxWordProtocolExtractor().Extract(path);
 
+        Assert.False(report.IsValid);
+        Assert.Contains(report.Issues, issue =>
+            issue.Code == "rtpx.word.row-width-mismatch"
+            && issue.Severity == RtpxWordIssueSeverity.Error
+            && issue.Anchor == "table 3 row 2");
+        Assert.Empty(report.Package?.Prescriptions ?? Array.Empty<ProtocolPrescription>());
+    }
+
+    [Fact]
+    public void ExtractUsesPhysicalRowNumbersWhenBlankRowsAreSkipped()
+    {
+        var path = CreateProtocolDocument(prescriptionRows: new[]
+        {
+            new[] { "Id", "Target", "Total Dose Gy", "Fractions", "Dose Per Fraction Gy", "Technique", "Energy", "Level", "Description" },
+            new[] { "", "", "", "", "", "", "", "", "" },
+            new[] { "rx.primary", "PTV_5000", "not-a-dose", "5", "10.8", "VMAT", "6X", "Required", "Primary prescription" }
+        });
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
+        Assert.False(report.IsValid);
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.word.decimal-invalid" && issue.Anchor == "table 3 row 3");
+    }
+
+    [Fact]
+    public void ExtractSplitsMultiParagraphCellText()
+    {
+        var path = CreateProtocolDocument(structureRows: new[]
+        {
+            new[] { "Id", "Name", "Role", "Level", "Aliases", "Must Have Contours", "Description" },
+            new[] { "ptv", "PTV_5000", "Target", "Required", "PTV\nPlanning Target Volume", "yes", "Primary planning target" },
+            new[] { "cord", "Cord", "OAR", "Required", "SpinalCord", "true", "Cord OAR" }
+        });
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
         Assert.True(report.IsValid, Describe(report));
-        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.word.row-width-mismatch" && issue.Anchor == "table 3 row 2");
+        var ptv = Assert.Single(report.Package!.Structures, structure => structure.Id == "ptv");
+        Assert.Equal(new[] { "Planning Target Volume", "PTV" }, ptv.Aliases);
+    }
+
+    [Fact]
+    public void ExtractReadsContinuationTablesWithRepeatedHeader()
+    {
+        var path = CreateProtocolDocument(appendPrescriptionContinuation: true);
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
+        Assert.True(report.IsValid, Describe(report));
+        Assert.Equal(new[] { "rx.boost", "rx.primary" }, report.Package!.Prescriptions.Select(prescription => prescription.Id).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void ExtractReadsTablesInsideContentControls()
+    {
+        var path = CreateProtocolDocument(wrapTablesInContentControl: true);
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
+        Assert.True(report.IsValid, Describe(report));
+        Assert.Equal("rtpx.synthetic.lung-sbrt", report.Package!.Id);
+    }
+
+    [Fact]
+    public void ExtractRejectsMergedDataRows()
+    {
+        var path = CreateProtocolDocument(useMergedPrescriptionRow: true);
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
+        Assert.False(report.IsValid);
+        Assert.Contains(report.Issues, issue =>
+            issue.Code == "rtpx.word.row-merged-cells"
+            && issue.Severity == RtpxWordIssueSeverity.Error
+            && issue.Anchor == "table 3 row 2");
     }
 
     [Fact]
@@ -189,8 +263,12 @@ public sealed class RtpxWordProtocolExtractorTests
     private static string CreateProtocolDocument(
         bool useTableMarkers = false,
         IReadOnlyList<IReadOnlyList<string>>? metadataRows = null,
+        IReadOnlyList<IReadOnlyList<string>>? structureRows = null,
         IReadOnlyList<IReadOnlyList<string>>? prescriptionRows = null,
-        bool appendUnrelatedTableAfterStructures = false)
+        bool appendUnrelatedTableAfterStructures = false,
+        bool appendPrescriptionContinuation = false,
+        bool wrapTablesInContentControl = false,
+        bool useMergedPrescriptionRow = false)
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.docx");
         using var document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document);
@@ -211,56 +289,99 @@ public sealed class RtpxWordProtocolExtractorTests
             new[] { "Effective Date", "2026-07-12" },
             new[] { "Owner", "BeamKit tests" },
             new[] { "Tags", "sbrt; synthetic" }
-        }, useTableMarkers);
-        AppendRtpxTable(body, "RT-PX Structures", new[]
+        }, useTableMarkers, wrapTablesInContentControl);
+        AppendRtpxTable(body, "RT-PX Structures", structureRows ?? new[]
         {
             new[] { "Id", "Name", "Role", "Level", "Aliases", "Must Have Contours", "Description" },
             new[] { "ptv", "PTV_5000", "Target", "Required", "PTV; Planning Target Volume", "yes", "Primary planning target" },
             new[] { "cord", "Cord", "OAR", "Required", "SpinalCord", "true", "Cord OAR" }
-        }, useTableMarkers);
+        }, useTableMarkers, wrapTablesInContentControl);
         if (appendUnrelatedTableAfterStructures)
         {
-            body.Append(CreateTable(new[]
+            AppendBlockElement(body, CreateTable(new[]
             {
                 new[] { "Revision", "Note" },
                 new[] { "1", "Narrative table that should not be parsed as RT-PX." }
-            }));
+            }), wrapTablesInContentControl);
         }
 
-        AppendRtpxTable(body, "RT-PX Prescriptions", prescriptionRows ?? new[]
+        if (useMergedPrescriptionRow)
         {
-            new[] { "Id", "Target", "Total Dose Gy", "Fractions", "Dose Per Fraction Gy", "Technique", "Energy", "Level", "Description" },
-            new[] { "rx.primary", "PTV_5000", "54", "5", "10.8", "VMAT", "6X", "Required", "Primary prescription" }
-        }, useTableMarkers);
+            AppendBlockElement(body, CreateHeading("RT-PX Prescriptions"), wrapTablesInContentControl);
+            AppendBlockElement(body, CreateTableFromCells(new[]
+            {
+                new[] { "Id", "Target", "Total Dose Gy", "Fractions", "Dose Per Fraction Gy", "Technique", "Energy", "Level", "Description" }.Select(value => CreateCell(value)).ToArray(),
+                new[]
+                {
+                    CreateCell("rx.primary"),
+                    CreateCell("PTV_5000"),
+                    CreateCell("54", gridSpan: 2),
+                    CreateCell("10.8"),
+                    CreateCell("VMAT"),
+                    CreateCell("6X"),
+                    CreateCell("Required"),
+                    CreateCell("Primary prescription")
+                }
+            }), wrapTablesInContentControl);
+        }
+        else
+        {
+            AppendRtpxTable(body, "RT-PX Prescriptions", prescriptionRows ?? new[]
+            {
+                new[] { "Id", "Target", "Total Dose Gy", "Fractions", "Dose Per Fraction Gy", "Technique", "Energy", "Level", "Description" },
+                new[] { "rx.primary", "PTV_5000", "54", "5", "10.8", "VMAT", "6X", "Required", "Primary prescription" }
+            }, useTableMarkers, wrapTablesInContentControl);
+        }
+
+        if (appendPrescriptionContinuation)
+        {
+            AppendBlockElement(body, CreateTable(new[]
+            {
+                new[] { "Id", "Target", "Total Dose Gy", "Fractions", "Dose Per Fraction Gy", "Technique", "Energy", "Level", "Description" },
+                new[] { "rx.boost", "PTV_5000", "60", "5", "12", "VMAT", "6X", "Recommended", "Boost prescription" }
+            }), wrapTablesInContentControl);
+        }
+
         AppendRtpxTable(body, "RT-PX Dose Constraints", new[]
         {
             new[] { "Id", "Structure", "Metric", "Comparison", "Value", "Unit", "Level", "Description", "Active" },
             new[] { "cord.max", "Cord", "Max", "<=", "30", "Gy", "Required", "Cord max dose", "yes" }
-        }, useTableMarkers);
+        }, useTableMarkers, wrapTablesInContentControl);
         AppendRtpxTable(body, "RT-PX Plan Checks", new[]
         {
             new[] { "Id", "Title", "Type", "Level", "Parameters", "Description", "Active" },
             new[] { "dose-grid", "Dose grid <= 2.5 mm", "DoseGridResolution", "Required", "maxMm=doseGridMaxMm", "Protocol grid check", "true" }
-        }, useTableMarkers);
+        }, useTableMarkers, wrapTablesInContentControl);
         AppendRtpxTable(body, "RT-PX Workflow", new[]
         {
             new[] { "Id", "Title", "Type", "Level", "Description", "Active" },
             new[] { "physics.review", "Physics review before treatment", "Approval", "Required", "Protocol cases need physics review", "true" }
-        }, useTableMarkers);
+        }, useTableMarkers, wrapTablesInContentControl);
         main.Document = new Document(body);
         return path;
     }
 
-    private static void AppendRtpxTable(Body body, string title, IReadOnlyList<IReadOnlyList<string>> rows, bool useTableMarker)
+    private static void AppendRtpxTable(Body body, string title, IReadOnlyList<IReadOnlyList<string>> rows, bool useTableMarker, bool wrapInContentControl = false)
     {
         if (useTableMarker)
         {
-            body.Append(CreateTable(new[] { new[] { title } }.Concat(rows).ToArray()));
+            AppendBlockElement(body, CreateTable(new[] { new[] { title } }.Concat(rows).ToArray()), wrapInContentControl);
             return;
         }
 
-        body.Append(CreateHeading(title));
-        body.Append(CreateTable(rows));
+        AppendBlockElement(body, CreateHeading(title), wrapInContentControl);
+        AppendBlockElement(body, CreateTable(rows), wrapInContentControl);
+    }
+
+    private static void AppendBlockElement(Body body, OpenXmlElement element, bool wrapInContentControl)
+    {
+        if (!wrapInContentControl)
+        {
+            body.Append(element);
+            return;
+        }
+
+        body.Append(new SdtBlock(new SdtContentBlock(element)));
     }
 
     private static Paragraph CreateHeading(string text)
@@ -275,10 +396,47 @@ public sealed class RtpxWordProtocolExtractorTests
         var table = new Table();
         foreach (var row in rows)
         {
-            table.Append(new TableRow(row.Select(cell => new TableCell(new Paragraph(new Run(new Text(cell)))))));
+            table.Append(new TableRow(row.Select(value => CreateCell(value))));
         }
 
         return table;
+    }
+
+    private static Table CreateTableFromCells(IReadOnlyList<IReadOnlyList<TableCell>> rows)
+    {
+        var table = new Table();
+        foreach (var row in rows)
+        {
+            table.Append(new TableRow(row));
+        }
+
+        return table;
+    }
+
+    private static TableCell CreateCell(string value, int gridSpan = 1, bool verticalMerge = false)
+    {
+        var paragraphs = value.Split('\n')
+            .Select(part => new Paragraph(new Run(new Text(part))))
+            .Cast<OpenXmlElement>()
+            .ToList();
+        var cell = new TableCell(paragraphs);
+        if (gridSpan > 1 || verticalMerge)
+        {
+            var properties = new TableCellProperties();
+            if (gridSpan > 1)
+            {
+                properties.Append(new GridSpan { Val = gridSpan });
+            }
+
+            if (verticalMerge)
+            {
+                properties.Append(new VerticalMerge { Val = MergedCellValues.Restart });
+            }
+
+            cell.PrependChild(properties);
+        }
+
+        return cell;
     }
 
     private static string Describe(RtpxWordExtractionReport report)

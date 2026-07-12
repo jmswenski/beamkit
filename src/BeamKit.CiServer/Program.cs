@@ -7,15 +7,34 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
 
+static bool IsBadRequestException(Exception? exception)
+{
+    return exception is ArgumentException or InvalidOperationException or FormatException or FileNotFoundException or DirectoryNotFoundException
+        || exception is IOException ioException
+            && ioException.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase);
+}
+
+const string WordAddInCorsPolicy = "BeamKit.WordAddIn";
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
     options.SerializerOptions.WriteIndented = true;
 });
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(
+        WordAddInCorsPolicy,
+        policy => policy
+            .WithOrigins("https://localhost:3000", "https://127.0.0.1:3000")
+            .AllowAnyMethod()
+            .AllowAnyHeader());
+});
 builder.Services.Configure<CiServerStorageOptions>(builder.Configuration.GetSection("BeamKit:CiServer:Storage"));
 builder.Services.Configure<CiServerSecurityOptions>(builder.Configuration.GetSection("BeamKit:CiServer:Security"));
 builder.Services.Configure<CiServerRulePackRegistryOptions>(builder.Configuration.GetSection("BeamKit:CiServer:RulePackRegistry"));
+builder.Services.Configure<CiServerRtpxAuthoringOptions>(builder.Configuration.GetSection("BeamKit:CiServer:RtpxAuthoring"));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<BeamKitClient>();
 builder.Services.AddSingleton<ICiRunStore, SqliteCiRunStore>();
@@ -29,7 +48,7 @@ app.UseExceptionHandler(errorApp =>
     errorApp.Run(async context =>
     {
         var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
-        var statusCode = exception is ArgumentException or InvalidOperationException or FormatException ? StatusCodes.Status400BadRequest : StatusCodes.Status500InternalServerError;
+        var statusCode = IsBadRequestException(exception) ? StatusCodes.Status400BadRequest : StatusCodes.Status500InternalServerError;
         context.Response.StatusCode = statusCode;
         await Results.Problem(
             title: statusCode == StatusCodes.Status400BadRequest ? "Invalid BeamKit CI server request." : "BeamKit CI server error.",
@@ -39,10 +58,12 @@ app.UseExceptionHandler(errorApp =>
     });
 });
 
+app.UseCors(WordAddInCorsPolicy);
+
 app.Use(async (context, next) =>
 {
     var security = context.RequestServices.GetRequiredService<IOptions<CiServerSecurityOptions>>().Value;
-    if (CiServerSecurity.IsPlanSnapshotUploadPath(context.Request.Path))
+    if (CiServerSecurity.IsLargeUploadPath(context.Request.Path))
     {
         var maxBytes = security.ClampedMaxPlanSnapshotUploadBytes;
         var maxBodyFeature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
@@ -131,6 +152,57 @@ app.MapGet("/api/baselines/{caseId}", (string caseId, BeamKitCiServerService ser
 {
     var baseline = service.FindBaseline(caseId);
     return baseline is null ? Results.NotFound() : Results.Ok(baseline);
+});
+app.MapGet("/api/rtpx/acceptance", (BeamKitCiServerService service, int? limit) =>
+{
+    return Results.Ok(service.ListRtpxAcceptances(limit ?? 50));
+});
+app.MapGet("/api/rtpx/acceptance/{id}", (string id, BeamKitCiServerService service) =>
+{
+    var acceptance = service.FindRtpxAcceptance(id);
+    return acceptance is null ? Results.NotFound() : Results.Ok(acceptance);
+});
+app.MapGet("/api/rtpx/drafts", (BeamKitCiServerService service, int? limit) =>
+{
+    return Results.Ok(service.ListRtpxDraftReviews(limit ?? 50));
+});
+app.MapGet("/api/rtpx/drafts/{id}", (string id, BeamKitCiServerService service) =>
+{
+    var draft = service.FindRtpxDraftReview(id);
+    return draft is null ? Results.NotFound() : Results.Ok(draft);
+});
+app.MapPost("/api/rtpx/drafts/{id}/promote", (string id, RtpxDraftReviewActionRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.PromoteRtpxDraft(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/rtpx/drafts/{id}/reject", (string id, RtpxDraftReviewActionRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.RejectRtpxDraft(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapGet("/api/rtpx/authoring/templates", (BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.GetRtpxAuthoringTemplates());
+});
+app.MapGet("/api/rtpx/authoring/snippets", (BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.GetRtpxAuthoringSnippets());
+});
+app.MapPost("/api/rtpx/acceptance", (RtpxAcceptanceServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    var result = service.AcceptRtpxPackage(request, CiServerAuditContext.FromHttpContext(context));
+    return Results.Created($"/api/rtpx/acceptance/{result.Acceptance.Id}", result);
+});
+app.MapPost("/api/rtpx/word/extract", (RtpxWordAuthoringServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    var result = service.ExtractRtpxWordProtocol(request, CiServerAuditContext.FromHttpContext(context));
+    return Results.Ok(result);
+});
+app.MapPost("/api/rtpx/word/publish-draft", (RtpxWordDraftPublishServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    var result = service.PublishRtpxWordDraft(request, CiServerAuditContext.FromHttpContext(context));
+    return result.Published && result.Acceptance is not null
+        ? Results.Created($"/api/rtpx/acceptance/{result.Acceptance.Id}", result)
+        : Results.Ok(result);
 });
 app.MapGet("/api/rule-packs", (BeamKitCiServerService service) => Results.Ok(service.ListRulePacks()));
 app.MapGet("/api/rule-packs/versions", (BeamKitCiServerService service, string? rulePackId) =>

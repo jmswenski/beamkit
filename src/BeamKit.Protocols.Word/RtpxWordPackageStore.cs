@@ -65,11 +65,6 @@ public sealed class RtpxWordPackageStore
             throw new IOException($"RT-PX package '{fullOutputPath}' already exists. Use --overwrite to replace it.");
         }
 
-        if (File.Exists(fullOutputPath))
-        {
-            File.Delete(fullOutputPath);
-        }
-
         var extraction = extractor.Extract(docxPath);
         if (!extraction.IsValid || extraction.Package is null || extraction.Validation is null)
         {
@@ -107,15 +102,32 @@ public sealed class RtpxWordPackageStore
             Directory.CreateDirectory(directory);
         }
 
-        using (var archive = ZipFile.Open(fullOutputPath, ZipArchiveMode.Create))
+        var temporaryOutputPath = Path.Combine(
+            directory ?? Path.GetTempPath(),
+            $".{Path.GetFileName(fullOutputPath)}.{Guid.NewGuid():N}.tmp");
+        try
         {
-            WriteTextEntry(archive, RtpxEntryName, RadiotherapyProtocolPackageStore.ToJson(extraction.Package));
-            WriteTextEntry(archive, ManifestEntryName, JsonSerializer.Serialize(manifest, JsonOptions));
-            WriteTextEntry(archive, ValidationEntryName, JsonSerializer.Serialize(extraction.Validation, JsonOptions));
-            if (includeSourceDocument)
+            using (var archive = ZipFile.Open(temporaryOutputPath, ZipArchiveMode.Create))
             {
-                archive.CreateEntryFromFile(fullDocxPath, SourceEntryPrefix + sourceFileName, CompressionLevel.Optimal);
+                WriteTextEntry(archive, RtpxEntryName, RadiotherapyProtocolPackageStore.ToJson(extraction.Package));
+                WriteTextEntry(archive, ManifestEntryName, JsonSerializer.Serialize(manifest, JsonOptions));
+                WriteTextEntry(archive, ValidationEntryName, JsonSerializer.Serialize(extraction.Validation, JsonOptions));
+                if (includeSourceDocument)
+                {
+                    archive.CreateEntryFromFile(fullDocxPath, SourceEntryPrefix + sourceFileName, CompressionLevel.Optimal);
+                }
             }
+
+            File.Move(temporaryOutputPath, fullOutputPath, overwrite);
+        }
+        catch
+        {
+            if (File.Exists(temporaryOutputPath))
+            {
+                File.Delete(temporaryOutputPath);
+            }
+
+            throw;
         }
 
         return new RtpxWordPackageResult(fullOutputPath, extraction, manifest, WrotePackage: true);
@@ -150,6 +162,10 @@ public sealed class RtpxWordPackageStore
         {
             using var sourceStream = sourceEntry.Open();
             sourceHashVerified = string.Equals(HashStream(sourceStream), manifest.SourceHash, StringComparison.OrdinalIgnoreCase);
+        }
+        else if (manifest.IncludesSourceDocument)
+        {
+            sourceHashVerified = false;
         }
 
         return new RtpxWordPackageInspection(fullPath, package, manifest, validation, entries, sourceHashVerified);

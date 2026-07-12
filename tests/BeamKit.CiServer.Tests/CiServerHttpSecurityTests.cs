@@ -1,7 +1,10 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using BeamKit.Core.Serialization;
+using BeamKit.Protocols.Acceptance;
+using BeamKit.Protocols.Word;
 using BeamKit.Samples;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -65,6 +68,40 @@ public sealed class CiServerHttpSecurityTests
         var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RtpxWordExtractRejectsOversizedPayloadBeforeModelBinding()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path, maxPlanSnapshotUploadBytes: 1_024);
+        using var client = factory.CreateClient();
+        var oversizedDocx = new string('x', 2_000);
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            "/api/rtpx/word/extract",
+            $$"""{"fileName":"protocol.docx","docxBase64":"{{oversizedDocx}}"}""");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task RtpxWordExtractAllowsLocalWordAddInCorsPreflight()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Options, "/api/rtpx/word/extract");
+        request.Headers.Add("Origin", "https://localhost:3000");
+        request.Headers.Add("Access-Control-Request-Method", "POST");
+        request.Headers.Add("Access-Control-Request-Headers", "content-type,x-beamkit-api-key");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Contains("https://localhost:3000", response.Headers.GetValues("Access-Control-Allow-Origin"));
     }
 
     [Fact]
@@ -192,6 +229,162 @@ public sealed class CiServerHttpSecurityTests
         Assert.Equal("synthetic-head-neck", review.RootElement.GetProperty("rulePackId").GetString());
     }
 
+    [Fact]
+    public async Task RtpxAcceptanceEndpointAcceptsPackageUploadAndListsRecord()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var packagePath = CreateWordRtpxPackage();
+        var payload = JsonSerializer.Serialize(new
+        {
+            packageBase64 = Convert.ToBase64String(File.ReadAllBytes(packagePath)),
+            institutionProfileJson = CreateInstitutionProfileJson(),
+            rulePackId = "http-rtpx-head-neck",
+            runRegressionTests = false,
+            importedBy = "http-test"
+        });
+        using var request = CreateJsonRequest(HttpMethod.Post, "/api/rtpx/acceptance", payload);
+
+        var response = await client.SendAsync(request);
+        using var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var records = await GetJson(client, "/api/rtpx/acceptance?limit=10");
+        var acceptanceId = result.RootElement.GetProperty("acceptance").GetProperty("id").GetString()
+            ?? throw new InvalidOperationException("Acceptance id was not returned.");
+        using var detail = await GetJson(client, $"/api/rtpx/acceptance/{acceptanceId}");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.True(result.RootElement.GetProperty("report").GetProperty("isAccepted").GetBoolean());
+        Assert.Equal("http-rtpx-head-neck", result.RootElement.GetProperty("rulePackImport").GetProperty("version").GetProperty("rulePackId").GetString());
+        var record = Assert.Single(records.RootElement.EnumerateArray());
+        Assert.Equal(acceptanceId, record.GetProperty("id").GetString());
+        Assert.True(record.GetProperty("accepted").GetBoolean());
+        Assert.Contains("Synthetic Hospital", detail.RootElement.GetProperty("reportJson").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RtpxWordExtractEndpointAcceptsDocxUploadAndReturnsPackage()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var docxPath = CreateWordProtocolDocument();
+        var payload = JsonSerializer.Serialize(new
+        {
+            fileName = "protocol.docx",
+            docxBase64 = Convert.ToBase64String(File.ReadAllBytes(docxPath)),
+            includeSourceDocument = true
+        });
+        using var request = CreateJsonRequest(HttpMethod.Post, "/api/rtpx/word/extract", payload);
+
+        var response = await client.SendAsync(request);
+        using var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(result.RootElement.GetProperty("isValid").GetBoolean());
+        Assert.Equal("rtpx.example.protocol", result.RootElement.GetProperty("extraction").GetProperty("package").GetProperty("id").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(result.RootElement.GetProperty("rtpxJson").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(result.RootElement.GetProperty("rtpxPackageBase64").GetString()));
+        Assert.Equal("protocol.docx", result.RootElement.GetProperty("sourceFileName").GetString());
+    }
+
+    [Fact]
+    public async Task RtpxWordExtractEndpointSupportsQuickCheckWithoutPackageGeneration()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var docxPath = CreateWordProtocolDocument();
+        var payload = JsonSerializer.Serialize(new
+        {
+            fileName = "protocol.docx",
+            docxBase64 = Convert.ToBase64String(File.ReadAllBytes(docxPath)),
+            generatePackage = false
+        });
+        using var request = CreateJsonRequest(HttpMethod.Post, "/api/rtpx/word/extract", payload);
+
+        var response = await client.SendAsync(request);
+        using var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(result.RootElement.GetProperty("isValid").GetBoolean());
+        Assert.Equal("rtpx.example.protocol", result.RootElement.GetProperty("extraction").GetProperty("package").GetProperty("id").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(result.RootElement.GetProperty("rtpxJson").GetString()));
+        Assert.Equal(JsonValueKind.Null, result.RootElement.GetProperty("rtpxPackageBase64").ValueKind);
+        Assert.Equal(JsonValueKind.Null, result.RootElement.GetProperty("rtpxPackageFileName").ValueKind);
+    }
+
+    [Fact]
+    public async Task RtpxAuthoringLibraryEndpointsReturnTemplatesAndSnippets()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+
+        using var templates = await GetJson(client, "/api/rtpx/authoring/templates");
+        using var snippets = await GetJson(client, "/api/rtpx/authoring/snippets");
+
+        Assert.Equal("beamkit.defaults.rtpx.templates", templates.RootElement.GetProperty("libraryId").GetString());
+        Assert.True(templates.RootElement.GetProperty("templates").GetArrayLength() >= 6);
+        Assert.Equal("beamkit.defaults.rtpx.snippets", snippets.RootElement.GetProperty("libraryId").GetString());
+        Assert.True(snippets.RootElement.GetProperty("snippets").GetArrayLength() >= 8);
+    }
+
+    [Fact]
+    public async Task RtpxWordPublishDraftEndpointImportsDraftAndListsReview()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var docxPath = CreateWordProtocolDocument();
+        var payload = JsonSerializer.Serialize(new
+        {
+            fileName = "protocol.docx",
+            docxBase64 = Convert.ToBase64String(File.ReadAllBytes(docxPath)),
+            rulePackId = "draft-head-neck",
+            syntheticCaseId = "head-neck-pass",
+            runRegressionTests = true
+        });
+        using var request = CreateJsonRequest(HttpMethod.Post, "/api/rtpx/word/publish-draft", payload);
+
+        var response = await client.SendAsync(request);
+        using var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        using var drafts = await GetJson(client, "/api/rtpx/drafts");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.True(result.RootElement.GetProperty("published").GetBoolean());
+        Assert.True(result.RootElement.GetProperty("acceptance").GetProperty("accepted").GetBoolean());
+        Assert.Equal("draft-head-neck", result.RootElement.GetProperty("rulePackImport").GetProperty("version").GetProperty("rulePackId").GetString());
+        Assert.True(result.RootElement.GetProperty("protocolDiff").GetProperty("isInitial").GetBoolean());
+        var draft = Assert.Single(drafts.RootElement.EnumerateArray());
+        Assert.Equal(result.RootElement.GetProperty("acceptance").GetProperty("id").GetString(), draft.GetProperty("acceptance").GetProperty("id").GetString());
+        Assert.True(draft.GetProperty("version").GetProperty("isValid").GetBoolean());
+        Assert.True(draft.GetProperty("protocolDiff").GetProperty("isInitial").GetBoolean());
+        Assert.Equal(JsonValueKind.Object, draft.GetProperty("safetyEvidence").ValueKind);
+    }
+
+    [Fact]
+    public async Task RtpxAcceptanceEndpointReturnsBadRequestForMissingServerPath()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var profilePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.json");
+        File.WriteAllText(profilePath, CreateInstitutionProfileJson());
+        using var request = CreateJsonRequest(
+            HttpMethod.Post,
+            "/api/rtpx/acceptance",
+            JsonSerializer.Serialize(new
+            {
+                packagePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.rtpx.zip"),
+                institutionProfilePath = profilePath
+            }));
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     private static async Task<JsonDocument> GetJson(HttpClient client, string path)
     {
         using var request = CreateRequest(HttpMethod.Get, path);
@@ -284,6 +477,41 @@ public sealed class CiServerHttpSecurityTests
     private static string SampleRulePackPath()
     {
         return System.IO.Path.Combine(FindRepositoryRoot(), "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+    }
+
+    private static string CreateWordRtpxPackage()
+    {
+        var directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "beamkit-ci-server-http-rtpx", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var docxPath = System.IO.Path.Combine(directory, "protocol.docx");
+        var packagePath = System.IO.Path.Combine(directory, "protocol.rtpx.zip");
+        new RtpxWordTemplateGenerator().Create(docxPath);
+        var result = new RtpxWordPackageStore().Create(docxPath, packagePath);
+        Assert.True(result.WrotePackage);
+        return packagePath;
+    }
+
+    private static string CreateWordProtocolDocument()
+    {
+        var directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "beamkit-ci-server-http-rtpx-word", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var docxPath = System.IO.Path.Combine(directory, "protocol.docx");
+        new RtpxWordTemplateGenerator().Create(docxPath);
+        return docxPath;
+    }
+
+    private static string CreateInstitutionProfileJson()
+    {
+        return RtpxInstitutionProfileStore.ToJson(new RtpxInstitutionProfile(
+            "Synthetic Hospital",
+            new[]
+            {
+                new RtpxStructureMapping("PTV_5000", "PTV_Hospital"),
+                new RtpxStructureMapping("Cord", "SpinalCord")
+            },
+            acceptedBy: "Physics Director",
+            effectiveDate: new DateOnly(2026, 7, 12),
+            reviewedBy: "Protocol Physicist"));
     }
 
     private static string FindRepositoryRoot()

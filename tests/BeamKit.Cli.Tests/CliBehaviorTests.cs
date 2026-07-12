@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using BeamKit.Reporting;
 using Xunit;
 
@@ -838,6 +839,88 @@ public sealed class CliBehaviorTests
             Assert.Equal(1, exitCode);
             Assert.Contains("beamkit:", error.ToString(), StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("Unhandled", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ProgramHandlesCorruptWordDocumentWithCliError()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "beamkit-cli-rtpx-word-tests", Guid.NewGuid().ToString("N"));
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var docxPath = Path.Combine(directory, "corrupt.docx");
+            File.WriteAllText(docxPath, "not an OpenXML package");
+
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "rtpx", "lint-word", "--docx", docxPath });
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("beamkit:", error.ToString(), StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Unhandled", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ProgramInspectPackageFailsWhenIncludedSourceHashDoesNotVerify()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "beamkit-cli-rtpx-inspect-tests", Guid.NewGuid().ToString("N"));
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var docxPath = Path.Combine(directory, "protocol.docx");
+            var packagePath = Path.Combine(directory, "protocol.rtpx.zip");
+            Console.SetOut(TextWriter.Null);
+            Console.SetError(TextWriter.Null);
+            Assert.Equal(0, Program.Main(new[] { "rtpx", "template-word", "--output", docxPath }));
+            Assert.Equal(0, Program.Main(new[] { "rtpx", "package-word", "--docx", docxPath, "--output", packagePath, "--include-source" }));
+            using (var archive = ZipFile.Open(packagePath, ZipArchiveMode.Update))
+            {
+                var sourceEntry = archive.Entries.Single(entry => entry.FullName.StartsWith("source/", StringComparison.OrdinalIgnoreCase));
+                var sourceEntryName = sourceEntry.FullName;
+                sourceEntry.Delete();
+                var tamperedEntry = archive.CreateEntry(sourceEntryName);
+                using var writer = new StreamWriter(tamperedEntry.Open());
+                writer.Write("tampered source");
+            }
+
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "rtpx", "inspect-package", "--package", packagePath });
+
+            Assert.Equal(2, exitCode);
+            Assert.Contains("Source hash verified: No", output.ToString(), StringComparison.Ordinal);
         }
         finally
         {

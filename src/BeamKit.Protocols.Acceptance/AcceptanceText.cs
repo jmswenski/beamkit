@@ -20,8 +20,8 @@ internal static class AcceptanceText
     public static IReadOnlyList<string> CleanList(IEnumerable<string>? values)
     {
         return values?
+            .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value.Trim())
-            .Where(value => value.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToArray()

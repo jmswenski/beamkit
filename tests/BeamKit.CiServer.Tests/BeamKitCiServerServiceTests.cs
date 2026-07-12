@@ -1,8 +1,15 @@
+using System.IO.Compression;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
 using BeamKit.Esapi;
 using BeamKit.PlanCheck;
+using BeamKit.Protocols;
+using BeamKit.Protocols.Acceptance;
+using BeamKit.Protocols.Word;
 using BeamKit.RulePacks;
 using BeamKit.Safety;
 using BeamKit.Samples;
@@ -332,6 +339,37 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void ImportRulePackRegressionTestsRespectRulePackReadinessDefaults()
+    {
+        var root = CreateTemporarySampleRulePackCopy();
+        try
+        {
+            var manifestPath = Path.Combine(root, "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+            var manifest = JsonNode.Parse(File.ReadAllText(manifestPath))?.AsObject()
+                ?? throw new InvalidOperationException("Sample rule-pack manifest could not be parsed.");
+            Assert.True(manifest.Remove("readinessDefaults"));
+            File.WriteAllText(manifestPath, manifest.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            var service = CreateService();
+
+            var result = service.ImportRulePack(new RulePackImportServerRequest
+            {
+                RulePackId = "institution-head-neck",
+                ManifestPath = manifestPath,
+                SyntheticCaseId = "head-neck-pass"
+            });
+
+            var regression = Assert.Single(result.TestReport!.Results);
+            Assert.False(result.TestReport.Passed);
+            Assert.Equal(BeamKitCheckStatus.Fail, regression.ActualStatus);
+            Assert.Contains(regression.CheckReport.ReadinessState.OutstandingItems, item => item.Key == "ct-imported");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void PromoteManagedRulePackVersionMakesItAvailableForRuns()
     {
         var service = CreateService();
@@ -625,6 +663,97 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Equal(second.Validation.Fingerprint, diff.NewFingerprint);
         Assert.False(diff.HasPolicyRelevantChanges);
         Assert.Empty(diff.Changes);
+    }
+
+    [Fact]
+    public void AcceptRtpxPackageImportsPromotesAndStoresSafetyEvidence()
+    {
+        var store = new CiRunStore();
+        var service = CreateService(store);
+        var packagePath = CreateHeadNeckRtpxPackage();
+
+        var result = service.AcceptRtpxPackage(
+            new RtpxAcceptanceServerRequest
+            {
+                PackagePath = packagePath,
+                InstitutionProfileJson = CreateHeadNeckInstitutionProfileJson(),
+                RulePackId = "rtpx-head-neck",
+                SyntheticCaseId = "head-neck-pass",
+                ImportedBy = "physics",
+                Promote = true,
+                Note = "Approved RT-PX acceptance."
+            },
+            new CiServerAuditContext("physics-key", "/api/rtpx/acceptance", "POST"));
+        var detail = service.FindRtpxAcceptance(result.Acceptance.Id)
+            ?? throw new InvalidOperationException("Acceptance record was not stored.");
+        var storedEvidence = service.FindManagedRulePackSafetyEvidence("rtpx-head-neck", result.RulePackImport!.Version.VersionId);
+
+        Assert.True(result.Report.IsAccepted);
+        Assert.NotNull(result.RulePackImport);
+        Assert.True(result.RulePackImport.TestReport?.Passed);
+        Assert.NotNull(result.SafetyReview);
+        Assert.True(result.SafetyReview.IsAcceptable);
+        Assert.True(result.Acceptance.Promoted);
+        Assert.Equal("rtpx-head-neck", result.Acceptance.RulePackId);
+        Assert.True(result.PromotedVersion?.IsActive);
+        Assert.Contains(service.ListRulePacks(), rulePack => rulePack.Id == "rtpx-head-neck" && rulePack.SourceKind == "Managed");
+        Assert.NotNull(storedEvidence);
+        Assert.Equal(result.RulePackImport.Version.Fingerprint, storedEvidence.SubjectFingerprint);
+        Assert.Contains("Synthetic Hospital", detail.ReportJson, StringComparison.Ordinal);
+        Assert.Contains(store.ListAuditEvents(new CiServerAuditQuery { Action = "rtpx.acceptance.created" }), audit => audit.Actor == "physics-key");
+        Assert.Single(store.ListRtpxAcceptances());
+    }
+
+    [Fact]
+    public void AcceptRtpxPackageWithEsapiSnapshotStoresOptionalEvidence()
+    {
+        var service = CreateService();
+        var packagePath = CreateHeadNeckRtpxPackage();
+        var snapshotJson = EsapiPlanSnapshotJson.ToJson(CreateEsapiSnapshot(SyntheticClinicalCaseLibrary.HeadAndNeckBaseline().Plan));
+
+        var result = service.AcceptRtpxPackage(new RtpxAcceptanceServerRequest
+        {
+            PackageBase64 = Convert.ToBase64String(File.ReadAllBytes(packagePath)),
+            InstitutionProfileJson = CreateHeadNeckInstitutionProfileJson(),
+            EsapiSnapshotJson = snapshotJson,
+            RulePackId = "rtpx-head-neck-esapi",
+            RunRegressionTests = false
+        });
+
+        Assert.True(result.Report.IsAccepted);
+        Assert.True(result.Acceptance.Accepted);
+        Assert.False(result.Acceptance.Promoted);
+        Assert.True(result.Acceptance.HasEsapiEvidence);
+        Assert.NotNull(result.Report.EsapiEvidence);
+        Assert.StartsWith("sha256:", result.Acceptance.EsapiSnapshotFingerprint, StringComparison.Ordinal);
+        Assert.Contains(result.SafetyEvidence!.EvidenceItems, item => item.Id == "EV-RTPX-ESAPI" && item.Status == ValidationEvidenceStatus.Pass);
+        Assert.False(result.SafetyReview!.IsAcceptable);
+        Assert.Contains(result.SafetyReview.BlockingFindings, finding => finding.Code == "evidence.RegressionTest");
+    }
+
+    [Fact]
+    public void RejectedRtpxAcceptanceDoesNotImportRulePack()
+    {
+        var service = CreateService();
+
+        var result = service.AcceptRtpxPackage(new RtpxAcceptanceServerRequest
+        {
+            PackagePath = CreateHeadNeckRtpxPackage(),
+            InstitutionProfileJson = RtpxInstitutionProfileStore.ToJson(new RtpxInstitutionProfile(
+                "Synthetic Hospital",
+                new[] { new RtpxStructureMapping("PTV_7000", "PTV_7000") },
+                acceptedBy: "Physics Director",
+                effectiveDate: new DateOnly(2026, 7, 12),
+                reviewedBy: "Protocol Physicist")),
+            RulePackId = "rtpx-rejected"
+        });
+
+        Assert.False(result.Report.IsAccepted);
+        Assert.False(result.Acceptance.Accepted);
+        Assert.Null(result.RulePackImport);
+        Assert.Null(result.SafetyEvidence);
+        Assert.Empty(service.ListManagedRulePackVersions("rtpx-rejected"));
+        Assert.Contains(result.Report.Issues, issue => issue.Code == "rtpx.acceptance.structure.mapping-missing");
     }
 
     [Fact]
@@ -929,6 +1058,91 @@ public sealed class BeamKitCiServerServiceTests
                 : check);
 
         PlanCheckCatalogStore.Save(catalogPath, catalog with { Checks = changedChecks.ToArray() });
+    }
+
+    private static string CreateHeadNeckRtpxPackage()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "beamkit-rtpx-ci-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var packagePath = Path.Combine(directory, "head-neck.rtpx.zip");
+        var package = new RadiotherapyProtocolPackage(
+            "rtpx.synthetic.head-neck",
+            "Synthetic Head and Neck Protocol",
+            "1.0",
+            "Head and Neck",
+            "Definitive",
+            structures: new[]
+            {
+                new ProtocolStructureRequirement("ptv.7000", "PTV_7000", ProtocolStructureRole.Target),
+                new ProtocolStructureRequirement("cord", "Cord", ProtocolStructureRole.OrganAtRisk)
+            },
+            prescriptions: new[]
+            {
+                new ProtocolPrescription("rx.primary", "PTV_7000", 70m, 35, technique: "VMAT", energy: "6X")
+            },
+            constraints: new[]
+            {
+                new ProtocolDoseConstraint(
+                    "ptv.d95",
+                    "PTV_7000",
+                    "D95%",
+                    GoalComparison.GreaterThanOrEqual,
+                    66.5m,
+                    "Gy",
+                    description: "PTV D95 coverage objective.")
+            });
+        var manifest = new RtpxWordPackageManifest(
+            "beamkit.rtpx.word-package/0.1",
+            new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero).ToString("O"),
+            package.Id,
+            package.Name,
+            package.Version,
+            package.SchemaVersion,
+            "synthetic.docx",
+            "sha256:synthetic",
+            IncludesSourceDocument: false,
+            new[]
+            {
+                RtpxWordPackageStore.RtpxEntryName,
+                RtpxWordPackageStore.ManifestEntryName,
+                RtpxWordPackageStore.ValidationEntryName
+            });
+        var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true,
+            Converters =
+            {
+                new JsonStringEnumConverter()
+            }
+        };
+
+        using var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
+        WriteEntry(archive, RtpxWordPackageStore.RtpxEntryName, RadiotherapyProtocolPackageStore.ToJson(package));
+        WriteEntry(archive, RtpxWordPackageStore.ManifestEntryName, JsonSerializer.Serialize(manifest, jsonOptions));
+        WriteEntry(archive, RtpxWordPackageStore.ValidationEntryName, "{}");
+        return packagePath;
+    }
+
+    private static string CreateHeadNeckInstitutionProfileJson()
+    {
+        return RtpxInstitutionProfileStore.ToJson(new RtpxInstitutionProfile(
+            "Synthetic Hospital",
+            new[]
+            {
+                new RtpxStructureMapping("PTV_7000", "PTV_7000"),
+                new RtpxStructureMapping("Cord", "SpinalCord")
+            },
+            acceptedBy: "Physics Director",
+            effectiveDate: new DateOnly(2026, 7, 12),
+            reviewedBy: "Protocol Physicist",
+            localPolicyReference: "Synthetic protocol committee"));
+    }
+
+    private static void WriteEntry(ZipArchive archive, string entryName, string content)
+    {
+        var entry = archive.CreateEntry(entryName);
+        using var writer = new StreamWriter(entry.Open());
+        writer.Write(content);
     }
 
     private static string FindRepositoryRoot()

@@ -12,6 +12,7 @@ public sealed class CiRunStore : ICiRunStore
     private readonly ConcurrentDictionary<string, CiRunBaseline> baselines = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerAuditEvent> auditEvents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerManagedRulePackVersion> rulePackVersions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CiServerRtpxAcceptanceRecord> rtpxAcceptances = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CaseWorkItem> workItems = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -203,6 +204,38 @@ public sealed class CiRunStore : ICiRunStore
         };
         rulePackVersions[CreateRulePackVersionKey(rulePackId, versionId)] = promoted;
         return promoted;
+    }
+
+    /// <summary>
+    /// Adds or replaces an RT-PX package acceptance record.
+    /// </summary>
+    public CiServerRtpxAcceptanceRecord SaveRtpxAcceptance(CiServerRtpxAcceptanceRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        rtpxAcceptances[record.Id] = record;
+        return record;
+    }
+
+    /// <summary>
+    /// Finds an RT-PX package acceptance record.
+    /// </summary>
+    public CiServerRtpxAcceptanceRecord? FindRtpxAcceptance(string id)
+    {
+        return string.IsNullOrWhiteSpace(id) ? null : rtpxAcceptances.GetValueOrDefault(id);
+    }
+
+    /// <summary>
+    /// Lists recent RT-PX package acceptance records.
+    /// </summary>
+    public IReadOnlyList<CiServerRtpxAcceptanceSummary> ListRtpxAcceptances(int limit = 50)
+    {
+        var clampedLimit = Math.Clamp(limit, 1, 500);
+        return rtpxAcceptances.Values
+            .OrderByDescending(record => record.CreatedAtUtc)
+            .ThenBy(record => record.Id, StringComparer.OrdinalIgnoreCase)
+            .Take(clampedLimit)
+            .Select(record => new CiServerRtpxAcceptanceSummary(record))
+            .ToArray();
     }
 
     /// <summary>

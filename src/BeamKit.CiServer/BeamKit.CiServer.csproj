@@ -10,6 +10,9 @@
     <ProjectReference Include="..\BeamKit.Check\BeamKit.Check.csproj" />
     <ProjectReference Include="..\BeamKit.Esapi\BeamKit.Esapi.csproj" />
     <ProjectReference Include="..\BeamKit.Intelligence\BeamKit.Intelligence.csproj" />
+    <ProjectReference Include="..\BeamKit.Protocols\BeamKit.Protocols.csproj" />
+    <ProjectReference Include="..\BeamKit.Protocols.Acceptance\BeamKit.Protocols.Acceptance.csproj" />
+    <ProjectReference Include="..\BeamKit.Protocols.Word\BeamKit.Protocols.Word.csproj" />
     <ProjectReference Include="..\BeamKit.Safety\BeamKit.Safety.csproj" />
     <ProjectReference Include="..\BeamKit.Samples\BeamKit.Samples.csproj" />
     <ProjectReference Include="..\BeamKit.Sdk\BeamKit.Sdk.csproj" />
@@ -24,5 +27,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\BeamKit.RulePacks\BeamKit.RulePacks.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="authoring\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "beamkit.rtpx.authoring.snippets.v1",
+  "libraryId": "beamkit.defaults.rtpx.snippets",
+  "version": "0.1.0",
+  "owner": "BeamKit",
+  "snippets": [
+    {
+      "key": "cord-max",
+      "label": "Cord max dose",
+      "table": "constraints",
+      "row": ["cord.max", "Cord", "Max", "<=", "45", "Gy", "Required", "Cord maximum dose", "yes"]
+    },
+    {
+      "key": "lung-v20",
+      "label": "Lung V20",
+      "table": "constraints",
+      "row": ["lung.v20", "Lung_Total", "V20", "<=", "35", "%", "Recommended", "Lung V20", "yes"]
+    },
+    {
+      "key": "heart-mean",
+      "label": "Mean heart dose",
+      "table": "constraints",
+      "row": ["heart.mean", "Heart", "Mean", "<=", "10", "Gy", "Recommended", "Mean heart dose", "yes"]
+    },
+    {
+      "key": "ptv-d95",
+      "label": "PTV D95 coverage",
+      "table": "constraints",
+      "row": ["ptv.d95", "PTV_5000", "D95", ">=", "95", "%", "Required", "PTV D95 coverage", "yes"]
+    },
+    {
+      "key": "dose-grid",
+      "label": "Dose grid check",
+      "table": "checks",
+      "row": ["dose-grid", "Dose grid <= 2.5 mm", "DoseGridResolution", "Required", "maxMm=2.5", "Protocol grid check", "yes"]
+    },
+    {
+      "key": "beam-model",
+      "label": "Beam model policy",
+      "table": "checks",
+      "row": ["beam-model", "Beam model matches policy", "BeamModel", "Required", "allowed=6X;10X", "Beam model policy", "yes"]
+    },
+    {
+      "key": "mu-per-degree",
+      "label": "MU per degree minimum",
+      "table": "checks",
+      "row": ["mu-per-degree", "MU per degree >= minimum", "MuPerDegree", "Required", "minMuPerDegree=0.1", "Delivery modulation check", "yes"]
+    },
+    {
+      "key": "qa-plan-match",
+      "label": "QA plan match",
+      "table": "checks",
+      "row": ["qa-plan-match", "QA plan matches treatment plan", "TreatmentQaPlanMatch", "Required", "", "QA plan integrity check", "yes"]
+    }
+  ]
+}

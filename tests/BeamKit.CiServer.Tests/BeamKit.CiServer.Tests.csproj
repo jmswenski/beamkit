@@ -16,6 +16,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\BeamKit.CiServer\BeamKit.CiServer.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Esapi\BeamKit.Esapi.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Protocols\BeamKit.Protocols.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Protocols.Acceptance\BeamKit.Protocols.Acceptance.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Protocols.Word\BeamKit.Protocols.Word.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Samples\BeamKit.Samples.csproj" />
   </ItemGroup>
 </Project>

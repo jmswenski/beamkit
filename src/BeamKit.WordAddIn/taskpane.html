@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BeamKit RT-PX</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <script type="module" src="/src/taskpane.ts"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header">
+        <div>
+          <h1>BeamKit RT-PX</h1>
+          <p id="statusText">Connecting to Word...</p>
+        </div>
+        <span id="statusBadge" class="badge">Idle</span>
+      </header>
+
+      <section class="section">
+        <h2>Authoring</h2>
+        <button id="insertScaffoldButton" type="button">Insert Scaffold</button>
+        <button id="repairTablesButton" type="button">Repair Tables</button>
+      </section>
+
+      <section class="section">
+        <h2>Templates</h2>
+        <label for="templatePreset">Disease Site</label>
+        <select id="templatePreset">
+          <option value="head-neck">Head &amp; Neck VMAT</option>
+          <option value="lung-sbrt">Lung SBRT</option>
+          <option value="prostate">Prostate IMRT</option>
+          <option value="breast">Breast Tangents</option>
+          <option value="brain-srs">Brain SRS</option>
+          <option value="palliative-bone">Palliative Bone</option>
+        </select>
+        <div class="actions">
+          <button id="refreshLibrariesButton" type="button">Refresh Libraries</button>
+          <button id="applyTemplateButton" type="button">Apply Template</button>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Snippets</h2>
+        <label for="snippetPreset">Common Requirement</label>
+        <select id="snippetPreset">
+          <option value="cord-max">Cord max dose</option>
+          <option value="lung-v20">Lung V20</option>
+          <option value="heart-mean">Mean heart dose</option>
+          <option value="ptv-d95">PTV D95 coverage</option>
+          <option value="dose-grid">Dose grid check</option>
+          <option value="beam-model">Beam model policy</option>
+          <option value="mu-per-degree">MU per degree minimum</option>
+          <option value="qa-plan-match">QA plan match</option>
+        </select>
+        <button id="addSnippetButton" type="button">Add Snippet</button>
+      </section>
+
+      <section class="section">
+        <h2>Metadata</h2>
+        <label for="metadataId">Id</label>
+        <input id="metadataId" type="text" spellcheck="false" value="rtpx.example.protocol" />
+
+        <label for="metadataName">Name</label>
+        <input id="metadataName" type="text" spellcheck="false" value="Example Protocol" />
+
+        <div class="field-grid">
+          <label for="metadataVersion">Version</label>
+          <input id="metadataVersion" type="text" spellcheck="false" value="0.1.0" />
+
+          <label for="metadataDiseaseSite">Disease Site</label>
+          <input id="metadataDiseaseSite" type="text" spellcheck="false" value="Example Site" />
+        </div>
+
+        <div class="field-grid">
+          <label for="metadataIntent">Intent</label>
+          <select id="metadataIntent">
+            <option>Definitive</option>
+            <option>Adjuvant</option>
+            <option>Palliative</option>
+            <option>Prophylactic</option>
+            <option>Other</option>
+          </select>
+
+          <label for="metadataStatus">Status</label>
+          <select id="metadataStatus">
+            <option>Draft</option>
+            <option>InReview</option>
+            <option>Approved</option>
+            <option>Retired</option>
+          </select>
+        </div>
+
+        <label for="metadataOwner">Owner</label>
+        <input id="metadataOwner" type="text" spellcheck="false" value="Protocol owner" />
+
+        <button id="applyMetadataButton" type="button">Apply Metadata</button>
+      </section>
+
+      <section class="section">
+        <h2>Rows</h2>
+        <label for="rowKind">Table</label>
+        <select id="rowKind">
+          <option value="structures">Structures</option>
+          <option value="prescriptions">Prescriptions</option>
+          <option value="constraints">Dose Constraints</option>
+          <option value="checks">Plan Checks</option>
+        </select>
+
+        <div id="structureFields" class="row-fields">
+          <label for="structureId">Id</label>
+          <input id="structureId" type="text" spellcheck="false" value="ptv" />
+
+          <label for="structureName">Name</label>
+          <input id="structureName" type="text" spellcheck="false" value="PTV_5000" />
+
+          <div class="field-grid">
+            <label for="structureRole">Role</label>
+            <select id="structureRole">
+              <option>Target</option>
+              <option>OAR</option>
+              <option>External</option>
+              <option>PlanningHelper</option>
+              <option>Other</option>
+            </select>
+
+            <label for="structureLevel">Level</label>
+            <select id="structureLevel">
+              <option>Required</option>
+              <option>Recommended</option>
+              <option>Informational</option>
+            </select>
+          </div>
+
+          <label for="structureAliases">Aliases</label>
+          <input id="structureAliases" type="text" spellcheck="false" value="PTV; Planning Target Volume" />
+
+          <label class="check">
+            <input id="structureContours" type="checkbox" checked />
+            <span>Must Have Contours</span>
+          </label>
+
+          <label for="structureDescription">Description</label>
+          <input id="structureDescription" type="text" spellcheck="false" value="Primary planning target" />
+        </div>
+
+        <div id="prescriptionFields" class="row-fields" hidden>
+          <label for="prescriptionId">Id</label>
+          <input id="prescriptionId" type="text" spellcheck="false" value="rx.primary" />
+
+          <label for="prescriptionTarget">Target</label>
+          <input id="prescriptionTarget" type="text" spellcheck="false" value="PTV_5000" />
+
+          <div class="field-grid">
+            <label for="prescriptionTotalDose">Total Dose Gy</label>
+            <input id="prescriptionTotalDose" type="number" min="0" step="0.01" value="50" />
+
+            <label for="prescriptionFractions">Fractions</label>
+            <input id="prescriptionFractions" type="number" min="1" step="1" value="5" />
+          </div>
+
+          <div class="field-grid">
+            <label for="prescriptionTechnique">Technique</label>
+            <input id="prescriptionTechnique" type="text" spellcheck="false" value="VMAT" />
+
+            <label for="prescriptionEnergy">Energy</label>
+            <input id="prescriptionEnergy" type="text" spellcheck="false" value="6X" />
+          </div>
+
+          <label for="prescriptionDescription">Description</label>
+          <input id="prescriptionDescription" type="text" spellcheck="false" value="Primary prescription" />
+        </div>
+
+        <div id="constraintFields" class="row-fields" hidden>
+          <label for="constraintId">Id</label>
+          <input id="constraintId" type="text" spellcheck="false" value="cord.max" />
+
+          <label for="constraintStructure">Structure</label>
+          <input id="constraintStructure" type="text" spellcheck="false" value="Cord" />
+
+          <div class="field-grid">
+            <label for="constraintMetric">Metric</label>
+            <select id="constraintMetric">
+              <option>Max</option>
+              <option>Mean</option>
+              <option>D95</option>
+              <option>D98</option>
+              <option>D2</option>
+              <option>V20</option>
+            </select>
+
+            <label for="constraintComparison">Comparison</label>
+            <select id="constraintComparison">
+              <option>&lt;=</option>
+              <option>&lt;</option>
+              <option>&gt;=</option>
+              <option>&gt;</option>
+              <option>=</option>
+            </select>
+          </div>
+
+          <div class="field-grid">
+            <label for="constraintValue">Value</label>
+            <input id="constraintValue" type="number" step="0.01" value="30" />
+
+            <label for="constraintUnit">Unit</label>
+            <select id="constraintUnit">
+              <option>Gy</option>
+              <option>cGy</option>
+              <option>%</option>
+              <option>cc</option>
+            </select>
+          </div>
+
+          <label for="constraintDescription">Description</label>
+          <input id="constraintDescription" type="text" spellcheck="false" value="Cord max dose" />
+        </div>
+
+        <div id="checkFields" class="row-fields" hidden>
+          <label for="checkId">Id</label>
+          <input id="checkId" type="text" spellcheck="false" value="dose-grid" />
+
+          <label for="checkTitle">Title</label>
+          <input id="checkTitle" type="text" spellcheck="false" value="Dose grid <= 2.5 mm" />
+
+          <label for="checkType">Type</label>
+          <select id="checkType">
+            <option>DoseGridResolution</option>
+            <option>BeamModel</option>
+            <option>CalculationModel</option>
+            <option>MuPerDegree</option>
+            <option>JawTracking</option>
+            <option>TreatmentQaPlanMatch</option>
+          </select>
+
+          <label for="checkParameters">Parameters</label>
+          <input id="checkParameters" type="text" spellcheck="false" value="maxMm=2.5" />
+
+          <label for="checkDescription">Description</label>
+          <input id="checkDescription" type="text" spellcheck="false" value="Protocol grid check" />
+        </div>
+
+        <button id="addRowButton" type="button">Add Row</button>
+      </section>
+
+      <section class="section">
+        <h2>Validate</h2>
+        <label for="serverUrl">CI server URL</label>
+        <input id="serverUrl" type="url" spellcheck="false" autocomplete="off" value="https://localhost:5088" />
+
+        <label for="apiKey">API key</label>
+        <input id="apiKey" type="password" spellcheck="false" autocomplete="off" />
+
+        <label class="check">
+          <input id="includeSource" type="checkbox" />
+          <span>Include source document in generated RT-PX package</span>
+        </label>
+
+        <div class="actions">
+          <button id="quickCheckButton" type="button">Quick Check</button>
+          <button id="extractButton" type="button">Extract RT-PX</button>
+          <button id="publishDraftButton" type="button">Publish Draft</button>
+          <button id="downloadButton" type="button" disabled>Download Package</button>
+        </div>
+      </section>
+
+      <section id="summaryPanel" class="section summary" hidden>
+        <h2>Result</h2>
+        <dl>
+          <div>
+            <dt>Protocol</dt>
+            <dd id="protocolName">-</dd>
+          </div>
+          <div>
+            <dt>Package</dt>
+            <dd id="packageName">-</dd>
+          </div>
+          <div>
+            <dt>Issues</dt>
+            <dd id="issueCount">-</dd>
+          </div>
+          <div>
+            <dt>Draft</dt>
+            <dd id="draftStatus">-</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section id="protocolSummaryPanel" class="section protocol-summary" hidden>
+        <h2>Protocol Summary</h2>
+        <div id="protocolSummary"></div>
+      </section>
+
+      <section id="issuesPanel" class="section issues" hidden>
+        <h2>Issues</h2>
+        <ol id="issuesList"></ol>
+      </section>
+    </main>
+  </body>
+</html>

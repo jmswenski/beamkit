@@ -101,6 +101,8 @@ public sealed class RtpxPackageAcceptanceEngineTests
         Assert.True(report.IsAccepted, Describe(report));
         Assert.Equal("Pass", report.EsapiEvidence?.PrescriptionChecks.Single().Status);
         Assert.All(report.EsapiEvidence!.StructureChecks, check => Assert.Equal("Pass", check.Status));
+        var localTarget = Assert.Single(report.LocalPackage.Structures, structure => structure.Name == "PTV_Hospital");
+        Assert.Contains("PTV_Alias", localTarget.Aliases);
     }
 
     [Fact]
@@ -162,6 +164,56 @@ public sealed class RtpxPackageAcceptanceEngineTests
     }
 
     [Fact]
+    public void EsapiSnapshotEvidenceAcceptsOneMatchingOptionalPrescriptionAlternative()
+    {
+        var packagePath = CreateRtpxPackage(CreatePackageWithAlternativeSameTargetPrescriptions());
+        var outputDirectory = TempDirectory();
+        var profile = CreateProfile();
+        var snapshot = CreateMatchingSnapshot(totalDoseGy: 50m);
+
+        var report = new RtpxPackageAcceptanceEngine().Accept(new RtpxAcceptanceRequest(
+            packagePath,
+            profile,
+            outputDirectory,
+            snapshot,
+            "snapshot.json"));
+
+        Assert.True(report.IsAccepted, Describe(report));
+        Assert.Contains(report.EsapiEvidence!.PrescriptionChecks, check => check.ProtocolPrescriptionId == "rx.50gy" && check.Status == "Pass");
+        Assert.Contains(report.EsapiEvidence.PrescriptionChecks, check => check.ProtocolPrescriptionId == "rx.54gy" && check.Status == "Mismatch");
+        Assert.Contains(report.Issues, issue =>
+            issue.Code == "rtpx.acceptance.esapi.prescription-alternative-not-selected"
+            && issue.Subject == "rx.54gy"
+            && issue.Severity == RtpxAcceptanceIssueSeverity.Warning);
+        Assert.DoesNotContain(report.Issues, issue => issue.Code == "rtpx.acceptance.esapi.prescription-mismatch");
+    }
+
+    [Fact]
+    public void EsapiSnapshotEvidenceBlocksRequiredSameTargetPrescriptionMismatch()
+    {
+        var packagePath = CreateRtpxPackage(CreatePackageWithAlternativeSameTargetPrescriptions(
+            firstLevel: ProtocolRequirementLevel.Recommended,
+            secondLevel: ProtocolRequirementLevel.Required));
+        var outputDirectory = TempDirectory();
+        var profile = CreateProfile();
+        var snapshot = CreateMatchingSnapshot(totalDoseGy: 50m);
+
+        var report = new RtpxPackageAcceptanceEngine().Accept(new RtpxAcceptanceRequest(
+            packagePath,
+            profile,
+            outputDirectory,
+            snapshot,
+            "snapshot.json"));
+
+        Assert.False(report.IsAccepted);
+        Assert.Contains(report.Issues, issue =>
+            issue.Code == "rtpx.acceptance.esapi.prescription-mismatch"
+            && issue.Subject == "rx.54gy"
+            && issue.Severity == RtpxAcceptanceIssueSeverity.Error);
+        Assert.False(File.Exists(Path.Combine(outputDirectory, "rule-pack", "beamkit-rule-pack.json")));
+    }
+
+    [Fact]
     public void DuplicateInstitutionMappingsProduceAcceptanceIssue()
     {
         var packagePath = CreateRtpxPackage();
@@ -181,6 +233,30 @@ public sealed class RtpxPackageAcceptanceEngineTests
 
         Assert.False(report.IsAccepted);
         Assert.Contains(report.Issues, issue => issue.Code == "rtpx.acceptance.structure.mapping-duplicate");
+    }
+
+    [Fact]
+    public void StructureMappingKeyCollisionBlocksRulePackOutput()
+    {
+        var packagePath = CreateRtpxPackage(CreatePackageWithCollidingStructureAlias());
+        var outputDirectory = TempDirectory();
+        var profile = new RtpxInstitutionProfile(
+            "Synthetic Hospital",
+            new[]
+            {
+                new RtpxStructureMapping("PTV_A", "PTV_A_Local"),
+                new RtpxStructureMapping("PTV_B", "PTV_B_Local")
+            },
+            acceptedBy: "Physics Director",
+            effectiveDate: new DateOnly(2026, 7, 12));
+
+        var report = new RtpxPackageAcceptanceEngine().Accept(new RtpxAcceptanceRequest(packagePath, profile, outputDirectory));
+
+        Assert.False(report.IsAccepted);
+        Assert.Contains(report.Issues, issue =>
+            issue.Code == "rtpx.acceptance.structure.mapping-key-collision"
+            && issue.Severity == RtpxAcceptanceIssueSeverity.Error);
+        Assert.False(File.Exists(Path.Combine(outputDirectory, "rule-pack", "beamkit-rule-pack.json")));
     }
 
     [Fact]
@@ -236,6 +312,33 @@ public sealed class RtpxPackageAcceptanceEngineTests
         var exception = Assert.Throws<InvalidOperationException>(() => RtpxInstitutionProfileStore.FromJson("{}"));
 
         Assert.Contains("institution", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void InstitutionProfileJsonNormalizesMappingsAliasesAndTags()
+    {
+        var profile = RtpxInstitutionProfileStore.FromJson("""
+            {
+              "institution": " Synthetic Hospital ",
+              "structureMappings": [
+                {
+                  "protocol": " Cord ",
+                  "local": " SpinalCord ",
+                  "aliases": [ null, " Cord_Alias ", " " ],
+                  "notes": " Local policy "
+                }
+              ],
+              "tags": [ null, " accepted ", " " ]
+            }
+            """);
+
+        var mapping = Assert.Single(profile.StructureMappings);
+        Assert.Equal("Synthetic Hospital", profile.Institution);
+        Assert.Equal("Cord", mapping.Protocol);
+        Assert.Equal("SpinalCord", mapping.Local);
+        Assert.Equal(new[] { "Cord_Alias" }, mapping.Aliases);
+        Assert.Equal(new[] { "accepted" }, profile.Tags);
+        Assert.Equal("Local policy", mapping.Notes);
     }
 
     private static string CreateRtpxPackage()
@@ -303,6 +406,28 @@ public sealed class RtpxPackageAcceptanceEngineTests
             {
                 new ProtocolPrescription("rx.primary", "PTV_5000", 50m, 5, technique: "VMAT", energy: "6X"),
                 new ProtocolPrescription("rx.boost", "Boost", 20m, 5, technique: "VMAT", energy: "6X")
+        });
+    }
+
+    private static RadiotherapyProtocolPackage CreatePackageWithAlternativeSameTargetPrescriptions(
+        ProtocolRequirementLevel firstLevel = ProtocolRequirementLevel.Required,
+        ProtocolRequirementLevel secondLevel = ProtocolRequirementLevel.Recommended)
+    {
+        return new RadiotherapyProtocolPackage(
+            "rtpx.synthetic.alt-rx",
+            "Synthetic Alternative Rx Protocol",
+            "1.0",
+            "Lung",
+            "Definitive",
+            structures: new[]
+            {
+                new ProtocolStructureRequirement("ptv", "PTV_5000", ProtocolStructureRole.Target),
+                new ProtocolStructureRequirement("cord", "Cord", ProtocolStructureRole.OrganAtRisk)
+            },
+            prescriptions: new[]
+            {
+                new ProtocolPrescription("rx.50gy", "PTV_5000", 50m, 5, technique: "VMAT", energy: "6X", level: firstLevel),
+                new ProtocolPrescription("rx.54gy", "PTV_5000", 54m, 3, technique: "VMAT", energy: "6X", level: secondLevel)
             });
     }
 
@@ -334,6 +459,26 @@ public sealed class RtpxPackageAcceptanceEngineTests
                         ["structure"] = "Cord",
                         ["technique"] = "PTV_5000"
                     })
+        });
+    }
+
+    private static RadiotherapyProtocolPackage CreatePackageWithCollidingStructureAlias()
+    {
+        return new RadiotherapyProtocolPackage(
+            "rtpx.synthetic.collision",
+            "Synthetic Collision Protocol",
+            "1.0",
+            "Lung",
+            "Definitive",
+            structures: new[]
+            {
+                new ProtocolStructureRequirement("ptv.a", "PTV_A", ProtocolStructureRole.Target, aliases: new[] { "PTV" }),
+                new ProtocolStructureRequirement("ptv.b", "PTV_B", ProtocolStructureRole.Target, aliases: new[] { "PTV" })
+            },
+            prescriptions: new[]
+            {
+                new ProtocolPrescription("rx.a", "PTV_A", 50m, 5),
+                new ProtocolPrescription("rx.b", "PTV_B", 45m, 5)
             });
     }
 

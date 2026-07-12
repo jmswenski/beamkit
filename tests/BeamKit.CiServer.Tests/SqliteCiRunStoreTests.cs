@@ -269,6 +269,25 @@ public sealed class SqliteCiRunStoreTests
         Assert.True(active.ValidationReport.IsValid);
     }
 
+    [Fact]
+    public void RtpxAcceptancesSurviveNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        firstStore.SaveRtpxAcceptance(CreateRtpxAcceptance("rtpx-1", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero), accepted: true));
+        firstStore.SaveRtpxAcceptance(CreateRtpxAcceptance("rtpx-2", new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero), accepted: false));
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var records = secondStore.ListRtpxAcceptances();
+        var found = secondStore.FindRtpxAcceptance("RTPX-1");
+
+        Assert.Equal(new[] { "rtpx-2", "rtpx-1" }, records.Select(record => record.Id));
+        Assert.NotNull(found);
+        Assert.True(found.Accepted);
+        Assert.Equal("sha256:package", found.PackageFingerprint);
+        Assert.Contains("acceptance-report", found.ReportJson, StringComparison.Ordinal);
+    }
+
     private static BeamKitCiServerService CreateService(ICiRunStore store)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store, new FixedTimeProvider());
@@ -317,6 +336,32 @@ public sealed class SqliteCiRunStoreTests
             $"sha256:{versionId}",
             new RulePackValidationReport("Rule pack", versionId, $"sha256:{versionId}", Array.Empty<RulePackPolicyIssue>()),
             new RulePackTestReport("Rule pack", versionId, importedAtUtc, Array.Empty<RulePackTestResult>()));
+    }
+
+    private static CiServerRtpxAcceptanceRecord CreateRtpxAcceptance(string id, DateTimeOffset createdAtUtc, bool accepted)
+    {
+        return new CiServerRtpxAcceptanceRecord(
+            id,
+            createdAtUtc,
+            "Synthetic Hospital",
+            "/tmp/protocol.rtpx.zip",
+            "/tmp/accepted",
+            accepted,
+            promoted: accepted,
+            "rtpx-head-neck",
+            "version-1",
+            "rtpx.synthetic.head-neck",
+            "Synthetic Head and Neck",
+            "1.0",
+            "rtpx.synthetic.head-neck.accepted.synthetic-hospital",
+            "sha256:package",
+            "sha256:profile",
+            "sha256:esapi",
+            hasEsapiEvidence: true,
+            errorCount: accepted ? 0 : 1,
+            warningCount: 2,
+            """{"title":"acceptance-report"}""",
+            """{"subjectType":"RulePack"}""");
     }
 
     private static CaseWorkItem CreateWorkItem(

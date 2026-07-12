@@ -37,6 +37,8 @@ public sealed class RtpxPackageAcceptanceEngine
             throw new ArgumentException("RT-PX package path is required.", nameof(request));
         }
 
+        ArgumentNullException.ThrowIfNull(request.InstitutionProfile);
+
         if (string.IsNullOrWhiteSpace(request.OutputDirectory))
         {
             throw new ArgumentException("Acceptance output directory is required.", nameof(request));
@@ -260,8 +262,8 @@ public sealed class RtpxPackageAcceptanceEngine
         {
             issues.Add(new RtpxAcceptanceIssue(
                 "rtpx.acceptance.structure.mapping-key-collision",
-                RtpxAcceptanceIssueSeverity.Warning,
-                $"Protocol structure key '{protocolName}' maps to both '{existing}' and '{localName}'. Keeping the first mapping.",
+                RtpxAcceptanceIssueSeverity.Error,
+                $"Protocol structure key '{protocolName}' maps to both '{existing}' and '{localName}'. Acceptance is blocked until the ambiguity is resolved.",
                 protocolId));
             return;
         }
@@ -321,13 +323,21 @@ public sealed class RtpxPackageAcceptanceEngine
             Approval = approval,
             Description = $"Locally accepted from RT-PX package {source.Id} for {profile.Institution}. {source.Description}".Trim(),
             Tags = localTags,
-            Structures = source.Structures.Select(structure => structure with
+            Structures = source.Structures.Select(structure =>
             {
-                Name = LocalName(mappings, structure.Name),
-                Aliases = structure.Aliases
+                var localName = LocalName(mappings, structure.Name);
+                var aliases = structure.Aliases
                     .Concat(new[] { structure.Name })
+                    .Concat(AcceptedLocalNames(mappings, structure.Name))
+                    .Where(alias => !string.Equals(alias, localName, StringComparison.OrdinalIgnoreCase))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToArray()
+                    .ToArray();
+
+                return structure with
+                {
+                    Name = localName,
+                    Aliases = aliases
+                };
             }).ToArray(),
             Prescriptions = source.Prescriptions.Select(prescription => prescription with
             {
@@ -476,8 +486,42 @@ public sealed class RtpxPackageAcceptanceEngine
                 prescription.Id));
         }
 
-        var prescriptionChecks = prescriptionsForSnapshot.Select(prescription =>
-            ComparePrescription(snapshot, prescription, mappings, issues)).ToArray();
+        var prescriptionComparisons = prescriptionsForSnapshot.Select(prescription => (
+            Prescription: prescription,
+            Check: ComparePrescription(snapshot, prescription, mappings))).ToArray();
+        var prescriptionChecks = prescriptionComparisons.Select(comparison => comparison.Check).ToArray();
+        if (prescriptionComparisons.Length > 0)
+        {
+            var requiredMismatches = prescriptionComparisons
+                .Where(comparison =>
+                    comparison.Prescription.Level == ProtocolRequirementLevel.Required
+                    && !string.Equals(comparison.Check.Status, "Pass", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (requiredMismatches.Length > 0)
+            {
+                foreach (var comparison in requiredMismatches)
+                {
+                    issues.Add(new RtpxAcceptanceIssue(
+                        "rtpx.acceptance.esapi.prescription-mismatch",
+                        RtpxAcceptanceIssueSeverity.Error,
+                        $"ESAPI snapshot prescription does not match required protocol prescription '{comparison.Prescription.Id}'.",
+                        comparison.Prescription.Id));
+                }
+            }
+
+            foreach (var comparison in prescriptionComparisons.Where(comparison =>
+                comparison.Prescription.Level != ProtocolRequirementLevel.Required
+                && !string.Equals(comparison.Check.Status, "Pass", StringComparison.OrdinalIgnoreCase)))
+            {
+                issues.Add(new RtpxAcceptanceIssue(
+                    "rtpx.acceptance.esapi.prescription-alternative-not-selected",
+                    comparison.Prescription.Level == ProtocolRequirementLevel.Recommended
+                        ? RtpxAcceptanceIssueSeverity.Warning
+                        : RtpxAcceptanceIssueSeverity.Info,
+                    $"ESAPI snapshot did not select protocol prescription alternative '{comparison.Prescription.Id}'.",
+                    comparison.Prescription.Id));
+            }
+        }
 
         return new RtpxEsapiAcceptanceEvidence(
             snapshotPath is null ? "in-memory ESAPI snapshot" : Path.GetFullPath(snapshotPath),
@@ -491,8 +535,7 @@ public sealed class RtpxPackageAcceptanceEngine
     private static RtpxEsapiPrescriptionCheck ComparePrescription(
         EsapiPlanSnapshot snapshot,
         ProtocolPrescription prescription,
-        RtpxStructureMappingContext mappings,
-        List<RtpxAcceptanceIssue> issues)
+        RtpxStructureMappingContext mappings)
     {
         var acceptedLocalTargets = AcceptedLocalNames(mappings, prescription.Target);
         var totalDoseMatches = Math.Abs(snapshot.Prescription.TotalDoseGy - prescription.TotalDoseGy) <= 0.01m;
@@ -504,15 +547,6 @@ public sealed class RtpxPackageAcceptanceEngine
         var techniqueMatches = string.IsNullOrWhiteSpace(prescription.Technique)
             || string.Equals(snapshot.Prescription.RequestedTechniqueId, prescription.Technique, StringComparison.OrdinalIgnoreCase);
         var passed = totalDoseMatches && fractionCountMatches && targetMatches && energyMatches && techniqueMatches;
-
-        if (!passed)
-        {
-            issues.Add(new RtpxAcceptanceIssue(
-                "rtpx.acceptance.esapi.prescription-mismatch",
-                RtpxAcceptanceIssueSeverity.Error,
-                $"ESAPI snapshot prescription does not match protocol prescription '{prescription.Id}'.",
-                prescription.Id));
-        }
 
         return new RtpxEsapiPrescriptionCheck(
             prescription.Id,
@@ -578,8 +612,11 @@ public sealed class RtpxPackageAcceptanceEngine
     {
         var root = Path.GetFullPath(rootDirectory);
         var fullPath = Path.GetFullPath(Path.Combine(root, relativePath));
-        var rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
-        if (!fullPath.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+        var relativeToRoot = Path.GetRelativePath(root, fullPath);
+        if (Path.IsPathRooted(relativeToRoot)
+            || string.Equals(relativeToRoot, "..", StringComparison.Ordinal)
+            || relativeToRoot.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+            || relativeToRoot.StartsWith(".." + Path.AltDirectorySeparatorChar, StringComparison.Ordinal))
         {
             throw new InvalidOperationException($"Acceptance output path '{relativePath}' escapes the output directory.");
         }
