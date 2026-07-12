@@ -87,4 +87,9 @@ public sealed record AssignmentServerRequest
     /// Optional local staff roster path on the server host.
     /// </summary>
     public string? RosterPath { get; init; }
+
+    /// <summary>
+    /// When true, active hosted queue assignments are added to roster workload before scoring.
+    /// </summary>
+    public bool UseLiveWorkload { get; init; } = true;
 }

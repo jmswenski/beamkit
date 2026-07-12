@@ -12,6 +12,7 @@ public sealed class CiRunStore : ICiRunStore
     private readonly ConcurrentDictionary<string, CiRunBaseline> baselines = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerAuditEvent> auditEvents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerManagedRulePackVersion> rulePackVersions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CaseWorkItem> workItems = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Adds or replaces a run record.
@@ -202,6 +203,59 @@ public sealed class CiRunStore : ICiRunStore
         };
         rulePackVersions[CreateRulePackVersionKey(rulePackId, versionId)] = promoted;
         return promoted;
+    }
+
+    /// <summary>
+    /// Adds or replaces a case work item.
+    /// </summary>
+    public CaseWorkItem SaveWorkItem(CaseWorkItem workItem)
+    {
+        ArgumentNullException.ThrowIfNull(workItem);
+        if (string.IsNullOrWhiteSpace(workItem.Id))
+        {
+            throw new ArgumentException("Work item id is required.", nameof(workItem));
+        }
+
+        if (string.IsNullOrWhiteSpace(workItem.CaseId))
+        {
+            throw new ArgumentException("Work item case id is required.", nameof(workItem));
+        }
+
+        workItems[workItem.Id] = workItem;
+        return workItem;
+    }
+
+    /// <summary>
+    /// Finds a case work item by id.
+    /// </summary>
+    public CaseWorkItem? FindWorkItem(string id)
+    {
+        return string.IsNullOrWhiteSpace(id) ? null : workItems.GetValueOrDefault(id);
+    }
+
+    /// <summary>
+    /// Lists case work items matching the supplied query.
+    /// </summary>
+    public IReadOnlyList<CaseWorkItem> ListWorkItems(CaseWorkItemQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        return workItems.Values
+            .Where(workItem => query.Status is null || workItem.Status == query.Status)
+            .Where(workItem => !query.ActiveOnly || workItem.IsActiveWorkload)
+            .Where(workItem => string.IsNullOrWhiteSpace(query.CaseId)
+                || string.Equals(workItem.CaseId, query.CaseId, StringComparison.OrdinalIgnoreCase))
+            .Where(workItem => string.IsNullOrWhiteSpace(query.DiseaseSite)
+                || string.Equals(workItem.DiseaseSite, query.DiseaseSite, StringComparison.OrdinalIgnoreCase))
+            .Where(workItem => string.IsNullOrWhiteSpace(query.AssignedStaffId)
+                || string.Equals(workItem.AssignedDosimetristId, query.AssignedStaffId, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(workItem.AssignedPhysicistId, query.AssignedStaffId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(workItem => workItem.DueDate is null)
+            .ThenBy(workItem => workItem.DueDate)
+            .ThenByDescending(workItem => workItem.UpdatedAtUtc)
+            .ThenBy(workItem => workItem.Id, StringComparer.OrdinalIgnoreCase)
+            .Take(query.ClampedLimit)
+            .ToArray();
     }
 
     /// <summary>

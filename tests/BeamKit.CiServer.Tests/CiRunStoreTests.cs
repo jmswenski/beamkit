@@ -103,6 +103,35 @@ public sealed class CiRunStoreTests
     }
 
     [Fact]
+    public void SaveWorkItemStoresQueryableQueueState()
+    {
+        var store = new CiRunStore();
+        store.SaveWorkItem(CreateWorkItem(
+            "work-1",
+            "case-1",
+            CaseWorkItemStatus.Assigned,
+            new DateOnly(2026, 7, 12),
+            dosimetristId: "planner-jane"));
+        store.SaveWorkItem(CreateWorkItem(
+            "work-2",
+            "case-2",
+            CaseWorkItemStatus.Completed,
+            new DateOnly(2026, 7, 10),
+            dosimetristId: "planner-jane"));
+
+        var active = store.ListWorkItems(new CaseWorkItemQuery
+        {
+            ActiveOnly = true,
+            AssignedStaffId = "PLANNER-JANE"
+        });
+
+        var workItem = Assert.Single(active);
+        Assert.Equal("work-1", workItem.Id);
+        Assert.True(workItem.IsActiveWorkload);
+        Assert.Equal("planner-jane", store.FindWorkItem("WORK-1")?.AssignedDosimetristId);
+    }
+
+    [Fact]
     public void SaveRulePackVersionStoresQueryableVersionHistory()
     {
         var store = new CiRunStore();
@@ -202,5 +231,38 @@ public sealed class CiRunStoreTests
             $"sha256:{versionId}",
             new RulePackValidationReport("Rule pack", versionId, $"sha256:{versionId}", Array.Empty<RulePackPolicyIssue>()),
             new RulePackTestReport("Rule pack", versionId, importedAtUtc, Array.Empty<RulePackTestResult>()));
+    }
+
+    private static CaseWorkItem CreateWorkItem(
+        string id,
+        string caseId,
+        CaseWorkItemStatus status,
+        DateOnly dueDate,
+        string? dosimetristId = null)
+    {
+        return new CaseWorkItem
+        {
+            Id = id,
+            CreatedAtUtc = new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero),
+            UpdatedAtUtc = new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero),
+            CaseId = caseId,
+            DiseaseSite = "Lung",
+            DueDate = dueDate,
+            Priority = 4,
+            Status = status,
+            AssignedDosimetristId = dosimetristId,
+            AssignmentHistory = new[]
+            {
+                new CaseWorkItemAssignmentEvent
+                {
+                    Id = $"{id}-event",
+                    OccurredAtUtc = new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero),
+                    Actor = "test",
+                    Action = "assigned",
+                    Status = status,
+                    DosimetristId = dosimetristId
+                }
+            }
+        };
     }
 }

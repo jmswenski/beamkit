@@ -199,6 +199,40 @@ app.MapPost("/api/assignments/recommend-team", (AssignmentServerRequest request,
 {
     return Results.Ok(service.RecommendStaffing(request, CiServerAuditContext.FromHttpContext(context)));
 });
+app.MapGet("/api/work-items", (
+    BeamKitCiServerService service,
+    int? limit,
+    string? status,
+    string? caseId,
+    string? diseaseSite,
+    string? assignedStaffId,
+    bool? activeOnly) =>
+{
+    var query = CaseWorkItemQueryParser.Parse(limit, status, caseId, diseaseSite, assignedStaffId, activeOnly);
+    return Results.Ok(service.ListWorkItems(query));
+});
+app.MapGet("/api/work-items/{id}", (string id, BeamKitCiServerService service) =>
+{
+    var workItem = service.FindWorkItem(id);
+    return workItem is null ? Results.NotFound() : Results.Ok(workItem);
+});
+app.MapPost("/api/work-items", (CreateCaseWorkItemRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    var workItem = service.CreateWorkItem(request, CiServerAuditContext.FromHttpContext(context));
+    return Results.Created($"/api/work-items/{workItem.Id}", workItem);
+});
+app.MapPost("/api/work-items/{id}/recommend-assignment", (string id, AssignmentServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.RecommendWorkItemAssignment(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/work-items/{id}/assign", (string id, AssignCaseWorkItemRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.AssignWorkItem(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/work-items/{id}/status", (string id, UpdateCaseWorkItemStatusRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.UpdateWorkItemStatus(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
 app.MapGet("/api/audit-events", (
     BeamKitCiServerService service,
     int? limit,

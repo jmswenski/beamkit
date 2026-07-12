@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using BeamKit.Check;
+using BeamKit.Workflow;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 
@@ -679,6 +680,186 @@ public sealed class SqliteCiRunStore : ICiRunStore
     }
 
     /// <summary>
+    /// Adds or replaces a case work item.
+    /// </summary>
+    public CaseWorkItem SaveWorkItem(CaseWorkItem workItem)
+    {
+        ArgumentNullException.ThrowIfNull(workItem);
+        if (string.IsNullOrWhiteSpace(workItem.Id))
+        {
+            throw new ArgumentException("Work item id is required.", nameof(workItem));
+        }
+
+        if (string.IsNullOrWhiteSpace(workItem.CaseId))
+        {
+            throw new ArgumentException("Work item case id is required.", nameof(workItem));
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ci_work_items (
+                    id,
+                    created_at_utc,
+                    updated_at_utc,
+                    case_id,
+                    synthetic_case_id,
+                    disease_site,
+                    due_date,
+                    priority,
+                    status,
+                    physician,
+                    assigned_dosimetrist_id,
+                    assigned_dosimetrist_name,
+                    assigned_physicist_id,
+                    assigned_physicist_name,
+                    rule_pack_id,
+                    last_run_id,
+                    last_check_status,
+                    intelligence_json,
+                    assignment_history_json
+                )
+                VALUES (
+                    $id,
+                    $created_at_utc,
+                    $updated_at_utc,
+                    $case_id,
+                    $synthetic_case_id,
+                    $disease_site,
+                    $due_date,
+                    $priority,
+                    $status,
+                    $physician,
+                    $assigned_dosimetrist_id,
+                    $assigned_dosimetrist_name,
+                    $assigned_physicist_id,
+                    $assigned_physicist_name,
+                    $rule_pack_id,
+                    $last_run_id,
+                    $last_check_status,
+                    $intelligence_json,
+                    $assignment_history_json
+                )
+                ON CONFLICT(id) DO UPDATE SET
+                    created_at_utc = excluded.created_at_utc,
+                    updated_at_utc = excluded.updated_at_utc,
+                    case_id = excluded.case_id,
+                    synthetic_case_id = excluded.synthetic_case_id,
+                    disease_site = excluded.disease_site,
+                    due_date = excluded.due_date,
+                    priority = excluded.priority,
+                    status = excluded.status,
+                    physician = excluded.physician,
+                    assigned_dosimetrist_id = excluded.assigned_dosimetrist_id,
+                    assigned_dosimetrist_name = excluded.assigned_dosimetrist_name,
+                    assigned_physicist_id = excluded.assigned_physicist_id,
+                    assigned_physicist_name = excluded.assigned_physicist_name,
+                    rule_pack_id = excluded.rule_pack_id,
+                    last_run_id = excluded.last_run_id,
+                    last_check_status = excluded.last_check_status,
+                    intelligence_json = excluded.intelligence_json,
+                    assignment_history_json = excluded.assignment_history_json;
+                """;
+            AddWorkItemParameters(command, workItem);
+            command.ExecuteNonQuery();
+        }
+
+        return workItem;
+    }
+
+    /// <summary>
+    /// Finds a case work item by id.
+    /// </summary>
+    public CaseWorkItem? FindWorkItem(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectWorkItemColumns()}
+                WHERE id = $id COLLATE NOCASE;
+                """;
+            command.Parameters.AddWithValue("$id", id.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadWorkItem(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Lists case work items matching the supplied query.
+    /// </summary>
+    public IReadOnlyList<CaseWorkItem> ListWorkItems(CaseWorkItemQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            var where = new List<string>();
+
+            if (query.Status.HasValue)
+            {
+                where.Add("status = $status");
+                command.Parameters.AddWithValue("$status", query.Status.Value.ToString());
+            }
+
+            if (query.ActiveOnly)
+            {
+                where.Add("status IN ('Assigned', 'Planning', 'PhysicsReview', 'ReadyForTreatment')");
+            }
+
+            if (!string.IsNullOrWhiteSpace(query.CaseId))
+            {
+                where.Add("case_id = $case_id COLLATE NOCASE");
+                command.Parameters.AddWithValue("$case_id", query.CaseId.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(query.DiseaseSite))
+            {
+                where.Add("disease_site = $disease_site COLLATE NOCASE");
+                command.Parameters.AddWithValue("$disease_site", query.DiseaseSite.Trim());
+            }
+
+            if (!string.IsNullOrWhiteSpace(query.AssignedStaffId))
+            {
+                where.Add("(assigned_dosimetrist_id = $assigned_staff_id COLLATE NOCASE OR assigned_physicist_id = $assigned_staff_id COLLATE NOCASE)");
+                command.Parameters.AddWithValue("$assigned_staff_id", query.AssignedStaffId.Trim());
+            }
+
+            command.Parameters.AddWithValue("$limit", query.ClampedLimit);
+            var sql = new StringBuilder($"""
+                {SelectWorkItemColumns()}
+                """);
+            if (where.Count > 0)
+            {
+                sql.Append(" WHERE ");
+                sql.Append(string.Join(" AND ", where));
+            }
+
+            sql.Append(" ORDER BY due_date IS NULL, due_date ASC, updated_at_utc DESC, id ASC LIMIT $limit;");
+            command.CommandText = sql.ToString();
+
+            var workItems = new List<CaseWorkItem>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                workItems.Add(ReadWorkItem(reader));
+            }
+
+            return workItems;
+        }
+    }
+
+    /// <summary>
     /// Adds an audit event.
     /// </summary>
     public CiServerAuditEvent SaveAuditEvent(CiServerAuditEvent auditEvent)
@@ -897,6 +1078,36 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_active ON ci_rule_pack_versions(rule_pack_id, is_active);
                 CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_imported_at ON ci_rule_pack_versions(imported_at_utc);
 
+                CREATE TABLE IF NOT EXISTS ci_work_items (
+                    id TEXT PRIMARY KEY,
+                    created_at_utc TEXT NOT NULL,
+                    updated_at_utc TEXT NOT NULL,
+                    case_id TEXT NOT NULL,
+                    synthetic_case_id TEXT NULL,
+                    disease_site TEXT NULL,
+                    due_date TEXT NULL,
+                    priority INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    physician TEXT NULL,
+                    assigned_dosimetrist_id TEXT NULL,
+                    assigned_dosimetrist_name TEXT NULL,
+                    assigned_physicist_id TEXT NULL,
+                    assigned_physicist_name TEXT NULL,
+                    rule_pack_id TEXT NULL,
+                    last_run_id TEXT NULL,
+                    last_check_status TEXT NULL,
+                    intelligence_json TEXT NULL,
+                    assignment_history_json TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_ci_work_items_updated_at ON ci_work_items(updated_at_utc);
+                CREATE INDEX IF NOT EXISTS ix_ci_work_items_due_date ON ci_work_items(due_date);
+                CREATE INDEX IF NOT EXISTS ix_ci_work_items_status ON ci_work_items(status);
+                CREATE INDEX IF NOT EXISTS ix_ci_work_items_case_id ON ci_work_items(case_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_work_items_disease_site ON ci_work_items(disease_site);
+                CREATE INDEX IF NOT EXISTS ix_ci_work_items_dosimetrist ON ci_work_items(assigned_dosimetrist_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_work_items_physicist ON ci_work_items(assigned_physicist_id);
+
                 CREATE TABLE IF NOT EXISTS ci_audit_events (
                     id TEXT PRIMARY KEY,
                     occurred_at_utc TEXT NOT NULL,
@@ -1016,6 +1227,29 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$activated_at_utc", version.ActivatedAtUtc is null ? DBNull.Value : ToStoredTimestamp(version.ActivatedAtUtc.Value));
         command.Parameters.AddWithValue("$activated_by", ToDbValue(version.ActivatedBy));
         command.Parameters.AddWithValue("$activation_note", ToDbValue(version.ActivationNote));
+    }
+
+    private static void AddWorkItemParameters(SqliteCommand command, CaseWorkItem workItem)
+    {
+        command.Parameters.AddWithValue("$id", workItem.Id);
+        command.Parameters.AddWithValue("$created_at_utc", ToStoredTimestamp(workItem.CreatedAtUtc));
+        command.Parameters.AddWithValue("$updated_at_utc", ToStoredTimestamp(workItem.UpdatedAtUtc));
+        command.Parameters.AddWithValue("$case_id", workItem.CaseId);
+        command.Parameters.AddWithValue("$synthetic_case_id", ToDbValue(workItem.SyntheticCaseId));
+        command.Parameters.AddWithValue("$disease_site", ToDbValue(workItem.DiseaseSite));
+        command.Parameters.AddWithValue("$due_date", workItem.DueDate is null ? DBNull.Value : workItem.DueDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$priority", workItem.Priority);
+        command.Parameters.AddWithValue("$status", workItem.Status.ToString());
+        command.Parameters.AddWithValue("$physician", ToDbValue(workItem.Physician));
+        command.Parameters.AddWithValue("$assigned_dosimetrist_id", ToDbValue(workItem.AssignedDosimetristId));
+        command.Parameters.AddWithValue("$assigned_dosimetrist_name", ToDbValue(workItem.AssignedDosimetristName));
+        command.Parameters.AddWithValue("$assigned_physicist_id", ToDbValue(workItem.AssignedPhysicistId));
+        command.Parameters.AddWithValue("$assigned_physicist_name", ToDbValue(workItem.AssignedPhysicistName));
+        command.Parameters.AddWithValue("$rule_pack_id", ToDbValue(workItem.RulePackId));
+        command.Parameters.AddWithValue("$last_run_id", ToDbValue(workItem.LastRunId));
+        command.Parameters.AddWithValue("$last_check_status", workItem.LastCheckStatus is null ? DBNull.Value : workItem.LastCheckStatus.Value.ToString());
+        command.Parameters.AddWithValue("$intelligence_json", workItem.Intelligence is null ? DBNull.Value : JsonSerializer.Serialize(workItem.Intelligence, CiServerJson.Options));
+        command.Parameters.AddWithValue("$assignment_history_json", JsonSerializer.Serialize(workItem.AssignmentHistory, CiServerJson.Options));
     }
 
     private static object ToDbValue(string? value)
@@ -1212,6 +1446,65 @@ public sealed class SqliteCiRunStore : ICiRunStore
             root.GetProperty("rulePackVersion").GetString() ?? "unknown",
             generatedAtUtc,
             Array.Empty<RulePackTestResult>());
+    }
+
+    private static string SelectWorkItemColumns()
+    {
+        return """
+            SELECT
+                id,
+                created_at_utc,
+                updated_at_utc,
+                case_id,
+                synthetic_case_id,
+                disease_site,
+                due_date,
+                priority,
+                status,
+                physician,
+                assigned_dosimetrist_id,
+                assigned_dosimetrist_name,
+                assigned_physicist_id,
+                assigned_physicist_name,
+                rule_pack_id,
+                last_run_id,
+                last_check_status,
+                intelligence_json,
+                assignment_history_json
+            FROM ci_work_items
+            """;
+    }
+
+    private static CaseWorkItem ReadWorkItem(SqliteDataReader reader)
+    {
+        var intelligenceJson = GetNullableString(reader, 17);
+        var historyJson = reader.GetString(18);
+        return new CaseWorkItem
+        {
+            Id = reader.GetString(0),
+            CreatedAtUtc = DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            UpdatedAtUtc = DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            CaseId = reader.GetString(3),
+            SyntheticCaseId = GetNullableString(reader, 4),
+            DiseaseSite = GetNullableString(reader, 5),
+            DueDate = reader.IsDBNull(6) ? null : DateOnly.ParseExact(reader.GetString(6), "yyyy-MM-dd", CultureInfo.InvariantCulture),
+            Priority = reader.GetInt32(7),
+            Status = Enum.Parse<CaseWorkItemStatus>(reader.GetString(8)),
+            Physician = GetNullableString(reader, 9),
+            AssignedDosimetristId = GetNullableString(reader, 10),
+            AssignedDosimetristName = GetNullableString(reader, 11),
+            AssignedPhysicistId = GetNullableString(reader, 12),
+            AssignedPhysicistName = GetNullableString(reader, 13),
+            RulePackId = GetNullableString(reader, 14),
+            LastRunId = GetNullableString(reader, 15),
+            LastCheckStatus = reader.IsDBNull(16) ? null : Enum.Parse<BeamKitCheckStatus>(reader.GetString(16)),
+            Intelligence = string.IsNullOrWhiteSpace(intelligenceJson)
+                ? null
+                : JsonSerializer.Deserialize<AssignmentIntelligenceSummary>(intelligenceJson, CiServerJson.Options),
+            AssignmentHistory = string.IsNullOrWhiteSpace(historyJson)
+                ? Array.Empty<CaseWorkItemAssignmentEvent>()
+                : JsonSerializer.Deserialize<CaseWorkItemAssignmentEvent[]>(historyJson, CiServerJson.Options) ?? Array.Empty<CaseWorkItemAssignmentEvent>()
+        };
     }
 
     private static CiServerAuditEvent ReadAuditEvent(SqliteDataReader reader)

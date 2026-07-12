@@ -200,6 +200,37 @@ internal static class DashboardHtml
                   <button class="secondary" onclick="recommendTeam()">Recommend team</button>
                 </div>
               </section>
+              <section>
+                <h2>Work Queue</h2>
+                <div class="stack" style="margin-top:12px">
+                  <label>Work item ID
+                    <input id="workItemId" placeholder="work-...">
+                  </label>
+                  <label>Queue synthetic case
+                    <input id="workSyntheticCaseId" value="lung-sbrt-pass">
+                  </label>
+                  <label>Queue disease site
+                    <input id="workDiseaseSite" value="Lung">
+                  </label>
+                  <label>Due date
+                    <input id="workDueDate" value="2026-07-12">
+                  </label>
+                  <label>Priority
+                    <input id="workPriority" value="4" inputmode="numeric">
+                  </label>
+                  <label>Dosimetrist ID
+                    <input id="workDosimetristId" placeholder="planner-jane">
+                  </label>
+                  <label>Physicist ID
+                    <input id="workPhysicistId" placeholder="physicist-morgan">
+                  </label>
+                </div>
+                <div class="actions">
+                  <button onclick="createWorkItem()">Create</button>
+                  <button class="secondary" onclick="recommendWorkItem()">Recommend</button>
+                  <button class="secondary" onclick="assignWorkItem()">Assign</button>
+                </div>
+              </section>
             </aside>
             <section>
               <h2>Recent Runs</h2>
@@ -227,6 +258,13 @@ internal static class DashboardHtml
                   <tr><th>Run</th><th>Source</th><th>Case</th><th>Status</th><th>Snapshot</th><th>Exit</th><th>Created</th><th>Actions</th></tr>
                 </thead>
                 <tbody id="runs"></tbody>
+              </table>
+              <h2 style="margin-top:22px">Work Queue</h2>
+              <table>
+                <thead>
+                  <tr><th>Item</th><th>Case</th><th>Status</th><th>Disease</th><th>Due</th><th>Dosimetrist</th><th>Physicist</th><th>Updated</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="workItems"></tbody>
               </table>
               <h2 style="margin-top:22px">Response</h2>
               <pre id="output">{}</pre>
@@ -256,6 +294,7 @@ internal static class DashboardHtml
               const data = text ? JSON.parse(text) : null;
               document.getElementById("output").textContent = JSON.stringify(data, null, 2);
               await loadRuns();
+              await loadWorkItems();
               return data;
             }
 
@@ -309,6 +348,46 @@ internal static class DashboardHtml
                   requiredSkills: requiredSkill ? [requiredSkill] : null,
                   physician: document.getElementById("assignmentPhysician").value || null,
                   rosterPath: document.getElementById("assignmentRosterPath").value || null
+                })
+              });
+            }
+
+            async function createWorkItem() {
+              const data = await api("/api/work-items", {
+                method: "POST",
+                body: JSON.stringify({
+                  syntheticCaseId: document.getElementById("workSyntheticCaseId").value || null,
+                  diseaseSite: document.getElementById("workDiseaseSite").value || null,
+                  dueDate: document.getElementById("workDueDate").value || null,
+                  priority: Number(document.getElementById("workPriority").value || "3"),
+                  physician: document.getElementById("assignmentPhysician").value || null,
+                  rulePackId: document.getElementById("rulePackId").value || null
+                })
+              });
+              if (data && data.id) document.getElementById("workItemId").value = data.id;
+            }
+
+            async function recommendWorkItem() {
+              const workItemId = document.getElementById("workItemId").value.trim();
+              if (!workItemId) return;
+              await api(`/api/work-items/${workItemId}/recommend-assignment`, {
+                method: "POST",
+                body: JSON.stringify({
+                  rosterPath: document.getElementById("assignmentRosterPath").value || null,
+                  physician: document.getElementById("assignmentPhysician").value || null
+                })
+              });
+            }
+
+            async function assignWorkItem() {
+              const workItemId = document.getElementById("workItemId").value.trim();
+              if (!workItemId) return;
+              await api(`/api/work-items/${workItemId}/assign`, {
+                method: "POST",
+                body: JSON.stringify({
+                  dosimetristId: document.getElementById("workDosimetristId").value || null,
+                  physicistId: document.getElementById("workPhysicistId").value || null,
+                  note: "Assigned from local BeamKit CI dashboard."
                 })
               });
             }
@@ -382,6 +461,33 @@ internal static class DashboardHtml
               }).join("");
             }
 
+            async function loadWorkItems() {
+              const response = await fetch("/api/work-items?limit=50", { headers: requestHeaders() });
+              if (!response.ok) {
+                document.getElementById("workItems").innerHTML = "";
+                return;
+              }
+
+              const items = await response.json();
+              document.getElementById("workItems").innerHTML = items.map(item => {
+                return `<tr>
+                  <td><code>${item.id}</code></td>
+                  <td>${item.caseId}</td>
+                  <td>${item.status}</td>
+                  <td>${item.diseaseSite || ""}</td>
+                  <td>${item.dueDate || ""}</td>
+                  <td>${item.assignedDosimetristName || item.assignedDosimetristId || ""}</td>
+                  <td>${item.assignedPhysicistName || item.assignedPhysicistId || ""}</td>
+                  <td>${new Date(item.updatedAtUtc).toLocaleString()}</td>
+                  <td><button class="secondary" style="min-height:28px; padding:0 8px" onclick="selectWorkItem('${item.id}')">Use</button></td>
+                </tr>`;
+              }).join("");
+            }
+
+            function selectWorkItem(id) {
+              document.getElementById("workItemId").value = id;
+            }
+
             function formatInputKind(inputKind) {
               switch (inputKind) {
                 case "BeamKitPlanJson": return "BeamKit Plan JSON";
@@ -391,6 +497,7 @@ internal static class DashboardHtml
             }
 
             loadRuns();
+            loadWorkItems();
           </script>
         </body>
         </html>

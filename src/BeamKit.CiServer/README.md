@@ -21,6 +21,7 @@ This first slice supports:
 - Internal BeamKit plan snapshot retention for field-level baseline comparison.
 - Baseline promotion with fingerprint and plan-change comparison for later runs.
 - Single-role and dosimetrist/physicist team assignment recommendations from workflow inputs, optional staff rosters, and optional plan intelligence inferred from synthetic cases, BeamKit plan JSON, or ESAPI snapshot JSON.
+- Persistent case work queues with assignment history, status tracking, and live workload-aware recommendations.
 - A compact local dashboard.
 
 ## Run
@@ -58,6 +59,8 @@ GET /api/rule-packs/{id}
 GET /api/rule-packs/{id}/versions
 GET /api/rule-packs/{id}/versions/{versionId}
 GET /api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}
+GET /api/work-items
+GET /api/work-items/{id}
 GET /api/audit-events
 POST /api/runs
 POST /api/runs/{id}/baseline
@@ -73,6 +76,10 @@ POST /api/rule-packs/{id}/versions/{versionId}/promote
 POST /api/rule-packs/{id}/review-draft
 POST /api/assignments/recommend
 POST /api/assignments/recommend-team
+POST /api/work-items
+POST /api/work-items/{id}/recommend-assignment
+POST /api/work-items/{id}/assign
+POST /api/work-items/{id}/status
 ```
 
 Examples assume:
@@ -186,6 +193,30 @@ curl -s "$API/api/assignments/recommend-team" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
   -d '{"syntheticCaseId":"lung-sbrt-pass","physician":"Dr Smith","priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
 ```
+
+Create a queued work item, then recommend and assign staff from that queue item:
+
+```bash
+WORK_ITEM_ID=$(
+  curl -s "$API/api/work-items" \
+    -H 'content-type: application/json' \
+    -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+    -d '{"syntheticCaseId":"lung-sbrt-pass","physician":"Dr Smith","dueDate":"2026-07-12","priority":4}' \
+    | jq -r .id
+)
+
+curl -s "$API/api/work-items/$WORK_ITEM_ID/recommend-assignment" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"rosterPath":"samples/staff-roster-synthetic.json"}'
+
+curl -s "$API/api/work-items/$WORK_ITEM_ID/assign" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"dosimetristId":"planner-jane","physicistId":"physicist-morgan","note":"Accepted recommendation."}'
+```
+
+Active work items in `Assigned`, `Planning`, `PhysicsReview`, or `ReadyForTreatment` status are added to matching staff workload before later assignment recommendations are scored.
 
 Review audit events:
 

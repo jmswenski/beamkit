@@ -682,9 +682,85 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Equal("sbrt-physicist", recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Physicist).RecommendedCandidate?.Planner.Id);
     }
 
+    [Fact]
+    public void WorkItemAssignmentRecommendationsAccountForLiveQueueWorkload()
+    {
+        var store = new CiRunStore();
+        var service = CreateService(store);
+        var roster = CreateLiveWorkloadRoster();
+        var first = service.CreateWorkItem(new CreateCaseWorkItemRequest
+        {
+            SyntheticCaseId = "lung-sbrt-pass",
+            DueDate = "2026-07-12",
+            Priority = 4,
+            Physician = "Dr Smith"
+        });
+        service.AssignWorkItem(first.Id, new AssignCaseWorkItemRequest
+        {
+            DosimetristId = "lung-dosimetrist",
+            PhysicistId = "sbrt-physicist",
+            Note = "Accepted first recommendation."
+        });
+        var second = service.CreateWorkItem(new CreateCaseWorkItemRequest
+        {
+            SyntheticCaseId = "lung-sbrt-pass",
+            DueDate = "2026-07-12",
+            Priority = 4,
+            Physician = "Dr Smith"
+        });
+
+        var recommendation = service.RecommendWorkItemAssignment(second.Id, new AssignmentServerRequest
+        {
+            Roster = roster
+        });
+
+        var dosimetristRecommendation = recommendation.RoleRecommendations.Single(role => role.Role == PlanningStaffRole.Dosimetrist);
+        Assert.Equal("backup-dosimetrist", dosimetristRecommendation.RecommendedCandidate?.Planner.Id);
+        var saturatedCandidate = dosimetristRecommendation.Recommendation.Candidates.Single(candidate => candidate.Planner.Id == "lung-dosimetrist");
+        Assert.Contains(saturatedCandidate.Reasons, reason => reason.Contains("At or above configured workload capacity", StringComparison.Ordinal));
+        Assert.Equal(2, store.FindWorkItem(second.Id)?.AssignmentHistory.Count);
+        Assert.Single(store.ListAuditEvents(new CiServerAuditQuery { Action = "work-item.assignment-recommended" }));
+    }
+
     private static BeamKitCiServerService CreateService(ICiRunStore? store = null)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store ?? new CiRunStore(), new FixedTimeProvider());
+    }
+
+    private static StaffRoster CreateLiveWorkloadRoster()
+    {
+        return new StaffRoster(
+            "Live workload roster",
+            new[]
+            {
+                new StaffRosterMember(
+                    "lung-dosimetrist",
+                    "Lung SBRT Dosimetrist",
+                    PlanningStaffRole.Dosimetrist,
+                    new[] { "VMAT", "SBRT", "Lung" },
+                    new[] { "Lung" },
+                    activeCaseCount: 0,
+                    maxActiveCaseCount: 1,
+                    maxComplexityScore: 5),
+                new StaffRosterMember(
+                    "backup-dosimetrist",
+                    "Backup Lung Dosimetrist",
+                    PlanningStaffRole.Dosimetrist,
+                    new[] { "VMAT", "SBRT", "Lung" },
+                    new[] { "Lung" },
+                    activeCaseCount: 0,
+                    maxActiveCaseCount: 8,
+                    maxComplexityScore: 5),
+                new StaffRosterMember(
+                    "sbrt-physicist",
+                    "SBRT Physicist",
+                    PlanningStaffRole.Physicist,
+                    new[] { "VMAT", "SBRT", "Lung", "Machine QA" },
+                    new[] { "Lung" },
+                    activeCaseCount: 0,
+                    maxActiveCaseCount: 10,
+                    maxComplexityScore: 5)
+            });
     }
 
     private static string SampleRulePackPath()

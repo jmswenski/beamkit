@@ -307,6 +307,204 @@ public sealed class BeamKitCiServerService
     }
 
     /// <summary>
+    /// Creates a persistent case work item for hosted queue and assignment workflows.
+    /// </summary>
+    public CaseWorkItem CreateWorkItem(CreateCaseWorkItemRequest request, CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var assignmentDate = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var assignmentContext = CreateAssignmentRequestContext(new AssignmentServerRequest
+        {
+            CaseId = request.CaseId,
+            SyntheticCaseId = request.SyntheticCaseId,
+            DiseaseSite = request.DiseaseSite,
+            DueDate = request.DueDate,
+            Priority = request.Priority,
+            Physician = request.Physician,
+            Plan = request.Plan,
+            PlanJson = request.PlanJson,
+            EsapiSnapshot = request.EsapiSnapshot,
+            EsapiSnapshotJson = request.EsapiSnapshotJson,
+            UseLiveWorkload = false
+        }, assignmentDate, includeTeamRoles: true);
+        var linkedRun = CiServerText.Optional(request.LastRunId) is { } runId ? store.Find(runId) : null;
+        var now = timeProvider.GetUtcNow();
+        var status = request.Status ?? CaseWorkItemStatus.NeedsAssignment;
+        var workItem = new CaseWorkItem
+        {
+            Id = CreateWorkItemId(),
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+            CaseId = assignmentContext.Request.CaseId,
+            SyntheticCaseId = CiServerText.Optional(request.SyntheticCaseId),
+            DiseaseSite = assignmentContext.Request.DiseaseSite,
+            DueDate = assignmentContext.Request.DueDate,
+            Priority = assignmentContext.Request.Priority,
+            Status = status,
+            Physician = assignmentContext.Request.Physician,
+            RulePackId = CiServerText.Optional(request.RulePackId),
+            LastRunId = CiServerText.Optional(request.LastRunId),
+            LastCheckStatus = linkedRun?.Status,
+            Intelligence = assignmentContext.Intelligence,
+            AssignmentHistory = new[]
+            {
+                CreateWorkItemHistoryEvent(
+                    status,
+                    auditContext,
+                    "created",
+                    note: request.SyntheticCaseId is null ? "Work item created." : $"Work item created from synthetic case {request.SyntheticCaseId}.")
+            }
+        };
+
+        var saved = store.SaveWorkItem(workItem);
+        Audit("work-item.created", auditContext, caseId: saved.CaseId, status: saved.Status.ToString(), details: saved.Id);
+        return saved;
+    }
+
+    /// <summary>
+    /// Finds one case work item.
+    /// </summary>
+    public CaseWorkItem? FindWorkItem(string id)
+    {
+        return store.FindWorkItem(id);
+    }
+
+    /// <summary>
+    /// Lists persistent case work items.
+    /// </summary>
+    public IReadOnlyList<CaseWorkItem> ListWorkItems(CaseWorkItemQuery query)
+    {
+        return store.ListWorkItems(query);
+    }
+
+    /// <summary>
+    /// Creates a dosimetrist/physicist staffing recommendation for a queued case work item.
+    /// </summary>
+    public PlanStaffingRecommendation RecommendWorkItemAssignment(
+        string id,
+        AssignmentServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new ArgumentException("Work item id is required.", nameof(id));
+        }
+
+        ArgumentNullException.ThrowIfNull(request);
+
+        var workItem = store.FindWorkItem(id) ?? throw new InvalidOperationException($"Work item '{id}' was not found.");
+        var assignmentDate = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
+        var context = CreateAssignmentRequestContext(CreateWorkItemAssignmentRequest(workItem, request), assignmentDate, includeTeamRoles: true);
+        var intelligence = context.Intelligence ?? workItem.Intelligence;
+        var recommendation = client.RecommendPlanningTeam(context.Request) with { Intelligence = intelligence };
+        var details = string.Join(", ", recommendation.RoleRecommendations.Select(role => $"{role.Role}:{role.RecommendedCandidate?.Planner.Id ?? "none"}"));
+        var updated = workItem with
+        {
+            UpdatedAtUtc = timeProvider.GetUtcNow(),
+            Intelligence = intelligence,
+            AssignmentHistory = AppendHistory(workItem, CreateWorkItemHistoryEvent(
+                workItem.Status,
+                auditContext,
+                "recommended",
+                note: details))
+        };
+        store.SaveWorkItem(updated);
+        Audit(
+            "work-item.assignment-recommended",
+            auditContext,
+            caseId: workItem.CaseId,
+            status: recommendation.IsFullyStaffed ? "FullyStaffed" : "NeedsReview",
+            details: $"{workItem.Id}: {details}");
+        return recommendation;
+    }
+
+    /// <summary>
+    /// Explicitly assigns staff to a queued case work item.
+    /// </summary>
+    public CaseWorkItem AssignWorkItem(string id, AssignCaseWorkItemRequest request, CiServerAuditContext? auditContext = null)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new ArgumentException("Work item id is required.", nameof(id));
+        }
+
+        ArgumentNullException.ThrowIfNull(request);
+
+        var workItem = store.FindWorkItem(id) ?? throw new InvalidOperationException($"Work item '{id}' was not found.");
+        var dosimetristId = CiServerText.Optional(request.DosimetristId) ?? workItem.AssignedDosimetristId;
+        var dosimetristName = CiServerText.Optional(request.DosimetristName) ?? workItem.AssignedDosimetristName;
+        var physicistId = CiServerText.Optional(request.PhysicistId) ?? workItem.AssignedPhysicistId;
+        var physicistName = CiServerText.Optional(request.PhysicistName) ?? workItem.AssignedPhysicistName;
+        var hasAssignment = dosimetristId != workItem.AssignedDosimetristId
+            || dosimetristName != workItem.AssignedDosimetristName
+            || physicistId != workItem.AssignedPhysicistId
+            || physicistName != workItem.AssignedPhysicistName;
+        if (!hasAssignment && request.Status is null && string.IsNullOrWhiteSpace(request.Note))
+        {
+            throw new ArgumentException("At least one assignment, status, or note is required.", nameof(request));
+        }
+
+        var status = request.Status
+            ?? (hasAssignment && workItem.Status is CaseWorkItemStatus.Intake or CaseWorkItemStatus.NeedsAssignment
+                ? CaseWorkItemStatus.Assigned
+                : workItem.Status);
+        var updated = workItem with
+        {
+            UpdatedAtUtc = timeProvider.GetUtcNow(),
+            Status = status,
+            AssignedDosimetristId = dosimetristId,
+            AssignedDosimetristName = dosimetristName,
+            AssignedPhysicistId = physicistId,
+            AssignedPhysicistName = physicistName,
+            AssignmentHistory = AppendHistory(workItem, CreateWorkItemHistoryEvent(
+                status,
+                auditContext,
+                "assigned",
+                dosimetristId,
+                dosimetristName,
+                physicistId,
+                physicistName,
+                request.Note))
+        };
+        var saved = store.SaveWorkItem(updated);
+        Audit("work-item.assigned", auditContext, caseId: saved.CaseId, status: saved.Status.ToString(), details: saved.Id);
+        return saved;
+    }
+
+    /// <summary>
+    /// Updates the queue status for a case work item.
+    /// </summary>
+    public CaseWorkItem UpdateWorkItemStatus(string id, UpdateCaseWorkItemStatusRequest request, CiServerAuditContext? auditContext = null)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            throw new ArgumentException("Work item id is required.", nameof(id));
+        }
+
+        ArgumentNullException.ThrowIfNull(request);
+
+        var workItem = store.FindWorkItem(id) ?? throw new InvalidOperationException($"Work item '{id}' was not found.");
+        var updated = workItem with
+        {
+            UpdatedAtUtc = timeProvider.GetUtcNow(),
+            Status = request.Status,
+            AssignmentHistory = AppendHistory(workItem, CreateWorkItemHistoryEvent(
+                request.Status,
+                auditContext,
+                "status-changed",
+                workItem.AssignedDosimetristId,
+                workItem.AssignedDosimetristName,
+                workItem.AssignedPhysicistId,
+                workItem.AssignedPhysicistName,
+                request.Note))
+        };
+        var saved = store.SaveWorkItem(updated);
+        Audit("work-item.status-changed", auditContext, caseId: saved.CaseId, status: saved.Status.ToString(), details: saved.Id);
+        return saved;
+    }
+
+    /// <summary>
     /// Lists registered rule packs.
     /// </summary>
     public IReadOnlyList<CiServerRulePackSummary> ListRulePacks()
@@ -918,11 +1116,11 @@ public sealed class BeamKitCiServerService
 
     private sealed record AssignmentRequestContext(PlannerAssignmentRequest Request, AssignmentIntelligenceSummary? Intelligence);
 
-    private static AssignmentRequestContext CreateAssignmentRequestContext(AssignmentServerRequest request, DateOnly assignmentDate, bool includeTeamRoles)
+    private AssignmentRequestContext CreateAssignmentRequestContext(AssignmentServerRequest request, DateOnly assignmentDate, bool includeTeamRoles)
     {
         var dueDate = ParseDueDate(request.DueDate) ?? assignmentDate.AddDays(3);
         var requiredRoles = ResolveAssignmentRoles(request.RequiredRoles, includeTeamRoles);
-        var planners = LoadPlannerProfiles(request, assignmentDate, dueDate);
+        var planners = ApplyLiveWorkload(LoadPlannerProfiles(request, assignmentDate, dueDate), request.UseLiveWorkload);
         var plan = TryLoadAssignmentPlan(request);
         var intelligenceReport = plan is null
             ? null
@@ -958,6 +1156,123 @@ public sealed class BeamKitCiServerService
             requiredRoles);
 
         return new AssignmentRequestContext(assignmentRequest, summary);
+    }
+
+    private IReadOnlyList<PlannerProfile> ApplyLiveWorkload(IReadOnlyList<PlannerProfile> planners, bool useLiveWorkload)
+    {
+        if (!useLiveWorkload)
+        {
+            return planners;
+        }
+
+        var activeWorkItems = store.ListWorkItems(new CaseWorkItemQuery { ActiveOnly = true, Limit = 500 });
+        if (activeWorkItems.Count == 0)
+        {
+            return planners;
+        }
+
+        var assignedCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var workItem in activeWorkItems)
+        {
+            AddAssignedWorkload(assignedCounts, workItem.AssignedDosimetristId);
+            AddAssignedWorkload(assignedCounts, workItem.AssignedPhysicistId);
+        }
+
+        return planners
+            .Select(planner => assignedCounts.TryGetValue(planner.Id, out var activeCount)
+                ? planner with { ActiveCaseCount = planner.ActiveCaseCount + activeCount }
+                : planner)
+            .ToArray();
+    }
+
+    private static void AddAssignedWorkload(IDictionary<string, int> assignedCounts, string? staffId)
+    {
+        if (string.IsNullOrWhiteSpace(staffId))
+        {
+            return;
+        }
+
+        assignedCounts[staffId] = assignedCounts.TryGetValue(staffId, out var current) ? current + 1 : 1;
+    }
+
+    private static AssignmentServerRequest CreateWorkItemAssignmentRequest(CaseWorkItem workItem, AssignmentServerRequest request)
+    {
+        var requestHasPlanSource = HasAssignmentPlanSource(request);
+        return new AssignmentServerRequest
+        {
+            CaseId = CiServerText.Optional(request.CaseId) ?? workItem.CaseId,
+            SyntheticCaseId = requestHasPlanSource
+                ? CiServerText.Optional(request.SyntheticCaseId)
+                : CiServerText.Optional(request.SyntheticCaseId) ?? workItem.SyntheticCaseId,
+            DiseaseSite = CiServerText.Optional(request.DiseaseSite) ?? workItem.DiseaseSite,
+            RequiredSkills = request.RequiredSkills is { Count: > 0 }
+                ? request.RequiredSkills
+                : workItem.Intelligence?.SuggestedSkills,
+            RequiredRoles = request.RequiredRoles,
+            DueDate = CiServerText.Optional(request.DueDate) ?? FormatDueDate(workItem.DueDate),
+            ComplexityScore = request.ComplexityScore ?? workItem.Intelligence?.AppliedAssignmentComplexityScore,
+            Priority = request.Priority ?? workItem.Priority,
+            Physician = CiServerText.Optional(request.Physician) ?? workItem.Physician,
+            Plan = request.Plan,
+            PlanJson = request.PlanJson,
+            EsapiSnapshot = request.EsapiSnapshot,
+            EsapiSnapshotJson = request.EsapiSnapshotJson,
+            Roster = request.Roster,
+            RosterJson = request.RosterJson,
+            RosterPath = request.RosterPath,
+            UseLiveWorkload = request.UseLiveWorkload
+        };
+    }
+
+    private static bool HasAssignmentPlanSource(AssignmentServerRequest request)
+    {
+        return !string.IsNullOrWhiteSpace(request.PlanJson)
+            || !string.IsNullOrWhiteSpace(request.EsapiSnapshotJson)
+            || HasJsonValue(request.Plan)
+            || HasJsonValue(request.EsapiSnapshot);
+    }
+
+    private static bool HasJsonValue(System.Text.Json.JsonElement? element)
+    {
+        return element.HasValue && element.Value.ValueKind is not System.Text.Json.JsonValueKind.Null and not System.Text.Json.JsonValueKind.Undefined;
+    }
+
+    private static string? FormatDueDate(DateOnly? dueDate)
+    {
+        return dueDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    }
+
+    private CaseWorkItemAssignmentEvent CreateWorkItemHistoryEvent(
+        CaseWorkItemStatus status,
+        CiServerAuditContext? auditContext,
+        string action,
+        string? dosimetristId = null,
+        string? dosimetristName = null,
+        string? physicistId = null,
+        string? physicistName = null,
+        string? note = null)
+    {
+        var context = auditContext ?? CiServerAuditContext.Service;
+        return new CaseWorkItemAssignmentEvent
+        {
+            Id = CreateWorkItemEventId(),
+            OccurredAtUtc = timeProvider.GetUtcNow(),
+            Actor = context.Actor,
+            Action = action,
+            Status = status,
+            DosimetristId = CiServerText.Optional(dosimetristId),
+            DosimetristName = CiServerText.Optional(dosimetristName),
+            PhysicistId = CiServerText.Optional(physicistId),
+            PhysicistName = CiServerText.Optional(physicistName),
+            Note = CiServerText.Optional(note)
+        };
+    }
+
+    private static IReadOnlyList<CaseWorkItemAssignmentEvent> AppendHistory(
+        CaseWorkItem workItem,
+        CaseWorkItemAssignmentEvent assignmentEvent)
+    {
+        return workItem.AssignmentHistory.Concat(new[] { assignmentEvent }).ToArray();
     }
 
     private static Plan? TryLoadAssignmentPlan(AssignmentServerRequest request)
@@ -1129,10 +1444,33 @@ public sealed class BeamKitCiServerService
 
         if (!string.IsNullOrWhiteSpace(request.RosterPath))
         {
-            return StaffRosterLoader.FromFile(request.RosterPath).ToPlannerProfiles(assignmentDate, dueDate);
+            return StaffRosterLoader.FromFile(ResolveServerLocalFilePath(request.RosterPath)).ToPlannerProfiles(assignmentDate, dueDate);
         }
 
         return CreateSyntheticPlannerProfiles(assignmentDate);
+    }
+
+    private static string ResolveServerLocalFilePath(string path)
+    {
+        var trimmed = CiServerText.Required(path, nameof(path));
+        if (Path.IsPathRooted(trimmed))
+        {
+            return Path.GetFullPath(trimmed);
+        }
+
+        var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (directory is not null)
+        {
+            var candidate = Path.GetFullPath(Path.Combine(directory.FullName, trimmed));
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return Path.GetFullPath(trimmed);
     }
 
     private static IReadOnlyList<PlannerProfile> CreateSyntheticPlannerProfiles(DateOnly assignmentDate)
@@ -1239,6 +1577,16 @@ public sealed class BeamKitCiServerService
     private string CreateServerRunId()
     {
         return $"run-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..37];
+    }
+
+    private string CreateWorkItemId()
+    {
+        return $"work-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..38];
+    }
+
+    private string CreateWorkItemEventId()
+    {
+        return $"wie-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..37];
     }
 
     private string CreateAuditEventId()

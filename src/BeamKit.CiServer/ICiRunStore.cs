@@ -76,6 +76,21 @@ public interface ICiRunStore
         string? note = null);
 
     /// <summary>
+    /// Adds or replaces a case work item.
+    /// </summary>
+    CaseWorkItem SaveWorkItem(CaseWorkItem workItem);
+
+    /// <summary>
+    /// Finds a case work item by id.
+    /// </summary>
+    CaseWorkItem? FindWorkItem(string id);
+
+    /// <summary>
+    /// Lists case work items matching the supplied query.
+    /// </summary>
+    IReadOnlyList<CaseWorkItem> ListWorkItems(CaseWorkItemQuery query);
+
+    /// <summary>
     /// Adds an audit event.
     /// </summary>
     CiServerAuditEvent SaveAuditEvent(CiServerAuditEvent auditEvent);

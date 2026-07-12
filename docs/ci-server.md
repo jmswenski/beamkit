@@ -41,6 +41,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Label run sources as synthetic cases, BeamKit plan JSON uploads, or ESAPI snapshot uploads.
 - Recommend single-role and dosimetrist/physicist team assignments from disease site, skills, workload, schedule, PTO, physician compatibility rules, complexity, priority, and due-date context.
 - Infer assignment complexity, required skills, QA risk, and effort estimates from `syntheticCaseId`, BeamKit plan JSON, or ESAPI snapshot JSON when assignment requests include plan content.
+- Persist case work queues with assignment history, status tracking, linked run metadata, and live workload-aware recommendation scoring.
 
 ## Endpoints
 
@@ -61,6 +62,8 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `GET` | `/api/rule-packs/{id}/versions` | List managed versions for one rule-pack id. |
 | `GET` | `/api/rule-packs/{id}/versions/{versionId}` | Get one managed rule-pack version with validation and test evidence. |
 | `GET` | `/api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}` | Compare two managed rule-pack versions. |
+| `GET` | `/api/work-items` | List persistent queue items. Supports `limit`, `status`, `caseId`, `diseaseSite`, `assignedStaffId`, and `activeOnly`. |
+| `GET` | `/api/work-items/{id}` | Get one queue item with assignment history and stored intelligence context. |
 | `GET` | `/api/audit-events` | List audit events. Supports `limit`, `action`, `runId`, and `caseId`. |
 | `POST` | `/api/runs` | Create a run from a synthetic case. |
 | `POST` | `/api/runs/{id}/baseline` | Promote a run as the baseline for its case id. |
@@ -76,6 +79,10 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `POST` | `/api/rule-packs/{id}/review-draft` | Review a draft rule pack without importing it. |
 | `POST` | `/api/assignments/recommend` | Recommend a planner assignment. |
 | `POST` | `/api/assignments/recommend-team` | Recommend dosimetrist and physicist staffing for one case. |
+| `POST` | `/api/work-items` | Create a persistent queue item from a synthetic case, BeamKit plan JSON, ESAPI snapshot JSON, or manually supplied metadata. |
+| `POST` | `/api/work-items/{id}/recommend-assignment` | Recommend dosimetrist and physicist staffing for a queued case while accounting for live queue workload. |
+| `POST` | `/api/work-items/{id}/assign` | Assign dosimetrist and/or physicist ids to a queued case. |
+| `POST` | `/api/work-items/{id}/status` | Change queued case status. |
 
 All `/api/*` routes require the configured API-key header when `RequireApiKey` is `true`, which is the default. Examples below assume:
 
@@ -209,6 +216,38 @@ curl -s "$API/api/assignments/recommend-team" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
   -d '{"syntheticCaseId":"lung-sbrt-pass","physician":"Dr Smith","priority":4,"rosterPath":"samples/staff-roster-synthetic.json"}'
 ```
+
+Create a persistent work item:
+
+```bash
+WORK_ITEM_ID=$(
+  curl -s "$API/api/work-items" \
+    -H 'content-type: application/json' \
+    -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+    -d '{"syntheticCaseId":"lung-sbrt-pass","physician":"Dr Smith","dueDate":"2026-07-12","priority":4}' \
+    | jq -r .id
+)
+```
+
+Recommend staffing from the queued item:
+
+```bash
+curl -s "$API/api/work-items/$WORK_ITEM_ID/recommend-assignment" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"rosterPath":"samples/staff-roster-synthetic.json"}'
+```
+
+Assign staff and let later recommendations account for that active workload:
+
+```bash
+curl -s "$API/api/work-items/$WORK_ITEM_ID/assign" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"dosimetristId":"planner-jane","physicistId":"physicist-morgan","note":"Accepted recommendation."}'
+```
+
+`Assigned`, `Planning`, `PhysicsReview`, and `ReadyForTreatment` items are counted as active queue workload. `OnHold`, `Completed`, and `Canceled` items do not increase assignment workload.
 
 Review audit events:
 

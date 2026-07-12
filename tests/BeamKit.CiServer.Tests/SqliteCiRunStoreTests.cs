@@ -214,6 +214,41 @@ public sealed class SqliteCiRunStoreTests
     }
 
     [Fact]
+    public void WorkItemsSurviveNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        firstStore.SaveWorkItem(CreateWorkItem(
+            "work-1",
+            "case-1",
+            CaseWorkItemStatus.Assigned,
+            new DateOnly(2026, 7, 12),
+            dosimetristId: "planner-jane",
+            physicistId: "physicist-morgan"));
+        firstStore.SaveWorkItem(CreateWorkItem(
+            "work-2",
+            "case-2",
+            CaseWorkItemStatus.OnHold,
+            new DateOnly(2026, 7, 10),
+            dosimetristId: "planner-jane"));
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var active = secondStore.ListWorkItems(new CaseWorkItemQuery
+        {
+            ActiveOnly = true,
+            AssignedStaffId = "planner-jane"
+        });
+
+        var workItem = Assert.Single(active);
+        Assert.Equal("work-1", workItem.Id);
+        Assert.Equal("case-1", workItem.CaseId);
+        Assert.Equal("planner-jane", workItem.AssignedDosimetristId);
+        Assert.Equal("physicist-morgan", workItem.AssignedPhysicistId);
+        Assert.Equal(CaseWorkItemStatus.Assigned, workItem.AssignmentHistory.Single().Status);
+        Assert.Equal("case-1", secondStore.FindWorkItem("WORK-1")?.CaseId);
+    }
+
+    [Fact]
     public void RulePackVersionsSurviveNewStoreInstance()
     {
         using var database = TemporaryDatabase.Create();
@@ -282,6 +317,45 @@ public sealed class SqliteCiRunStoreTests
             $"sha256:{versionId}",
             new RulePackValidationReport("Rule pack", versionId, $"sha256:{versionId}", Array.Empty<RulePackPolicyIssue>()),
             new RulePackTestReport("Rule pack", versionId, importedAtUtc, Array.Empty<RulePackTestResult>()));
+    }
+
+    private static CaseWorkItem CreateWorkItem(
+        string id,
+        string caseId,
+        CaseWorkItemStatus status,
+        DateOnly dueDate,
+        string? dosimetristId = null,
+        string? physicistId = null)
+    {
+        return new CaseWorkItem
+        {
+            Id = id,
+            CreatedAtUtc = new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero),
+            UpdatedAtUtc = new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero),
+            CaseId = caseId,
+            SyntheticCaseId = "lung-sbrt-pass",
+            DiseaseSite = "Lung",
+            DueDate = dueDate,
+            Priority = 4,
+            Status = status,
+            Physician = "Dr Smith",
+            AssignedDosimetristId = dosimetristId,
+            AssignedPhysicistId = physicistId,
+            LastCheckStatus = BeamKitCheckStatus.Pass,
+            AssignmentHistory = new[]
+            {
+                new CaseWorkItemAssignmentEvent
+                {
+                    Id = $"{id}-event",
+                    OccurredAtUtc = new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero),
+                    Actor = "test",
+                    Action = "assigned",
+                    Status = status,
+                    DosimetristId = dosimetristId,
+                    PhysicistId = physicistId
+                }
+            }
+        };
     }
 
     private static void CreateLegacyDatabase(string path)
