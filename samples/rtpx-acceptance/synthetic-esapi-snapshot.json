@@ -1,0 +1,78 @@
+{
+  "patientId": "SYNTHETIC",
+  "patientDisplayName": null,
+  "courseId": "C1",
+  "planId": "PlanA",
+  "diseaseSite": "Lung",
+  "prescription": {
+    "totalDoseGy": 50,
+    "fractionCount": 5,
+    "targetStructureId": "PTV_Hospital",
+    "isSigned": true,
+    "intent": "Definitive",
+    "requestedEnergy": "6X",
+    "requestedTechniqueId": "VMAT"
+  },
+  "structures": [
+    {
+      "id": "PTV_Hospital",
+      "name": "PTV_Hospital",
+      "type": "Target",
+      "volumeCc": 100,
+      "hasContours": true
+    },
+    {
+      "id": "SpinalCord",
+      "name": "SpinalCord",
+      "type": "OrganAtRisk",
+      "volumeCc": 12,
+      "hasContours": true
+    }
+  ],
+  "doseGrid": {
+    "spacingXMm": 2.5,
+    "spacingYMm": 2.5,
+    "spacingZMm": 2.5,
+    "calculationModel": "AAA",
+    "calculationModelVersion": "16.1"
+  },
+  "doseStatistics": [
+    {
+      "structureId": "PTV_Hospital",
+      "metrics": {
+        "Max": 52
+      }
+    },
+    {
+      "structureId": "SpinalCord",
+      "metrics": {
+        "Max": 18
+      }
+    }
+  ],
+  "beams": [
+    {
+      "id": "B1",
+      "name": "Arc 1",
+      "modality": "Photon",
+      "energy": "6X",
+      "monitorUnits": 400,
+      "treatmentUnitId": "TrueBeam",
+      "techniqueId": "VMAT",
+      "beamModelId": "SyntheticBeamModel",
+      "jawTrackingEnabled": true,
+      "controlPoints": [
+        {
+          "index": 0,
+          "gantryAngleDegrees": 0,
+          "cumulativeMetersetWeight": 0
+        },
+        {
+          "index": 1,
+          "gantryAngleDegrees": 180,
+          "cumulativeMetersetWeight": 1
+        }
+      ]
+    }
+  ]
+}

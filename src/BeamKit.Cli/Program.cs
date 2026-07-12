@@ -14,6 +14,7 @@ using BeamKit.Metrics;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.Protocols;
+using BeamKit.Protocols.Acceptance;
 using BeamKit.Protocols.Word;
 using BeamKit.Qa;
 using BeamKit.Release;
@@ -62,6 +63,7 @@ internal static class Program
                 "protocol-template-word" => RunProtocolWordTemplate(options),
                 "protocol-package-word" => RunProtocolWordPackage(options),
                 "protocol-inspect-package" => RunProtocolPackageInspect(options),
+                "protocol-accept-package" => RunProtocolPackageAccept(options),
                 "rtpx-validate" => RunProtocolValidate(options),
                 "rtpx-compile" => RunProtocolCompile(options),
                 "rtpx-lint-word" => RunProtocolWordLint(options),
@@ -69,6 +71,7 @@ internal static class Program
                 "rtpx-template-word" => RunProtocolWordTemplate(options),
                 "rtpx-package-word" => RunProtocolWordPackage(options),
                 "rtpx-inspect-package" => RunProtocolPackageInspect(options),
+                "rtpx-accept-package" => RunProtocolPackageAccept(options),
                 "ci-run" => RunCiRun(options),
                 "assignment-recommend" => RunAssignmentRecommend(options),
                 "assignment-recommend-team" => RunAssignmentRecommendTeam(options),
@@ -90,13 +93,25 @@ internal static class Program
                 _ => UnknownCommand(options.Command)
             };
         }
-        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or InvalidOperationException or JsonException)
+        catch (Exception ex) when (IsHandledCliException(ex))
         {
             Console.Error.WriteLine($"beamkit: {ex.Message}");
             Console.Error.WriteLine();
             WriteUsage();
             return 1;
         }
+    }
+
+    private static bool IsHandledCliException(Exception ex)
+    {
+        return ex is ArgumentException
+            or IOException
+            or InvalidDataException
+            or UnauthorizedAccessException
+            or InvalidOperationException
+            or JsonException
+            || ex.GetType().FullName is "System.IO.Packaging.FileFormatException"
+                or "DocumentFormat.OpenXml.Packaging.OpenXmlPackageException";
     }
 
     private static int RunSampleReport(CliOptions options)
@@ -342,17 +357,23 @@ internal static class Program
         var docxPath = RequireDocxPath(options);
         var outputPath = options.OutputPath
             ?? throw new ArgumentException("RT-PX Word extraction requires --output rtpx.json.");
+        var fullOutputPath = Path.GetFullPath(outputPath);
+        if (File.Exists(fullOutputPath) && !options.Overwrite)
+        {
+            throw new IOException($"RT-PX extraction output '{fullOutputPath}' already exists. Use --overwrite to replace it.");
+        }
+
         var report = new RtpxWordProtocolExtractor().Extract(docxPath);
         var wrotePackage = false;
         if (report.IsValid && report.Package is not null)
         {
-            RadiotherapyProtocolPackageStore.Save(outputPath, report.Package);
+            RadiotherapyProtocolPackageStore.Save(fullOutputPath, report.Package);
             wrotePackage = true;
         }
 
         var cliReport = new ProtocolWordExtractionCliReport(
             Path.GetFullPath(docxPath),
-            Path.GetFullPath(outputPath),
+            fullOutputPath,
             report.Package,
             report.Issues,
             report.Validation,
@@ -387,6 +408,27 @@ internal static class Program
         var inspection = new RtpxWordPackageStore().Inspect(packagePath);
         WriteOutput(WriteProtocolPackageInspectionReport(inspection, options.Format), options.OutputPath);
         return inspection.Validation.IsValid ? 0 : 2;
+    }
+
+    private static int RunProtocolPackageAccept(CliOptions options)
+    {
+        var packagePath = RequirePackagePath(options);
+        var institutionPath = RequireInstitutionProfilePath(options);
+        var outputDirectory = options.OutputPath
+            ?? throw new ArgumentException("RT-PX package acceptance requires --output directory.");
+        var profile = RtpxInstitutionProfileStore.FromFile(institutionPath);
+        var snapshot = string.IsNullOrWhiteSpace(options.EsapiSnapshotPath)
+            ? null
+            : EsapiPlanSnapshotJson.FromFile(options.EsapiSnapshotPath);
+        var report = new RtpxPackageAcceptanceEngine().Accept(new RtpxAcceptanceRequest(
+            packagePath,
+            profile,
+            outputDirectory,
+            snapshot,
+            options.EsapiSnapshotPath,
+            options.Overwrite));
+        WriteOutput(WriteProtocolPackageAcceptanceReport(report, options.Format), null);
+        return report.IsAccepted ? 0 : 2;
     }
 
     private static int RunCiRun(CliOptions options)
@@ -804,6 +846,13 @@ internal static class Program
         return string.IsNullOrWhiteSpace(options.PackagePath)
             ? throw new ArgumentException("RT-PX package inspection requires --package path.")
             : options.PackagePath;
+    }
+
+    private static string RequireInstitutionProfilePath(CliOptions options)
+    {
+        return string.IsNullOrWhiteSpace(options.Institution)
+            ? throw new ArgumentException("RT-PX package acceptance requires --institution profile path.")
+            : options.Institution;
     }
 
     private static string ResolveManifestReference(string manifestPath, string relativePath)
@@ -1531,6 +1580,7 @@ internal static class Program
         Console.Error.WriteLine("  beamkit rtpx template-word --output protocol-template.docx [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit rtpx package-word --docx protocol.docx --output protocol.rtpx.zip [--include-source] [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit rtpx inspect-package --package protocol.rtpx.zip [--format json|markdown|html] [--output report-path]");
+        Console.Error.WriteLine("  beamkit rtpx accept-package --package protocol.rtpx.zip --institution institution.json --output accepted-directory [--esapi-snapshot snapshot.json] [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit protocol validate --protocol rtpx.json|directory [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit protocol compile --protocol rtpx.json|directory --output rule-pack-directory [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit protocol lint-word --docx protocol.docx [--format json|markdown|html] [--output report-path]");
@@ -1538,6 +1588,7 @@ internal static class Program
         Console.Error.WriteLine("  beamkit protocol template-word --output protocol-template.docx [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit protocol package-word --docx protocol.docx --output protocol.rtpx.zip [--include-source] [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit protocol inspect-package --package protocol.rtpx.zip [--format json|markdown|html] [--output report-path]");
+        Console.Error.WriteLine("  beamkit protocol accept-package --package protocol.rtpx.zip --institution institution.json --output accepted-directory [--esapi-snapshot snapshot.json] [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit ci run [--plan path | --esapi-snapshot path | --case id] [--rule-pack path] [--branch name] [--commit sha] [--build-id id] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit assignment recommend [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist] [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit assignment recommend-team [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist]... [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
@@ -2586,6 +2637,17 @@ internal static class Program
         }
 
         return builder.ToString();
+    }
+
+    private static string WriteProtocolPackageAcceptanceReport(RtpxAcceptanceReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => RtpxAcceptanceReportWriter.ToJson(report),
+            ReportFormat.Markdown => RtpxAcceptanceReportWriter.ToMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit RT-PX Acceptance", RtpxAcceptanceReportWriter.ToMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
     }
 
     private static void AppendWordAndValidationIssues(

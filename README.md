@@ -55,7 +55,7 @@ What is usable today:
 - Structure name normalization.
 - Clinical goal template loading.
 - Clinical rule catalogs for changing institutional, disease-site, and physician rules.
-- RT-PX Radiotherapy Protocol Exchange v0.1 models, schema, sample package, CLI validation, and compilation into BeamKit rule packs.
+- RT-PX Radiotherapy Protocol Exchange v0.1 models, schema, Word extraction, zipped package creation/inspection, hospital acceptance profiles, optional ESAPI snapshot evidence, and compilation into BeamKit rule packs.
 - `BeamKit Check`, a flagship rule-pack workflow that combines clinical goals, plan checks, naming, readiness, metrics, ESAPI/DICOM-ready plan input, and optional write-up evidence.
 - Combined QA pipeline.
 - Rule-pack manifests that compose clinical rule catalogs, plan-check catalogs, naming dictionaries, machine profiles, and readiness defaults.
@@ -162,6 +162,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.PlanCheck`](src/BeamKit.PlanCheck/README.md) | Configurable plan-check catalogs that combine structure, prescription, dose, metric, model, and deliverability checks. | Active |
 | [`BeamKit.Protocols`](src/BeamKit.Protocols/README.md) | RT-PX Radiotherapy Protocol Exchange models that encode treatment intent, prescriptions, structures, constraints, workflow requirements, and source traceability, then compile into rule packs. | Initial |
 | [`BeamKit.Protocols.Word`](src/BeamKit.Protocols.Word/README.md) | Word-first RT-PX extraction from structured `.docx` protocol tables, preserving source traceability back to table rows. | Initial |
+| [`BeamKit.Protocols.Acceptance`](src/BeamKit.Protocols.Acceptance/README.md) | Hospital-side RT-PX package acceptance, local structure mapping, local approval metadata, rule-pack promotion, and optional ESAPI snapshot evidence. | Initial |
 | [`BeamKit.Structures`](src/BeamKit.Structures/README.md) | Derived-structure recipes, including deterministic PTV ring specifications. | Active |
 | [`BeamKit.Rules`](src/BeamKit.Rules/README.md) | Clinical rule engine and built-in plan checks. | Active |
 | [`BeamKit.Safety`](src/BeamKit.Safety/README.md) | Clinical safety case, hazard, control, and validation evidence models. | Initial |
@@ -285,6 +286,13 @@ dotnet run --project src/BeamKit.Cli -- rtpx package-word \
 
 dotnet run --project src/BeamKit.Cli -- rtpx inspect-package \
   --package artifacts/rtpx/protocol.rtpx.zip
+
+dotnet run --project src/BeamKit.Cli -- rtpx accept-package \
+  --package artifacts/rtpx/protocol.rtpx.zip \
+  --institution samples/rtpx-acceptance/synthetic-hospital.json \
+  --esapi-snapshot samples/rtpx-acceptance/synthetic-esapi-snapshot.json \
+  --output artifacts/rtpx-accepted/protocol \
+  --format markdown
 
 dotnet run --project src/BeamKit.Cli -- rtpx validate \
   --rtpx samples/rtpx/lung-sbrt-v1
@@ -779,6 +787,7 @@ See [docs/esapi.md](docs/esapi.md).
 | BeamKit Check | [docs/beamkit-check.md](docs/beamkit-check.md) |
 | RT-PX protocol exchange | [docs/rtpx.md](docs/rtpx.md) |
 | RT-PX Word authoring | [docs/rtpx-word-authoring.md](docs/rtpx-word-authoring.md) |
+| RT-PX hospital acceptance | [docs/rtpx-acceptance.md](docs/rtpx-acceptance.md) |
 | RT-PX specification | [docs/rtpx-specification.md](docs/rtpx-specification.md) |
 | Rule-pack authoring | [docs/rule-pack-authoring.md](docs/rule-pack-authoring.md) |
 | Sample rule packs | [samples/rule-packs/README.md](samples/rule-packs/README.md) |

@@ -160,6 +160,20 @@ public sealed class CliBehaviorTests
             "--package",
             "protocol.rtpx.zip"
         });
+        var acceptPackage = CliOptions.Parse(new[]
+        {
+            "rtpx",
+            "accept-package",
+            "--package",
+            "protocol.rtpx.zip",
+            "--institution",
+            "institutions/my-clinic.json",
+            "--output",
+            "accepted",
+            "--esapi-snapshot",
+            "snapshot.json",
+            "--overwrite"
+        });
 
         Assert.Equal("rtpx-validate", validate.Command);
         Assert.Equal("rtpx.json", validate.ProtocolPath);
@@ -180,6 +194,12 @@ public sealed class CliBehaviorTests
         Assert.True(packageWord.IncludeSource);
         Assert.Equal("protocol-inspect-package", inspectPackage.Command);
         Assert.Equal("protocol.rtpx.zip", inspectPackage.PackagePath);
+        Assert.Equal("rtpx-accept-package", acceptPackage.Command);
+        Assert.Equal("protocol.rtpx.zip", acceptPackage.PackagePath);
+        Assert.Equal("institutions/my-clinic.json", acceptPackage.Institution);
+        Assert.Equal("accepted", acceptPackage.OutputPath);
+        Assert.Equal("snapshot.json", acceptPackage.EsapiSnapshotPath);
+        Assert.True(acceptPackage.Overwrite);
     }
 
     [Fact]
@@ -741,6 +761,83 @@ public sealed class CliBehaviorTests
             Assert.True(File.Exists(Path.Combine(directory, "beamkit-rule-pack.json")));
             Assert.True(File.Exists(Path.Combine(directory, "clinical-rules.json")));
             Assert.True(File.Exists(Path.Combine(directory, "plan-checks.json")));
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ProgramDoesNotOverwriteExtractedRtpxWithoutOverwriteFlag()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "beamkit-cli-rtpx-word-tests", Guid.NewGuid().ToString("N"));
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var docxPath = Path.Combine(directory, "protocol.docx");
+            var outputPath = Path.Combine(directory, "rtpx.json");
+            File.WriteAllText(outputPath, "existing");
+
+            using var templateOutput = new StringWriter();
+            using var templateError = new StringWriter();
+            Console.SetOut(templateOutput);
+            Console.SetError(templateError);
+            Assert.Equal(0, Program.Main(new[] { "rtpx", "template-word", "--output", docxPath }));
+
+            using var extractOutput = new StringWriter();
+            using var extractError = new StringWriter();
+            Console.SetOut(extractOutput);
+            Console.SetError(extractError);
+
+            var exitCode = Program.Main(new[] { "rtpx", "extract-word", "--docx", docxPath, "--output", outputPath });
+
+            Assert.Equal(1, exitCode);
+            Assert.Equal("existing", File.ReadAllText(outputPath));
+            Assert.Contains("already exists", extractError.ToString(), StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ProgramHandlesInvalidRtpxZipWithCliError()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "beamkit-cli-rtpx-package-tests", Guid.NewGuid().ToString("N"));
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var packagePath = Path.Combine(directory, "bad.rtpx.zip");
+            File.WriteAllText(packagePath, "not a zip");
+
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "rtpx", "inspect-package", "--package", packagePath });
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("beamkit:", error.ToString(), StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("Unhandled", error.ToString(), StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

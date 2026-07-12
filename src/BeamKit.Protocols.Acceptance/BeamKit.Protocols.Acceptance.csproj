@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Hospital-side RT-PX package acceptance, local structure mapping, and optional ESAPI snapshot checks for BeamKit.</Description>
+    <PackageId>BeamKit.Protocols.Acceptance</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.Protocols\BeamKit.Protocols.csproj" />
+    <ProjectReference Include="..\BeamKit.Protocols.Word\BeamKit.Protocols.Word.csproj" />
+    <ProjectReference Include="..\BeamKit.Esapi\BeamKit.Esapi.csproj" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.RulePacks\BeamKit.RulePacks.csproj" />
+  </ItemGroup>
+</Project>

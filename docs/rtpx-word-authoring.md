@@ -53,6 +53,8 @@ The extractor supports either pattern:
 
 The same pattern applies to all supported table names.
 
+Do not merge cells inside RT-PX tables. Each data row should have the same number of cells as the header row so extracted values cannot shift between columns.
+
 ## Supported Tables
 
 | Table | Purpose |
@@ -78,8 +80,8 @@ Use a two-column table.
 | Status | `Draft`, `InReview`, `Approved`, or `Retired` |
 | Reviewed By | Required when `Status` is `Approved` |
 | Approved By | Required when `Status` is `Approved` |
-| Effective Date | Required when `Status` is `Approved`; prefer `yyyy-MM-dd` |
-| Review Due Date | Optional review date; prefer `yyyy-MM-dd` |
+| Effective Date | Required when `Status` is `Approved`; use `yyyy-MM-dd` |
+| Review Due Date | Optional review date; use `yyyy-MM-dd` |
 | Approval Reference | Optional committee, policy, ticket, or meeting reference |
 | Approval Rationale | Optional rationale for accepting the computable protocol |
 | Change Ticket | Optional change-control ticket or pull request |

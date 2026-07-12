@@ -65,6 +65,11 @@ public sealed class RtpxWordPackageStore
             throw new IOException($"RT-PX package '{fullOutputPath}' already exists. Use --overwrite to replace it.");
         }
 
+        if (File.Exists(fullOutputPath))
+        {
+            File.Delete(fullOutputPath);
+        }
+
         var extraction = extractor.Extract(docxPath);
         if (!extraction.IsValid || extraction.Package is null || extraction.Validation is null)
         {
@@ -100,11 +105,6 @@ public sealed class RtpxWordPackageStore
         if (!string.IsNullOrWhiteSpace(directory))
         {
             Directory.CreateDirectory(directory);
-        }
-
-        if (File.Exists(fullOutputPath))
-        {
-            File.Delete(fullOutputPath);
         }
 
         using (var archive = ZipFile.Open(fullOutputPath, ZipArchiveMode.Create))

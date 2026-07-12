@@ -102,6 +102,13 @@ dotnet run --project src/BeamKit.Cli -- rtpx package-word \
 dotnet run --project src/BeamKit.Cli -- rtpx inspect-package \
   --package artifacts/rtpx/protocol.rtpx.zip
 
+dotnet run --project src/BeamKit.Cli -- rtpx accept-package \
+  --package artifacts/rtpx/protocol.rtpx.zip \
+  --institution samples/rtpx-acceptance/synthetic-hospital.json \
+  --esapi-snapshot samples/rtpx-acceptance/synthetic-esapi-snapshot.json \
+  --output artifacts/rtpx-accepted/protocol \
+  --format markdown
+
 dotnet run --project src/BeamKit.Cli -- rtpx validate \
   --rtpx samples/rtpx/lung-sbrt-v1
 

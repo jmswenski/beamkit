@@ -23,13 +23,23 @@ dotnet run --project src/BeamKit.Cli -- rtpx extract-word \
 dotnet run --project src/BeamKit.Cli -- rtpx package-word \
   --docx protocol.docx \
   --output artifacts/rtpx/protocol.rtpx.zip
+
+dotnet run --project src/BeamKit.Cli -- rtpx inspect-package \
+  --package artifacts/rtpx/protocol.rtpx.zip
+
+dotnet run --project src/BeamKit.Cli -- rtpx accept-package \
+  --package artifacts/rtpx/protocol.rtpx.zip \
+  --institution samples/rtpx-acceptance/synthetic-hospital.json \
+  --esapi-snapshot samples/rtpx-acceptance/synthetic-esapi-snapshot.json \
+  --output artifacts/rtpx-accepted/protocol \
+  --format markdown
 ```
 
-See [RT-PX Word Authoring](rtpx-word-authoring.md) and [RT-PX Word samples](../samples/rtpx-word/README.md).
+See [RT-PX Word Authoring](rtpx-word-authoring.md), [RT-PX Acceptance](rtpx-acceptance.md), and [RT-PX Word samples](../samples/rtpx-word/README.md).
 
 ## Package Shape
 
-A v0.1 package is a directory containing `rtpx.json`:
+A v0.1 package can be a directory containing `rtpx.json`:
 
 ```text
 lung-sbrt-v1/
@@ -42,7 +52,15 @@ Single-file JSON artifacts are also supported:
 lung-sbrt-v1.rtpx.json
 ```
 
-Future zipped packages may use `.rtpx`.
+Word-authored protocols can also be packaged as zipped `.rtpx.zip` artifacts:
+
+```text
+protocol.rtpx.zip
+  rtpx.json
+  manifest.json
+  validation-report.json
+  source/protocol.docx
+```
 
 ## Contents
 
@@ -107,6 +125,17 @@ dotnet run --project src/BeamKit.Cli -- rtpx compile \
   --rtpx samples/rtpx/lung-sbrt-v1 \
   --output artifacts/rtpx-rule-packs/lung-sbrt-v1
 ```
+
+Accept an incoming zipped package for local institutional use:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rtpx accept-package \
+  --package artifacts/rtpx/protocol.rtpx.zip \
+  --institution samples/rtpx-acceptance/synthetic-hospital.json \
+  --output artifacts/rtpx-accepted/protocol
+```
+
+Add `--esapi-snapshot path/to/esapi-plan-snapshot.json` to include optional local Eclipse/ESAPI evidence in the acceptance report.
 
 Generated files:
 

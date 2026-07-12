@@ -13,6 +13,8 @@ namespace BeamKit.Protocols.Word;
 /// </summary>
 public sealed class RtpxWordProtocolExtractor
 {
+    private const NumberStyles StrictDecimalStyle = NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
+
     private static readonly IReadOnlyDictionary<string, RtpxWordTableKind> KnownTables =
         new Dictionary<string, RtpxWordTableKind>(StringComparer.OrdinalIgnoreCase)
         {
@@ -112,6 +114,10 @@ public sealed class RtpxWordProtocolExtractor
 
             state.TablesSeen++;
             ParseTable(rows, tableInfo, tableIndex, state);
+            if (tableInfo.ResolvedFromHeading)
+            {
+                currentSection = string.Empty;
+            }
         }
     }
 
@@ -134,11 +140,11 @@ public sealed class RtpxWordProtocolExtractor
     {
         if (TryResolveTableKind(rows[0].FirstOrDefault(), out var titleKind))
         {
-            return new RtpxWordTableInfo(titleKind, TableTitle(titleKind), 1);
+            return new RtpxWordTableInfo(titleKind, TableTitle(titleKind), 1, ResolvedFromHeading: false);
         }
 
         return TryResolveTableKind(currentSection, out var headingKind)
-            ? new RtpxWordTableInfo(headingKind, TableTitle(headingKind), 0)
+            ? new RtpxWordTableInfo(headingKind, TableTitle(headingKind), 0, ResolvedFromHeading: true)
             : null;
     }
 
@@ -244,6 +250,7 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
+            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
             var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
             if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
                 || !TryGetRequired(row, header, "name", tableInfo, tableIndex, rowIndex, state, out var name)
@@ -256,9 +263,9 @@ public sealed class RtpxWordProtocolExtractor
                 id,
                 name,
                 role,
-                ParseRequirementLevel(Get(row, header, "level")),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
                 SplitList(Get(row, header, "aliases")),
-                ParseBool(Get(row, header, "musthavecontours"), defaultValue: true),
+                ParseBool(Get(row, header, "musthavecontours"), defaultValue: true, tableInfo, tableIndex, rowIndex, state, "mustHaveContours"),
                 Get(row, header, "description"),
                 source));
         }
@@ -284,6 +291,7 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
+            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
             var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
             if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
                 || !TryGetRequired(row, header, "target", tableInfo, tableIndex, rowIndex, state, out var target)
@@ -302,7 +310,7 @@ public sealed class RtpxWordProtocolExtractor
                 dosePerFraction,
                 Get(row, header, "technique"),
                 Get(row, header, "energy"),
-                ParseRequirementLevel(Get(row, header, "level")),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
                 Get(row, header, "description"),
                 source));
         }
@@ -328,6 +336,7 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
+            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
             var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
             if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
                 || !TryGetRequired(row, header, "structure", tableInfo, tableIndex, rowIndex, state, out var structure)
@@ -346,10 +355,10 @@ public sealed class RtpxWordProtocolExtractor
                 comparison,
                 value,
                 unit,
-                ParseRequirementLevel(Get(row, header, "level")),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
                 Get(row, header, "description"),
                 source,
-                ParseBool(Get(row, header, "active"), defaultValue: true)));
+                ParseBool(Get(row, header, "active"), defaultValue: true, tableInfo, tableIndex, rowIndex, state, "active")));
         }
     }
 
@@ -373,6 +382,7 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
+            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
             var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
             if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
                 || !TryGetRequired(row, header, "title", tableInfo, tableIndex, rowIndex, state, out var title)
@@ -385,11 +395,11 @@ public sealed class RtpxWordProtocolExtractor
                 id,
                 title,
                 type,
-                ParseRequirementLevel(Get(row, header, "level")),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
                 ParseParameters(Get(row, header, "parameters")),
                 Get(row, header, "description"),
                 source,
-                ParseBool(Get(row, header, "active"), defaultValue: true)));
+                ParseBool(Get(row, header, "active"), defaultValue: true, tableInfo, tableIndex, rowIndex, state, "active")));
         }
     }
 
@@ -413,6 +423,7 @@ public sealed class RtpxWordProtocolExtractor
                 continue;
             }
 
+            WarnIfColumnCountDiffers(row, rows[tableInfo.HeaderRowIndex], tableInfo, tableIndex, rowIndex, state);
             var source = Source(tableInfo, tableIndex, rowIndex + 1, row);
             if (!TryGetRequired(row, header, "id", tableInfo, tableIndex, rowIndex, state, out var id)
                 || !TryGetRequired(row, header, "title", tableInfo, tableIndex, rowIndex, state, out var title)
@@ -425,10 +436,10 @@ public sealed class RtpxWordProtocolExtractor
                 id,
                 title,
                 type,
-                ParseRequirementLevel(Get(row, header, "level")),
+                ParseRequirementLevel(Get(row, header, "level"), tableInfo, tableIndex, rowIndex, state),
                 Get(row, header, "description"),
                 source,
-                ParseBool(Get(row, header, "active"), defaultValue: true)));
+                ParseBool(Get(row, header, "active"), defaultValue: true, tableInfo, tableIndex, rowIndex, state, "active")));
         }
     }
 
@@ -463,7 +474,7 @@ public sealed class RtpxWordProtocolExtractor
             return null;
         }
 
-        var status = ParsePackageStatus(MetadataValue(state, "status"));
+        var status = ParsePackageStatus(MetadataValue(state, "status"), state);
         var sourceTitle = MetadataValue(state, "sourcetitle", "sourcedocument", "documenttitle") ?? state.SourceTitle;
         var sourceVersion = MetadataValue(state, "sourceversion", "sourcedate", "sourceversiondate") ?? version;
         var tags = SplitList(MetadataValue(state, "tags")).Concat(new[] { "rtpx", "word-source" }).Distinct(StringComparer.OrdinalIgnoreCase);
@@ -591,7 +602,7 @@ public sealed class RtpxWordProtocolExtractor
         out decimal parsed)
     {
         parsed = 0m;
-        if (decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var result))
+        if (decimal.TryParse(value, StrictDecimalStyle, CultureInfo.InvariantCulture, out var result))
         {
             parsed = result;
             return true;
@@ -600,7 +611,7 @@ public sealed class RtpxWordProtocolExtractor
         state.Add(
             "rtpx.word.decimal-invalid",
             RtpxWordIssueSeverity.Error,
-            $"Table '{tableInfo.Title}' row {rowIndex + 1} field '{field}' requires a decimal value.",
+            $"Table '{tableInfo.Title}' row {rowIndex + 1} field '{field}' requires a decimal value using a period decimal separator and no thousands separators.",
             tableInfo.Title,
             $"table {tableIndex} row {rowIndex + 1}");
         return false;
@@ -729,29 +740,63 @@ public sealed class RtpxWordProtocolExtractor
         };
     }
 
-    private static ProtocolRequirementLevel ParseRequirementLevel(string? value)
+    private static ProtocolRequirementLevel ParseRequirementLevel(
+        string? value,
+        RtpxWordTableInfo tableInfo,
+        int tableIndex,
+        int rowIndex,
+        ExtractionState state)
     {
-        return NormalizeKey(value) switch
+        var key = NormalizeKey(value);
+        var parsed = key switch
         {
-            "" => ProtocolRequirementLevel.Required,
             "required" or "must" or "mandatory" => ProtocolRequirementLevel.Required,
             "recommended" or "warning" or "should" => ProtocolRequirementLevel.Recommended,
             "informational" or "info" or "advisory" or "optional" => ProtocolRequirementLevel.Informational,
-            _ => Enum.TryParse<ProtocolRequirementLevel>(value, true, out var parsed) ? parsed : ProtocolRequirementLevel.Required
+            _ => Enum.TryParse<ProtocolRequirementLevel>(value, true, out var parsedValue) ? parsedValue : (ProtocolRequirementLevel?)null
         };
+
+        if (parsed.HasValue)
+        {
+            return parsed.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            AddDefaultedValueWarning(tableInfo, tableIndex, rowIndex, state, "level", value, ProtocolRequirementLevel.Required.ToString());
+        }
+
+        return ProtocolRequirementLevel.Required;
     }
 
-    private static ProtocolPackageStatus ParsePackageStatus(string? value)
+    private static ProtocolPackageStatus ParsePackageStatus(string? value, ExtractionState state)
     {
-        return NormalizeKey(value) switch
+        var key = NormalizeKey(value);
+        var parsed = key switch
         {
-            "" => ProtocolPackageStatus.Draft,
             "draft" => ProtocolPackageStatus.Draft,
             "inreview" or "review" => ProtocolPackageStatus.InReview,
             "approved" => ProtocolPackageStatus.Approved,
             "retired" => ProtocolPackageStatus.Retired,
-            _ => Enum.TryParse<ProtocolPackageStatus>(value, true, out var parsed) ? parsed : ProtocolPackageStatus.Draft
+            _ => Enum.TryParse<ProtocolPackageStatus>(value, true, out var parsedValue) ? parsedValue : (ProtocolPackageStatus?)null
         };
+
+        if (parsed.HasValue)
+        {
+            return parsed.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            state.Add(
+                "rtpx.word.defaulted-value",
+                RtpxWordIssueSeverity.Warning,
+                $"RT-PX Metadata field 'status' contains unsupported value '{value}' and defaulted to Draft.",
+                RtpxWordConventions.MetadataTable,
+                "status");
+        }
+
+        return ProtocolPackageStatus.Draft;
     }
 
     private static GoalComparison? ParseComparison(string? value)
@@ -767,15 +812,50 @@ public sealed class RtpxWordProtocolExtractor
         };
     }
 
-    private static bool ParseBool(string? value, bool defaultValue)
+    private static bool ParseBool(
+        string? value,
+        bool defaultValue,
+        RtpxWordTableInfo tableInfo,
+        int tableIndex,
+        int rowIndex,
+        ExtractionState state,
+        string field)
     {
-        return NormalizeKey(value) switch
+        var parsed = NormalizeKey(value) switch
         {
-            "" => defaultValue,
             "true" or "yes" or "y" or "1" => true,
             "false" or "no" or "n" or "0" => false,
-            _ => defaultValue
+            _ => (bool?)null
         };
+
+        if (parsed.HasValue)
+        {
+            return parsed.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            AddDefaultedValueWarning(tableInfo, tableIndex, rowIndex, state, field, value, defaultValue.ToString());
+        }
+
+        return defaultValue;
+    }
+
+    private static void AddDefaultedValueWarning(
+        RtpxWordTableInfo tableInfo,
+        int tableIndex,
+        int rowIndex,
+        ExtractionState state,
+        string field,
+        string value,
+        string defaultValue)
+    {
+        state.Add(
+            "rtpx.word.defaulted-value",
+            RtpxWordIssueSeverity.Warning,
+            $"Table '{tableInfo.Title}' row {rowIndex + 1} field '{field}' contains unsupported value '{value}' and defaulted to {defaultValue}.",
+            tableInfo.Title,
+            $"table {tableIndex} row {rowIndex + 1}");
     }
 
     private static string? MetadataValue(ExtractionState state, params string[] keys)
@@ -804,11 +884,6 @@ public sealed class RtpxWordProtocolExtractor
             return exact;
         }
 
-        if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
-        {
-            return parsed;
-        }
-
         state.Add(
             "rtpx.word.date-invalid",
             RtpxWordIssueSeverity.Error,
@@ -821,6 +896,27 @@ public sealed class RtpxWordProtocolExtractor
     private static bool IsBlankDataRow(IReadOnlyList<string> row)
     {
         return row.All(string.IsNullOrWhiteSpace);
+    }
+
+    private static void WarnIfColumnCountDiffers(
+        IReadOnlyList<string> row,
+        IReadOnlyList<string> headerRow,
+        RtpxWordTableInfo tableInfo,
+        int tableIndex,
+        int rowIndex,
+        ExtractionState state)
+    {
+        if (row.Count == headerRow.Count)
+        {
+            return;
+        }
+
+        state.Add(
+            "rtpx.word.row-width-mismatch",
+            RtpxWordIssueSeverity.Warning,
+            $"Table '{tableInfo.Title}' row {rowIndex + 1} has {row.Count} cells but the header has {headerRow.Count}. Merged or ragged cells are not supported.",
+            tableInfo.Title,
+            $"table {tableIndex} row {rowIndex + 1}");
     }
 
     private static string TableTitle(RtpxWordTableKind kind)
@@ -920,5 +1016,5 @@ public sealed class RtpxWordProtocolExtractor
         Workflow
     }
 
-    private sealed record RtpxWordTableInfo(RtpxWordTableKind Kind, string Title, int HeaderRowIndex);
+    private sealed record RtpxWordTableInfo(RtpxWordTableKind Kind, string Title, int HeaderRowIndex, bool ResolvedFromHeading);
 }

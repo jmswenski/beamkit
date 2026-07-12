@@ -77,6 +77,19 @@ public sealed class RtpxWordPackageStoreTests
     }
 
     [Fact]
+    public void PackageStoreRemovesExistingPackageWhenOverwriteExtractionFails()
+    {
+        var invalidDocx = CreateNarrativeDocument();
+        var packagePath = TempPath(".rtpx.zip");
+        File.WriteAllText(packagePath, "stale package");
+
+        var result = new RtpxWordPackageStore().Create(invalidDocx, packagePath, overwrite: true);
+
+        Assert.False(result.WrotePackage);
+        Assert.False(File.Exists(packagePath));
+    }
+
+    [Fact]
     public void InspectRejectsMalformedPackage()
     {
         var packagePath = TempPath(".rtpx.zip");

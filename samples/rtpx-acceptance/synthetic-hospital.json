@@ -1,0 +1,35 @@
+{
+  "institution": "Synthetic Hospital",
+  "requireExplicitStructureMappings": true,
+  "acceptedBy": "Physics Director",
+  "effectiveDate": "2026-07-12",
+  "reviewedBy": "Protocol Physicist",
+  "reviewDueDate": "2027-07-12",
+  "localPolicyReference": "Synthetic policy RT-PX-001",
+  "rationale": "Accepted for synthetic protocol workflow testing.",
+  "changeTicket": "CHANGE-RT-PX-001",
+  "owner": "Synthetic Radiation Oncology",
+  "tags": [
+    "synthetic",
+    "accepted"
+  ],
+  "structureMappings": [
+    {
+      "protocol": "PTV_5000",
+      "local": "PTV_Hospital",
+      "aliases": [
+        "PTV",
+        "Planning Target Volume"
+      ],
+      "notes": "Local target naming convention."
+    },
+    {
+      "protocol": "Cord",
+      "local": "SpinalCord",
+      "aliases": [
+        "Spinal Cord"
+      ],
+      "notes": "Local TG-263 style cord name."
+    }
+  ]
+}

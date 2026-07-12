@@ -80,6 +80,97 @@ public sealed class RtpxWordProtocolExtractorTests
     }
 
     [Fact]
+    public void ExtractRejectsCommaDecimalValues()
+    {
+        var path = CreateProtocolDocument(prescriptionRows: new[]
+        {
+            new[] { "Id", "Target", "Total Dose Gy", "Fractions", "Dose Per Fraction Gy", "Technique", "Energy", "Level", "Description" },
+            new[] { "rx.primary", "PTV_5000", "30,5", "5", "6.1", "VMAT", "6X", "Required", "Primary prescription" }
+        });
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
+        Assert.False(report.IsValid);
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.word.decimal-invalid" && issue.Message.Contains("period decimal separator", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ExtractIgnoresUnrelatedTableAfterRtpxHeadingTable()
+    {
+        var path = CreateProtocolDocument(appendUnrelatedTableAfterStructures: true);
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
+        Assert.True(report.IsValid, Describe(report));
+        Assert.DoesNotContain(report.Issues, issue => issue.Code == "rtpx.word.column-missing");
+    }
+
+    [Fact]
+    public void ExtractWarnsWhenDefaultedFieldsHaveUnsupportedValues()
+    {
+        var path = CreateProtocolDocument(
+            metadataRows: new[]
+            {
+                new[] { "Field", "Value" },
+                new[] { "Id", "rtpx.synthetic.lung-sbrt" },
+                new[] { "Name", "Synthetic Lung SBRT" },
+                new[] { "Version", "1.0.0" },
+                new[] { "Disease Site", "Lung" },
+                new[] { "Intent", "Definitive" },
+                new[] { "Status", "Aproved" }
+            },
+            prescriptionRows: new[]
+            {
+                new[] { "Id", "Target", "Total Dose Gy", "Fractions", "Dose Per Fraction Gy", "Technique", "Energy", "Level", "Description" },
+                new[] { "rx.primary", "PTV_5000", "54", "5", "10.8", "VMAT", "6X", "reccomended", "Primary prescription" }
+            });
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
+        Assert.NotNull(report.Package);
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.word.defaulted-value" && issue.Anchor == "status");
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.word.defaulted-value" && issue.Anchor == "table 3 row 2");
+    }
+
+    [Fact]
+    public void ExtractWarnsWhenDataRowWidthDiffersFromHeader()
+    {
+        var path = CreateProtocolDocument(prescriptionRows: new[]
+        {
+            new[] { "Id", "Target", "Total Dose Gy", "Fractions", "Dose Per Fraction Gy", "Technique", "Energy", "Level", "Description" },
+            new[] { "rx.primary", "PTV_5000", "54", "5", "10.8", "VMAT", "6X", "Required" }
+        });
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
+        Assert.True(report.IsValid, Describe(report));
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.word.row-width-mismatch" && issue.Anchor == "table 3 row 2");
+    }
+
+    [Fact]
+    public void ExtractRequiresIsoDateMetadata()
+    {
+        var path = CreateProtocolDocument(metadataRows: new[]
+        {
+            new[] { "Field", "Value" },
+            new[] { "Id", "rtpx.synthetic.lung-sbrt" },
+            new[] { "Name", "Synthetic Lung SBRT" },
+            new[] { "Version", "1.0.0" },
+            new[] { "Disease Site", "Lung" },
+            new[] { "Intent", "Definitive" },
+            new[] { "Status", "Approved" },
+            new[] { "Reviewed By", "Physics Reviewer" },
+            new[] { "Approved By", "Protocol Chair" },
+            new[] { "Effective Date", "07/12/2026" }
+        });
+
+        var report = new RtpxWordProtocolExtractor().Extract(path);
+
+        Assert.False(report.IsValid);
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.word.date-invalid" && issue.Anchor == "effectivedate");
+    }
+
+    [Fact]
     public void ExtractReportsMissingRtpxTables()
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.docx");
@@ -98,7 +189,8 @@ public sealed class RtpxWordProtocolExtractorTests
     private static string CreateProtocolDocument(
         bool useTableMarkers = false,
         IReadOnlyList<IReadOnlyList<string>>? metadataRows = null,
-        IReadOnlyList<IReadOnlyList<string>>? prescriptionRows = null)
+        IReadOnlyList<IReadOnlyList<string>>? prescriptionRows = null,
+        bool appendUnrelatedTableAfterStructures = false)
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.docx");
         using var document = WordprocessingDocument.Create(path, WordprocessingDocumentType.Document);
@@ -126,6 +218,15 @@ public sealed class RtpxWordProtocolExtractorTests
             new[] { "ptv", "PTV_5000", "Target", "Required", "PTV; Planning Target Volume", "yes", "Primary planning target" },
             new[] { "cord", "Cord", "OAR", "Required", "SpinalCord", "true", "Cord OAR" }
         }, useTableMarkers);
+        if (appendUnrelatedTableAfterStructures)
+        {
+            body.Append(CreateTable(new[]
+            {
+                new[] { "Revision", "Note" },
+                new[] { "1", "Narrative table that should not be parsed as RT-PX." }
+            }));
+        }
+
         AppendRtpxTable(body, "RT-PX Prescriptions", prescriptionRows ?? new[]
         {
             new[] { "Id", "Target", "Total Dose Gy", "Fractions", "Dose Per Fraction Gy", "Technique", "Energy", "Level", "Description" },
