@@ -6,6 +6,7 @@ using BeamKit.Core.Serialization;
 using BeamKit.Esapi;
 using BeamKit.Intelligence;
 using BeamKit.RulePacks;
+using BeamKit.Safety;
 using BeamKit.Samples;
 using BeamKit.Sdk;
 using BeamKit.Workflow;
@@ -610,7 +611,12 @@ public sealed class BeamKitCiServerService
             saved = PromoteManagedRulePackVersion(
                 saved.RulePackId,
                 saved.VersionId,
-                new RulePackPromotionServerRequest { PromotedBy = importedBy, Note = request.Note },
+                new RulePackPromotionServerRequest
+                {
+                    PromotedBy = importedBy,
+                    Note = request.Note,
+                    SafetyEvidence = request.SafetyEvidence
+                },
                 auditContext);
             activated = true;
         }
@@ -633,6 +639,39 @@ public sealed class BeamKitCiServerService
     {
         var version = store.FindRulePackVersion(rulePackId, versionId);
         return version is null ? null : new CiServerManagedRulePackVersionDetail(version);
+    }
+
+    /// <summary>
+    /// Finds stored safety evidence for a managed rule-pack version.
+    /// </summary>
+    public ValidationEvidencePackage? FindManagedRulePackSafetyEvidence(string rulePackId, string versionId)
+    {
+        var version = store.FindRulePackVersion(rulePackId, versionId);
+        return version is null ? null : DeserializeSafetyEvidence(version.SafetyEvidenceJson);
+    }
+
+    /// <summary>
+    /// Reviews safety evidence for a managed rule-pack version without promoting it.
+    /// </summary>
+    public SafetyEvidenceReviewResult ReviewManagedRulePackSafetyEvidence(
+        string rulePackId,
+        string versionId,
+        ValidationEvidencePackage evidence,
+        CiServerAuditContext? auditContext = null)
+    {
+        var version = FindRequiredManagedRulePackVersion(rulePackId, versionId);
+        var review = new SafetyEvidenceReviewer().ReviewRulePackPromotion(
+            evidence,
+            version.RulePackId,
+            version.VersionId,
+            version.Fingerprint);
+        Audit(
+            "rule-pack.safety-evidence.reviewed",
+            auditContext,
+            caseId: version.RulePackId,
+            status: review.IsAcceptable ? "Acceptable" : "Blocked",
+            details: $"{version.VersionId}:{review.BlockingFindings.Count}");
+        return review;
     }
 
     /// <summary>
@@ -767,6 +806,27 @@ public sealed class BeamKitCiServerService
         }
 
         LoadManagedRulePack(version);
+        var safetyEvidence = request.SafetyEvidence ?? DeserializeSafetyEvidence(version.SafetyEvidenceJson);
+        if (safetyEvidence is null)
+        {
+            throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' cannot be promoted without safety and validation evidence.");
+        }
+
+        var safetyReview = new SafetyEvidenceReviewer().ReviewRulePackPromotion(
+            safetyEvidence,
+            version.RulePackId,
+            version.VersionId,
+            version.Fingerprint);
+        if (!safetyReview.IsAcceptable)
+        {
+            var details = string.Join("; ", safetyReview.BlockingFindings.Select(finding => $"{finding.Code}: {finding.Message}"));
+            throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' cannot be promoted because safety evidence is incomplete: {details}");
+        }
+
+        version = store.SaveRulePackVersion(version with
+        {
+            SafetyEvidenceJson = SerializeSafetyEvidence(safetyEvidence)
+        });
         var promotedBy = CiServerText.Optional(request.PromotedBy) ?? auditContext?.Actor;
         var promoted = store.PromoteRulePackVersion(
             version.RulePackId,
@@ -832,6 +892,18 @@ public sealed class BeamKitCiServerService
         }
 
         return rulePack;
+    }
+
+    private static string SerializeSafetyEvidence(ValidationEvidencePackage evidence)
+    {
+        return System.Text.Json.JsonSerializer.Serialize(evidence, CiServerJson.Options);
+    }
+
+    private static ValidationEvidencePackage? DeserializeSafetyEvidence(string? json)
+    {
+        return string.IsNullOrWhiteSpace(json)
+            ? null
+            : System.Text.Json.JsonSerializer.Deserialize<ValidationEvidencePackage>(json, CiServerJson.Options);
     }
 
     private CiServerManagedRulePackVersion FindRequiredManagedRulePackVersion(string rulePackId, string versionId)

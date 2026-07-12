@@ -16,6 +16,7 @@ using BeamKit.Release;
 using BeamKit.Reporting;
 using BeamKit.RulePacks;
 using BeamKit.Rules;
+using BeamKit.Safety;
 using BeamKit.Sdk;
 using BeamKit.Structures;
 using BeamKit.Templates;
@@ -52,6 +53,7 @@ public sealed class ArchitectureBoundaryTests
             "BeamKit.Reporting",
             "BeamKit.RulePacks",
             "BeamKit.Rules",
+            "BeamKit.Safety",
             "BeamKit.Sdk",
             "BeamKit.Structures",
             "BeamKit.Templates",
@@ -111,6 +113,7 @@ public sealed class ArchitectureBoundaryTests
             typeof(ReportBuilder).Assembly,
             typeof(RulePackManifest).Assembly,
             typeof(RuleEngine).Assembly,
+            typeof(SafetyEvidenceReviewer).Assembly,
             typeof(BeamKitClient).Assembly,
             typeof(RingStructurePlanner).Assembly,
             typeof(ClinicalGoalTemplateLoader).Assembly,

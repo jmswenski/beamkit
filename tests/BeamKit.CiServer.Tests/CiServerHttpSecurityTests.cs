@@ -125,14 +125,31 @@ public sealed class CiServerHttpSecurityTests
 
         var importResponse = await client.SendAsync(importRequest);
         using var importResult = JsonDocument.Parse(await importResponse.Content.ReadAsStringAsync());
-        var versionId = importResult.RootElement.GetProperty("version").GetProperty("versionId").GetString()
+        var version = importResult.RootElement.GetProperty("version");
+        var versionId = version.GetProperty("versionId").GetString()
             ?? throw new InvalidOperationException("Import did not return a version id.");
+        var fingerprint = version.GetProperty("fingerprint").GetString()
+            ?? throw new InvalidOperationException("Import did not return a fingerprint.");
+        var safetyEvidence = CreateSafetyEvidence(versionId, fingerprint);
+        using var safetyReviewRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/rule-packs/institution-head-neck/versions/{versionId}/safety-evidence/validate",
+            JsonSerializer.Serialize(safetyEvidence));
+        var safetyReviewResponse = await client.SendAsync(safetyReviewRequest);
+        using var safetyReview = JsonDocument.Parse(await safetyReviewResponse.Content.ReadAsStringAsync());
+        var promotePayload = JsonSerializer.Serialize(new
+        {
+            promotedBy = "physics",
+            note = "Approved.",
+            safetyEvidence
+        });
         using var promoteRequest = CreateJsonRequest(
             HttpMethod.Post,
             $"/api/rule-packs/institution-head-neck/versions/{versionId}/promote",
-            """{"promotedBy":"physics","note":"Approved."}""");
+            promotePayload);
         var promoteResponse = await client.SendAsync(promoteRequest);
         using var activeRulePack = await GetJson(client, "/api/rule-packs/institution-head-neck");
+        using var storedSafetyEvidence = await GetJson(client, $"/api/rule-packs/institution-head-neck/versions/{versionId}/safety-evidence");
         using var runRequest = CreateJsonRequest(
             HttpMethod.Post,
             "/api/runs",
@@ -143,8 +160,11 @@ public sealed class CiServerHttpSecurityTests
         Assert.Equal(HttpStatusCode.Created, importResponse.StatusCode);
         Assert.True(importResult.RootElement.GetProperty("validation").GetProperty("isValid").GetBoolean());
         Assert.True(importResult.RootElement.GetProperty("testReport").GetProperty("passed").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, safetyReviewResponse.StatusCode);
+        Assert.True(safetyReview.RootElement.GetProperty("isAcceptable").GetBoolean());
         Assert.Equal(HttpStatusCode.OK, promoteResponse.StatusCode);
         Assert.Equal("Managed", activeRulePack.RootElement.GetProperty("summary").GetProperty("sourceKind").GetString());
+        Assert.Equal(versionId, storedSafetyEvidence.RootElement.GetProperty("subjectVersion").GetString());
         Assert.Equal(HttpStatusCode.Created, runResponse.StatusCode);
         Assert.Equal("Pass", run.RootElement.GetProperty("status").GetString());
     }
@@ -192,6 +212,73 @@ public sealed class CiServerHttpSecurityTests
         var request = new HttpRequestMessage(method, path);
         request.Headers.Add("X-BeamKit-Api-Key", ApiKey);
         return request;
+    }
+
+    private static object CreateSafetyEvidence(string versionId, string fingerprint)
+    {
+        return new
+        {
+            id = $"evidence-{versionId}",
+            subjectType = "RulePack",
+            subjectId = "institution-head-neck",
+            subjectVersion = versionId,
+            subjectFingerprint = fingerprint,
+            generatedAtUtc = "2026-07-09T12:00:00Z",
+            intendedUse = "ClinicalDecisionSupport",
+            owner = "Physics",
+            reviewer = "Clinical QA",
+            checklist = new
+            {
+                name = "Managed rule-pack promotion controls",
+                version = "1",
+                controls = new[]
+                {
+                    new
+                    {
+                        id = "CTRL-REGRESSION",
+                        title = "Regression tests pass",
+                        description = "Known-good and known-bad rule-pack cases have been executed.",
+                        type = "Verification",
+                        isRequired = true,
+                        isSatisfied = true,
+                        evidenceIds = new[] { "EV-REGRESSION" }
+                    },
+                    new
+                    {
+                        id = "CTRL-CLINICAL-REVIEW",
+                        title = "Clinical reviewer accepted policy",
+                        description = "A qualified reviewer accepted the policy content for the stated intended use.",
+                        type = "Process",
+                        isRequired = true,
+                        isSatisfied = true,
+                        evidenceIds = new[] { "EV-CLINICAL-REVIEW" }
+                    }
+                }
+            },
+            evidenceItems = new[]
+            {
+                new
+                {
+                    id = "EV-REGRESSION",
+                    title = "Managed rule-pack regression suite",
+                    kind = "RegressionTest",
+                    status = "Pass",
+                    performedAtUtc = "2026-07-09T12:00:00Z",
+                    source = "BeamKit.CiServer HTTP regression flow",
+                    reviewedBy = (string?)null
+                },
+                new
+                {
+                    id = "EV-CLINICAL-REVIEW",
+                    title = "Clinical review signoff",
+                    kind = "ClinicalReview",
+                    status = "Pass",
+                    performedAtUtc = "2026-07-09T12:05:00Z",
+                    source = "Clinical QA signoff",
+                    reviewedBy = (string?)"Physics"
+                }
+            }
+        };
     }
 
     private static string SampleRulePackPath()

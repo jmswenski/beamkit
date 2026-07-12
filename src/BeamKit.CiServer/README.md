@@ -13,6 +13,7 @@ This first slice supports:
 - Audit events for protected CI actions.
 - Built-in and configured rule-pack registry entries.
 - Managed rule-pack version import from manifests or immutable bundles, regression evidence, and active-version promotion.
+- Safety and validation evidence review for managed rule-pack promotion.
 - Draft rule-pack review and managed-version diff reports.
 - CI run records with plan, prescription, and rule-pack provenance fingerprints.
 - SQLite-backed run metadata and artifact persistence.
@@ -58,6 +59,7 @@ GET /api/rule-packs/versions
 GET /api/rule-packs/{id}
 GET /api/rule-packs/{id}/versions
 GET /api/rule-packs/{id}/versions/{versionId}
+GET /api/rule-packs/{id}/versions/{versionId}/safety-evidence
 GET /api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}
 GET /api/work-items
 GET /api/work-items/{id}
@@ -72,6 +74,7 @@ POST /api/rule-packs/{id}/validate
 POST /api/rule-packs/{id}/test
 POST /api/rule-packs/{id}/versions/{versionId}/validate
 POST /api/rule-packs/{id}/versions/{versionId}/test
+POST /api/rule-packs/{id}/versions/{versionId}/safety-evidence/validate
 POST /api/rule-packs/{id}/versions/{versionId}/promote
 POST /api/rule-packs/{id}/review-draft
 POST /api/assignments/recommend
@@ -263,8 +266,19 @@ curl -s "$API/api/rule-packs/import" \
 curl -s "$API/api/rule-packs/institution-head-neck/versions/{versionId}/promote" \
   -H 'content-type: application/json' \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
-  -d '{"promotedBy":"physics","note":"Approved policy version."}'
+  -d '{"promotedBy":"physics","note":"Approved policy version.","safetyEvidence":{...}}'
 ```
+
+Before promotion, validate the safety evidence package against the exact managed `versionId` and fingerprint:
+
+```bash
+curl -s "$API/api/rule-packs/institution-head-neck/versions/{versionId}/safety-evidence/validate" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d @rule-pack-safety-evidence.json
+```
+
+Promotion requires passing rule-pack validation, passing regression tests, a complete safety-control checklist, passing regression evidence, passing clinical-review or commissioning evidence, and no failed evidence items.
 
 Managed imports can also use immutable bundle JSON or a server-local `bundlePath`. Bundles embed manifest-referenced policy files, file hashes, validation evidence, optional regression evidence, and a bundle fingerprint.
 

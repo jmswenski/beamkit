@@ -10,6 +10,7 @@ using BeamKit.Qa;
 using BeamKit.Release;
 using BeamKit.Reporting;
 using BeamKit.Rules;
+using BeamKit.Safety;
 using BeamKit.Sdk;
 using BeamKit.Structures;
 using BeamKit.Templates;
@@ -37,6 +38,7 @@ public sealed class AdditionalArchitectureBoundaryTests
             typeof(WriteUpManifestBuilder).Assembly,
             typeof(ReportBuilder).Assembly,
             typeof(RuleEngine).Assembly,
+            typeof(SafetyEvidenceReviewer).Assembly,
             typeof(BeamKitClient).Assembly,
             typeof(RingStructurePlanner).Assembly,
             typeof(ClinicalGoalTemplateLoader).Assembly,

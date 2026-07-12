@@ -156,6 +156,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.PlanCheck`](src/BeamKit.PlanCheck/README.md) | Configurable plan-check catalogs that combine structure, prescription, dose, metric, model, and deliverability checks. | Active |
 | [`BeamKit.Structures`](src/BeamKit.Structures/README.md) | Derived-structure recipes, including deterministic PTV ring specifications. | Active |
 | [`BeamKit.Rules`](src/BeamKit.Rules/README.md) | Clinical rule engine and built-in plan checks. | Active |
+| [`BeamKit.Safety`](src/BeamKit.Safety/README.md) | Clinical safety case, hazard, control, and validation evidence models. | Initial |
 | [`BeamKit.Sdk`](src/BeamKit.Sdk/README.md) | High-level developer facade for checks, rule-pack validation, regression testing, CI gates, and workflow assignment. | Active |
 | [`BeamKit.Templates`](src/BeamKit.Templates/README.md) | JSON clinical goal templates and rule catalogs that generate goals and rule sets. | Active |
 | [`BeamKit.Qa`](src/BeamKit.Qa/README.md) | Combined QA pipeline for naming, rules, and readiness. | Active |
@@ -733,6 +734,9 @@ See [docs/esapi.md](docs/esapi.md).
 | --- | --- |
 | Architecture | [docs/architecture.md](docs/architecture.md) |
 | Clinical safety | [docs/clinical-safety.md](docs/clinical-safety.md) |
+| Intended use | [docs/intended-use.md](docs/intended-use.md) |
+| Risk management | [docs/risk-management.md](docs/risk-management.md) |
+| Clinical safety case | [docs/clinical-safety-case.md](docs/clinical-safety-case.md) |
 | BeamKit Check | [docs/beamkit-check.md](docs/beamkit-check.md) |
 | Rule-pack authoring | [docs/rule-pack-authoring.md](docs/rule-pack-authoring.md) |
 | Sample rule packs | [samples/rule-packs/README.md](samples/rule-packs/README.md) |

@@ -35,6 +35,7 @@ public sealed record CiServerManagedRulePackVersionSummary
         ActivatedAtUtc = version.ActivatedAtUtc;
         ActivatedBy = version.ActivatedBy;
         ActivationNote = version.ActivationNote;
+        HasSafetyEvidence = !string.IsNullOrWhiteSpace(version.SafetyEvidenceJson);
     }
 
     /// <summary>
@@ -151,4 +152,9 @@ public sealed record CiServerManagedRulePackVersionSummary
     /// Activation note.
     /// </summary>
     public string? ActivationNote { get; init; }
+
+    /// <summary>
+    /// Indicates whether this version has stored safety and validation evidence.
+    /// </summary>
+    public bool HasSafetyEvidence { get; init; }
 }

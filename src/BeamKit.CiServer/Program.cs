@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Serialization;
 using BeamKit.CiServer;
+using BeamKit.Safety;
 using BeamKit.Sdk;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Http.Features;
@@ -149,6 +150,15 @@ app.MapGet("/api/rule-packs/{id}/versions/{versionId}", (string id, string versi
 {
     var version = service.FindManagedRulePackVersion(id, versionId);
     return version is null ? Results.NotFound() : Results.Ok(version);
+});
+app.MapGet("/api/rule-packs/{id}/versions/{versionId}/safety-evidence", (string id, string versionId, BeamKitCiServerService service) =>
+{
+    var evidence = service.FindManagedRulePackSafetyEvidence(id, versionId);
+    return evidence is null ? Results.NotFound() : Results.Ok(evidence);
+});
+app.MapPost("/api/rule-packs/{id}/versions/{versionId}/safety-evidence/validate", (string id, string versionId, ValidationEvidencePackage evidence, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ReviewManagedRulePackSafetyEvidence(id, versionId, evidence, CiServerAuditContext.FromHttpContext(context)));
 });
 app.MapGet("/api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}", (string id, string oldVersionId, string newVersionId, HttpContext context, BeamKitCiServerService service) =>
 {

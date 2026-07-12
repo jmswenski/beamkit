@@ -4,6 +4,7 @@ using BeamKit.Core.Serialization;
 using BeamKit.Esapi;
 using BeamKit.PlanCheck;
 using BeamKit.RulePacks;
+using BeamKit.Safety;
 using BeamKit.Samples;
 using BeamKit.Sdk;
 using BeamKit.Workflow;
@@ -343,14 +344,23 @@ public sealed class BeamKitCiServerServiceTests
         var promoted = service.PromoteManagedRulePackVersion(
             imported.Version.RulePackId,
             imported.Version.VersionId,
-            new RulePackPromotionServerRequest { PromotedBy = "physics", Note = "Approved for use." });
+            new RulePackPromotionServerRequest
+            {
+                PromotedBy = "physics",
+                Note = "Approved for use.",
+                SafetyEvidence = CreateRulePackSafetyEvidence(imported.Version)
+            });
         var run = service.CreateRun(new HostedCiRunRequest
         {
             SyntheticCaseId = "head-neck-pass",
             RulePackId = "institution-head-neck"
         });
+        var storedEvidence = service.FindManagedRulePackSafetyEvidence(imported.Version.RulePackId, imported.Version.VersionId);
 
         Assert.True(promoted.IsActive);
+        Assert.NotNull(storedEvidence);
+        Assert.Equal(promoted.Fingerprint, storedEvidence.SubjectFingerprint);
+        Assert.True(service.ListManagedRulePackVersions("institution-head-neck").Single().HasSafetyEvidence);
         Assert.Equal(promoted.Fingerprint, run.Artifact.Provenance.RulePackFingerprint);
         Assert.Contains(service.ListRulePacks(), rulePack => rulePack.Id == "institution-head-neck" && rulePack.SourceKind == "Managed");
         Assert.Equal("institution-head-neck", service.FindRulePack("institution-head-neck")?.Summary.Id);
@@ -374,7 +384,11 @@ public sealed class BeamKitCiServerServiceTests
             var promoted = service.PromoteManagedRulePackVersion(
                 imported.Version.RulePackId,
                 imported.Version.VersionId,
-                new RulePackPromotionServerRequest { PromotedBy = "physics" });
+                new RulePackPromotionServerRequest
+                {
+                    PromotedBy = "physics",
+                    SafetyEvidence = CreateRulePackSafetyEvidence(imported.Version)
+                });
             var storedVersion = store.FindRulePackVersion(promoted.RulePackId, promoted.VersionId)
                 ?? throw new InvalidOperationException("Managed version was not found.");
             MutateCordMaxThreshold(catalogPath, "1");
@@ -443,8 +457,23 @@ public sealed class BeamKitCiServerServiceTests
                 SyntheticCaseId = "head-neck-pass"
             });
 
-            service.PromoteManagedRulePackVersion(second.Version.RulePackId, second.Version.VersionId, new RulePackPromotionServerRequest { PromotedBy = "physics" });
-            var rolledBack = service.PromoteManagedRulePackVersion(first.Version.RulePackId, first.Version.VersionId, new RulePackPromotionServerRequest { PromotedBy = "physics", Note = "Rollback." });
+            service.PromoteManagedRulePackVersion(
+                second.Version.RulePackId,
+                second.Version.VersionId,
+                new RulePackPromotionServerRequest
+                {
+                    PromotedBy = "physics",
+                    SafetyEvidence = CreateRulePackSafetyEvidence(second.Version)
+                });
+            var rolledBack = service.PromoteManagedRulePackVersion(
+                first.Version.RulePackId,
+                first.Version.VersionId,
+                new RulePackPromotionServerRequest
+                {
+                    PromotedBy = "physics",
+                    Note = "Rollback.",
+                    SafetyEvidence = CreateRulePackSafetyEvidence(first.Version)
+                });
 
             Assert.True(rolledBack.IsActive);
             Assert.Equal(first.Version.VersionId, service.ListManagedRulePackVersions("institution-head-neck").Single(version => version.IsActive).VersionId);
@@ -472,6 +501,47 @@ public sealed class BeamKitCiServerServiceTests
             new RulePackPromotionServerRequest()));
 
         Assert.Contains("before regression tests pass", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PromoteManagedRulePackVersionRequiresSafetyEvidence()
+    {
+        var service = CreateService();
+        var imported = service.ImportRulePack(new RulePackImportServerRequest
+        {
+            RulePackId = "institution-head-neck",
+            ManifestPath = SampleRulePackPath()
+        });
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.PromoteManagedRulePackVersion(
+            imported.Version.RulePackId,
+            imported.Version.VersionId,
+            new RulePackPromotionServerRequest { PromotedBy = "physics" }));
+
+        Assert.Contains("safety and validation evidence", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReviewManagedRulePackSafetyEvidenceRejectsMismatchedEvidence()
+    {
+        var service = CreateService();
+        var imported = service.ImportRulePack(new RulePackImportServerRequest
+        {
+            RulePackId = "institution-head-neck",
+            ManifestPath = SampleRulePackPath()
+        });
+        var evidence = CreateRulePackSafetyEvidence(imported.Version) with
+        {
+            SubjectFingerprint = "sha256:wrong"
+        };
+
+        var review = service.ReviewManagedRulePackSafetyEvidence(
+            imported.Version.RulePackId,
+            imported.Version.VersionId,
+            evidence);
+
+        Assert.False(review.IsAcceptable);
+        Assert.Contains(review.BlockingFindings, finding => finding.Code == "subject.fingerprint");
     }
 
     [Fact]
@@ -510,7 +580,11 @@ public sealed class BeamKitCiServerServiceTests
         var promoted = service.PromoteManagedRulePackVersion(
             imported.Version.RulePackId,
             imported.Version.VersionId,
-            new RulePackPromotionServerRequest { PromotedBy = "physics" });
+            new RulePackPromotionServerRequest
+            {
+                PromotedBy = "physics",
+                SafetyEvidence = CreateRulePackSafetyEvidence(imported.Version)
+            });
 
         var review = service.ReviewRulePackDraft(
             "institution-head-neck",
@@ -725,6 +799,58 @@ public sealed class BeamKitCiServerServiceTests
     private static BeamKitCiServerService CreateService(ICiRunStore? store = null)
     {
         return new BeamKitCiServerService(new BeamKitClient(), store ?? new CiRunStore(), new FixedTimeProvider());
+    }
+
+    private static ValidationEvidencePackage CreateRulePackSafetyEvidence(CiServerManagedRulePackVersionSummary version)
+    {
+        return new ValidationEvidencePackage(
+            $"evidence-{version.RulePackId}-{version.VersionId}",
+            "RulePack",
+            version.RulePackId,
+            version.VersionId,
+            version.Fingerprint,
+            new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero),
+            ClinicalUseClassification.ClinicalDecisionSupport,
+            new[]
+            {
+                new ValidationEvidenceItem(
+                    "EV-REGRESSION",
+                    "Managed rule-pack regression suite",
+                    ValidationEvidenceKind.RegressionTest,
+                    ValidationEvidenceStatus.Pass,
+                    new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero),
+                    "BeamKit.CiServer rule-pack regression tests"),
+                new ValidationEvidenceItem(
+                    "EV-CLINICAL-REVIEW",
+                    "Clinical review signoff",
+                    ValidationEvidenceKind.ClinicalReview,
+                    ValidationEvidenceStatus.Pass,
+                    new DateTimeOffset(2026, 7, 9, 12, 5, 0, TimeSpan.Zero),
+                    "Clinical QA signoff",
+                    reviewedBy: "Physics")
+            },
+            new SafetyControlChecklist(
+                "Managed rule-pack promotion controls",
+                "1",
+                new[]
+                {
+                    new SafetyControl(
+                        "CTRL-REGRESSION",
+                        "Regression tests pass",
+                        "Known-good and known-bad rule-pack cases have been executed.",
+                        SafetyControlType.Verification,
+                        isSatisfied: true,
+                        evidenceIds: new[] { "EV-REGRESSION" }),
+                    new SafetyControl(
+                        "CTRL-CLINICAL-REVIEW",
+                        "Clinical reviewer accepted policy",
+                        "A qualified reviewer accepted the policy content for the stated intended use.",
+                        SafetyControlType.Process,
+                        isSatisfied: true,
+                        evidenceIds: new[] { "EV-CLINICAL-REVIEW" })
+                }),
+            owner: "Physics",
+            reviewer: "Clinical QA");
     }
 
     private static StaffRoster CreateLiveWorkloadRoster()

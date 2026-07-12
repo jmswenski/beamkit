@@ -470,7 +470,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     is_active,
                     activated_at_utc,
                     activated_by,
-                    activation_note
+                    activation_note,
+                    safety_evidence_json
                 )
                 VALUES (
                     $rule_pack_id,
@@ -494,7 +495,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     $is_active,
                     $activated_at_utc,
                     $activated_by,
-                    $activation_note
+                    $activation_note,
+                    $safety_evidence_json
                 )
                 ON CONFLICT(rule_pack_id, version_id) DO UPDATE SET
                     imported_at_utc = excluded.imported_at_utc,
@@ -516,7 +518,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     is_active = excluded.is_active,
                     activated_at_utc = excluded.activated_at_utc,
                     activated_by = excluded.activated_by,
-                    activation_note = excluded.activation_note;
+                    activation_note = excluded.activation_note,
+                    safety_evidence_json = excluded.safety_evidence_json;
                 """;
             AddRulePackVersionParameters(command, version);
             command.ExecuteNonQuery();
@@ -1070,6 +1073,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     activated_at_utc TEXT NULL,
                     activated_by TEXT NULL,
                     activation_note TEXT NULL,
+                    safety_evidence_json TEXT NULL,
                     PRIMARY KEY (rule_pack_id, version_id)
                 );
 
@@ -1131,6 +1135,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
             EnsureInputKindColumn(connection);
             EnsurePlanSnapshotColumn(connection);
             EnsureRulePackBundleColumn(connection);
+            EnsureRulePackSafetyEvidenceColumn(connection);
             using var index = connection.CreateCommand();
             index.CommandText = "CREATE INDEX IF NOT EXISTS ix_ci_runs_input_kind ON ci_runs(input_kind);";
             index.ExecuteNonQuery();
@@ -1227,6 +1232,7 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$activated_at_utc", version.ActivatedAtUtc is null ? DBNull.Value : ToStoredTimestamp(version.ActivatedAtUtc.Value));
         command.Parameters.AddWithValue("$activated_by", ToDbValue(version.ActivatedBy));
         command.Parameters.AddWithValue("$activation_note", ToDbValue(version.ActivationNote));
+        command.Parameters.AddWithValue("$safety_evidence_json", ToDbValue(version.SafetyEvidenceJson));
     }
 
     private static void AddWorkItemParameters(SqliteCommand command, CaseWorkItem workItem)
@@ -1363,7 +1369,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 is_active,
                 activated_at_utc,
                 activated_by,
-                activation_note
+                activation_note,
+                safety_evidence_json
             FROM ci_rule_pack_versions
             """;
     }
@@ -1400,7 +1407,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.IsDBNull(19) ? null : DateTimeOffset.Parse(reader.GetString(19), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
             GetNullableString(reader, 20),
             GetNullableString(reader, 21),
-            GetNullableString(reader, 8));
+            GetNullableString(reader, 8),
+            GetNullableString(reader, 22));
     }
 
     private static RulePackValidationReport ReadRulePackValidationReport(string json)
@@ -1621,6 +1629,33 @@ public sealed class SqliteCiRunStore : ICiRunStore
 
         using var alter = connection.CreateCommand();
         alter.CommandText = "ALTER TABLE ci_rule_pack_versions ADD COLUMN bundle_json TEXT NULL;";
+        alter.ExecuteNonQuery();
+    }
+
+    private static void EnsureRulePackSafetyEvidenceColumn(SqliteConnection connection)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = "PRAGMA table_info(ci_rule_pack_versions);";
+        var hasColumn = false;
+        using (var reader = check.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), "safety_evidence_json", StringComparison.OrdinalIgnoreCase))
+                {
+                    hasColumn = true;
+                    break;
+                }
+            }
+        }
+
+        if (hasColumn)
+        {
+            return;
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = "ALTER TABLE ci_rule_pack_versions ADD COLUMN safety_evidence_json TEXT NULL;";
         alter.ExecuteNonQuery();
     }
 }

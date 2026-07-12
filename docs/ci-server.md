@@ -30,6 +30,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Store searchable audit events for protected API actions.
 - Register named rule packs and run CI gates by `rulePackId`.
 - Import managed rule-pack versions from manifests or immutable bundles, capture validation/test evidence, and promote one passing version active.
+- Review and store safety and validation evidence required for managed rule-pack promotion.
 - Review draft rule packs before import or promotion, including validation, optional synthetic regression evidence, and a diff against the active baseline.
 - Compare two managed rule-pack versions with a field-level diff report.
 - Persist run metadata and full CI artifacts in SQLite.
@@ -61,6 +62,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `GET` | `/api/rule-packs/{id}` | Get validation detail for one registered rule pack. |
 | `GET` | `/api/rule-packs/{id}/versions` | List managed versions for one rule-pack id. |
 | `GET` | `/api/rule-packs/{id}/versions/{versionId}` | Get one managed rule-pack version with validation and test evidence. |
+| `GET` | `/api/rule-packs/{id}/versions/{versionId}/safety-evidence` | Get stored safety and validation evidence for one managed version. |
 | `GET` | `/api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}` | Compare two managed rule-pack versions. |
 | `GET` | `/api/work-items` | List persistent queue items. Supports `limit`, `status`, `caseId`, `diseaseSite`, `assignedStaffId`, and `activeOnly`. |
 | `GET` | `/api/work-items/{id}` | Get one queue item with assignment history and stored intelligence context. |
@@ -75,6 +77,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `POST` | `/api/rule-packs/{id}/test` | Run regression tests for a registered rule pack by id. |
 | `POST` | `/api/rule-packs/{id}/versions/{versionId}/validate` | Revalidate a managed rule-pack version. |
 | `POST` | `/api/rule-packs/{id}/versions/{versionId}/test` | Run regression tests for a managed rule-pack version. |
+| `POST` | `/api/rule-packs/{id}/versions/{versionId}/safety-evidence/validate` | Validate a safety evidence package against a managed version id and fingerprint. |
 | `POST` | `/api/rule-packs/{id}/versions/{versionId}/promote` | Promote a valid, passing managed rule-pack version active. |
 | `POST` | `/api/rule-packs/{id}/review-draft` | Review a draft rule pack without importing it. |
 | `POST` | `/api/assignments/recommend` | Recommend a planner assignment. |
@@ -248,6 +251,37 @@ curl -s "$API/api/work-items/$WORK_ITEM_ID/assign" \
 ```
 
 `Assigned`, `Planning`, `PhysicsReview`, and `ReadyForTreatment` items are counted as active queue workload. `OnHold`, `Completed`, and `Canceled` items do not increase assignment workload.
+
+## Safety Evidence
+
+Managed rule-pack promotion is gated by both automated evidence and human review evidence. A version cannot be promoted active unless:
+
+- Policy validation passes.
+- Regression tests pass.
+- Evidence `subjectType` is `RulePack`.
+- Evidence `subjectId`, `subjectVersion`, and `subjectFingerprint` match the managed version exactly.
+- The safety-control checklist is complete.
+- The package includes passing regression evidence.
+- The package includes passing clinical-review or commissioning evidence.
+- No evidence item failed.
+
+Validate evidence before promotion:
+
+```bash
+curl -s "$API/api/rule-packs/institution-head-neck/versions/{versionId}/safety-evidence/validate" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d @rule-pack-safety-evidence.json
+```
+
+Promotion stores the accepted evidence with the managed version:
+
+```bash
+curl -s "$API/api/rule-packs/institution-head-neck/versions/{versionId}/promote" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"promotedBy":"physics","note":"Approved for use.","safetyEvidence":{...}}'
+```
 
 Review audit events:
 

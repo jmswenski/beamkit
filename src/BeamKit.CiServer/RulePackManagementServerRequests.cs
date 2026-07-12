@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BeamKit.Safety;
 
 namespace BeamKit.CiServer;
 
@@ -76,6 +77,11 @@ public sealed record RulePackImportServerRequest
     /// Optional activation note when <see cref="Promote"/> is true.
     /// </summary>
     public string? Note { get; init; }
+
+    /// <summary>
+    /// Optional safety and validation evidence used when promoting during import.
+    /// </summary>
+    public ValidationEvidencePackage? SafetyEvidence { get; init; }
 }
 
 /// <summary>
@@ -92,6 +98,11 @@ public sealed record RulePackPromotionServerRequest
     /// Promotion note.
     /// </summary>
     public string? Note { get; init; }
+
+    /// <summary>
+    /// Safety and validation evidence required for promotion.
+    /// </summary>
+    public ValidationEvidencePackage? SafetyEvidence { get; init; }
 }
 
 /// <summary>

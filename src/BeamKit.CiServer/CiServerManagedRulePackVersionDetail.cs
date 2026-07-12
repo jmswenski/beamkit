@@ -1,4 +1,5 @@
 using BeamKit.Check;
+using BeamKit.Safety;
 
 namespace BeamKit.CiServer;
 
@@ -19,6 +20,9 @@ public sealed record CiServerManagedRulePackVersionDetail
         ManifestJson = version.ManifestJson;
         Validation = version.ValidationReport;
         TestReport = version.TestReport;
+        SafetyEvidence = string.IsNullOrWhiteSpace(version.SafetyEvidenceJson)
+            ? null
+            : System.Text.Json.JsonSerializer.Deserialize<ValidationEvidencePackage>(version.SafetyEvidenceJson, CiServerJson.Options);
     }
 
     /// <summary>
@@ -45,4 +49,9 @@ public sealed record CiServerManagedRulePackVersionDetail
     /// Most recent regression-test report captured for this version.
     /// </summary>
     public RulePackTestReport? TestReport { get; init; }
+
+    /// <summary>
+    /// Stored safety and validation evidence used for promotion, when available.
+    /// </summary>
+    public ValidationEvidencePackage? SafetyEvidence { get; init; }
 }

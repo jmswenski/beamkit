@@ -20,3 +20,15 @@ Rule thresholds and readiness checks are software behavior, not clinical policy.
 ## Current Status
 
 BeamKit is pre-1.0. Public APIs, package layout, and rule semantics may change.
+
+## Safety Case Foundation
+
+BeamKit now includes a lightweight safety-case model in `BeamKit.Safety`.
+
+Start here:
+
+- [Intended use](intended-use.md)
+- [Risk management](risk-management.md)
+- [Clinical safety case](clinical-safety-case.md)
+
+The CI server requires explicit validation evidence before a managed rule-pack version can be promoted active. This gate is meant to prevent "build passed" from being confused with "clinically reviewed."

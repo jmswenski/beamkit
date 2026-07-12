@@ -32,7 +32,8 @@ public sealed record CiServerManagedRulePackVersion
         DateTimeOffset? activatedAtUtc = null,
         string? activatedBy = null,
         string? activationNote = null,
-        string? bundleJson = null)
+        string? bundleJson = null,
+        string? safetyEvidenceJson = null)
     {
         RulePackId = CiServerText.Required(rulePackId, nameof(rulePackId));
         VersionId = CiServerText.Required(versionId, nameof(versionId));
@@ -57,6 +58,7 @@ public sealed record CiServerManagedRulePackVersion
         ActivatedBy = CiServerText.Optional(activatedBy);
         ActivationNote = CiServerText.Optional(activationNote);
         BundleJson = CiServerText.Optional(bundleJson);
+        SafetyEvidenceJson = CiServerText.Optional(safetyEvidenceJson);
     }
 
     /// <summary>
@@ -103,6 +105,11 @@ public sealed record CiServerManagedRulePackVersion
     /// Optional immutable release bundle JSON. New imports store this so active versions no longer depend on source files.
     /// </summary>
     public string? BundleJson { get; init; }
+
+    /// <summary>
+    /// Optional serialized safety and validation evidence captured for promotion.
+    /// </summary>
+    public string? SafetyEvidenceJson { get; init; }
 
     /// <summary>
     /// Rule-pack name.
