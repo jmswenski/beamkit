@@ -29,6 +29,19 @@ public sealed record CiServerRtpxAcceptanceSummary
         ErrorCount = record.ErrorCount;
         WarningCount = record.WarningCount;
         OutputDirectory = record.OutputDirectory;
+        ReviewStatus = record.ReviewStatus;
+        ReviewUpdatedAtUtc = record.ReviewUpdatedAtUtc;
+        ReviewedBy = record.ReviewedBy;
+        ReviewNote = record.ReviewNote;
+        ApprovedBy = record.ApprovedBy;
+        ApprovedAtUtc = record.ApprovedAtUtc;
+        ApprovalNote = record.ApprovalNote;
+        RejectedBy = record.RejectedBy;
+        RejectedAtUtc = record.RejectedAtUtc;
+        RejectionNote = record.RejectionNote;
+        DiffAcknowledgedBy = record.DiffAcknowledgedBy;
+        DiffAcknowledgedAtUtc = record.DiffAcknowledgedAtUtc;
+        AcknowledgedDiffChangeIds = record.AcknowledgedDiffChangeIds;
     }
 
     /// <summary>
@@ -120,4 +133,69 @@ public sealed record CiServerRtpxAcceptanceSummary
     /// Server-local directory containing acceptance artifacts.
     /// </summary>
     public string OutputDirectory { get; init; }
+
+    /// <summary>
+    /// Durable review state for this draft.
+    /// </summary>
+    public RtpxDraftReviewStatus ReviewStatus { get; init; }
+
+    /// <summary>
+    /// UTC timestamp when review state last changed.
+    /// </summary>
+    public DateTimeOffset? ReviewUpdatedAtUtc { get; init; }
+
+    /// <summary>
+    /// Reviewer who most recently changed review state.
+    /// </summary>
+    public string? ReviewedBy { get; init; }
+
+    /// <summary>
+    /// Most recent review note or decision rationale.
+    /// </summary>
+    public string? ReviewNote { get; init; }
+
+    /// <summary>
+    /// Approver who approved the draft for promotion.
+    /// </summary>
+    public string? ApprovedBy { get; init; }
+
+    /// <summary>
+    /// UTC timestamp when the draft was approved.
+    /// </summary>
+    public DateTimeOffset? ApprovedAtUtc { get; init; }
+
+    /// <summary>
+    /// Approval rationale.
+    /// </summary>
+    public string? ApprovalNote { get; init; }
+
+    /// <summary>
+    /// Reviewer who rejected the draft.
+    /// </summary>
+    public string? RejectedBy { get; init; }
+
+    /// <summary>
+    /// UTC timestamp when the draft was rejected.
+    /// </summary>
+    public DateTimeOffset? RejectedAtUtc { get; init; }
+
+    /// <summary>
+    /// Rejection rationale.
+    /// </summary>
+    public string? RejectionNote { get; init; }
+
+    /// <summary>
+    /// Reviewer who most recently acknowledged protocol diff items.
+    /// </summary>
+    public string? DiffAcknowledgedBy { get; init; }
+
+    /// <summary>
+    /// UTC timestamp when protocol diff acknowledgement last changed.
+    /// </summary>
+    public DateTimeOffset? DiffAcknowledgedAtUtc { get; init; }
+
+    /// <summary>
+    /// Acknowledged protocol diff change ids.
+    /// </summary>
+    public IReadOnlyList<string> AcknowledgedDiffChangeIds { get; init; }
 }

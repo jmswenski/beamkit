@@ -1247,13 +1247,13 @@ public sealed class BeamKitCiServerService
     }
 
     /// <summary>
-    /// Lists RT-PX drafts awaiting promotion review.
+    /// Lists RT-PX draft review records.
     /// </summary>
     public IReadOnlyList<RtpxDraftReviewSummary> ListRtpxDraftReviews(int limit = 50)
     {
         return store.ListRtpxAcceptances(Math.Clamp(limit, 1, 500))
             .Select(summary => store.FindRtpxAcceptance(summary.Id))
-            .Where(record => record is not null && record.Accepted && !IsRtpxAcceptanceActive(record))
+            .Where(record => record is not null && record.Accepted)
             .Select(record => CreateRtpxDraftReview(record!))
             .ToArray();
     }
@@ -1268,6 +1268,135 @@ public sealed class BeamKitCiServerService
     }
 
     /// <summary>
+    /// Marks an RT-PX draft as actively under review.
+    /// </summary>
+    public RtpxDraftReviewSummary StartRtpxDraftReview(
+        string id,
+        RtpxDraftReviewActionRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        return TransitionRtpxDraft(
+            id,
+            request,
+            RtpxDraftReviewStatus.InReview,
+            "rtpx.draft.review-started",
+            auditContext);
+    }
+
+    /// <summary>
+    /// Persists acknowledged protocol diff changes for an RT-PX draft.
+    /// </summary>
+    public RtpxDraftReviewSummary AcknowledgeRtpxDraftDiff(
+        string id,
+        RtpxDraftReviewActionRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var record = FindRequiredRtpxAcceptance(id);
+        if (record.ReviewStatus == RtpxDraftReviewStatus.Promoted)
+        {
+            throw new InvalidOperationException($"RT-PX draft '{id}' has already been promoted and cannot acknowledge additional diff items.");
+        }
+
+        var review = CreateRtpxDraftReview(record);
+        var requestedIds = request.DiffChangeIds is { Count: > 0 }
+            ? request.DiffChangeIds
+            : review.AcknowledgementRequiredChanges.Select(change => change.Id).ToArray();
+        var validIds = review.ProtocolDiff.Changes.Select(change => change.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unknownIds = requestedIds
+            .Where(idValue => !validIds.Contains(idValue))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (unknownIds.Length > 0)
+        {
+            throw new InvalidOperationException($"RT-PX draft '{id}' cannot acknowledge unknown diff change id(s): {string.Join(", ", unknownIds)}.");
+        }
+
+        var acknowledged = record.AcknowledgedDiffChangeIds
+            .Concat(requestedIds)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var now = timeProvider.GetUtcNow();
+        var updated = store.SaveRtpxAcceptance(record with
+        {
+            ReviewStatus = record.ReviewStatus == RtpxDraftReviewStatus.Draft
+                ? RtpxDraftReviewStatus.InReview
+                : record.ReviewStatus,
+            ReviewUpdatedAtUtc = now,
+            ReviewedBy = CiServerText.Optional(request.ReviewedBy) ?? auditContext?.Actor,
+            ReviewNote = CiServerText.Optional(request.Note) ?? record.ReviewNote,
+            DiffAcknowledgedBy = CiServerText.Optional(request.ReviewedBy) ?? auditContext?.Actor,
+            DiffAcknowledgedAtUtc = now,
+            AcknowledgedDiffChangeIds = acknowledged
+        });
+        Audit(
+            "rtpx.draft.diff-acknowledged",
+            auditContext,
+            runId: updated.Id,
+            caseId: updated.RulePackId,
+            status: updated.ReviewStatus.ToString(),
+            details: $"{acknowledged.Length}/{review.ProtocolDiff.Changes.Count}");
+        return CreateRtpxDraftReview(updated);
+    }
+
+    /// <summary>
+    /// Requests protocol changes for an RT-PX draft.
+    /// </summary>
+    public RtpxDraftReviewSummary RequestRtpxDraftChanges(
+        string id,
+        RtpxDraftReviewActionRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        return TransitionRtpxDraft(
+            id,
+            request,
+            RtpxDraftReviewStatus.ChangesRequested,
+            "rtpx.draft.changes-requested",
+            auditContext);
+    }
+
+    /// <summary>
+    /// Approves an RT-PX draft for promotion.
+    /// </summary>
+    public RtpxDraftReviewSummary ApproveRtpxDraft(
+        string id,
+        RtpxDraftReviewActionRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var record = FindRequiredRtpxAcceptance(id);
+        var review = CreateRtpxDraftReview(record);
+        if (!review.IsApprovable)
+        {
+            var pending = review.PendingAcknowledgementChanges.Count;
+            throw new InvalidOperationException($"RT-PX draft '{id}' cannot be approved until it is accepted, valid, has safety evidence, and all review-relevant diff items are acknowledged. Pending diff items: {pending}.");
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var actor = CiServerText.Optional(request.ReviewedBy) ?? auditContext?.Actor;
+        var updated = store.SaveRtpxAcceptance(record with
+        {
+            ReviewStatus = RtpxDraftReviewStatus.Approved,
+            ReviewUpdatedAtUtc = now,
+            ReviewedBy = actor,
+            ReviewNote = CiServerText.Optional(request.Note) ?? record.ReviewNote,
+            ApprovedBy = actor,
+            ApprovedAtUtc = now,
+            ApprovalNote = CiServerText.Optional(request.Note)
+        });
+        Audit(
+            "rtpx.draft.approved",
+            auditContext,
+            runId: updated.Id,
+            caseId: updated.RulePackId,
+            status: updated.ReviewStatus.ToString(),
+            details: updated.VersionId);
+        return CreateRtpxDraftReview(updated);
+    }
+
+    /// <summary>
     /// Promotes an RT-PX draft's managed rule-pack version active.
     /// </summary>
     public RtpxDraftReviewSummary PromoteRtpxDraft(
@@ -1276,8 +1405,13 @@ public sealed class BeamKitCiServerService
         CiServerAuditContext? auditContext = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var record = store.FindRtpxAcceptance(id)
-            ?? throw new InvalidOperationException($"RT-PX draft '{id}' was not found.");
+        var record = FindRequiredRtpxAcceptance(id);
+        var review = CreateRtpxDraftReview(record);
+        if (!review.IsPromotable)
+        {
+            throw new InvalidOperationException($"RT-PX draft '{id}' cannot be promoted until it is approved, valid, regression-tested, safety-evidenced, and its protocol diff is acknowledged.");
+        }
+
         if (string.IsNullOrWhiteSpace(record.RulePackId) || string.IsNullOrWhiteSpace(record.VersionId))
         {
             throw new InvalidOperationException($"RT-PX draft '{id}' does not have an imported managed rule-pack version.");
@@ -1296,7 +1430,15 @@ public sealed class BeamKitCiServerService
             },
             auditContext);
 
-        var promotedRecord = store.SaveRtpxAcceptance(record with { Promoted = true });
+        var now = timeProvider.GetUtcNow();
+        var promotedRecord = store.SaveRtpxAcceptance(record with
+        {
+            Promoted = true,
+            ReviewStatus = RtpxDraftReviewStatus.Promoted,
+            ReviewUpdatedAtUtc = now,
+            ReviewedBy = CiServerText.Optional(request.ReviewedBy) ?? auditContext?.Actor,
+            ReviewNote = CiServerText.Optional(request.Note) ?? record.ReviewNote
+        });
         Audit(
             "rtpx.draft.promoted",
             auditContext,
@@ -1308,24 +1450,19 @@ public sealed class BeamKitCiServerService
     }
 
     /// <summary>
-    /// Records an audit-only rejection for an RT-PX draft.
+    /// Rejects an RT-PX draft.
     /// </summary>
     public RtpxDraftReviewSummary RejectRtpxDraft(
         string id,
         RtpxDraftReviewActionRequest request,
         CiServerAuditContext? auditContext = null)
     {
-        ArgumentNullException.ThrowIfNull(request);
-        var record = store.FindRtpxAcceptance(id)
-            ?? throw new InvalidOperationException($"RT-PX draft '{id}' was not found.");
-        Audit(
+        return TransitionRtpxDraft(
+            id,
+            request,
+            RtpxDraftReviewStatus.Rejected,
             "rtpx.draft.rejected",
-            auditContext,
-            runId: record.Id,
-            caseId: record.RulePackId,
-            status: "Rejected",
-            details: CiServerText.Optional(request.Note) ?? "Rejected from RT-PX draft review.");
-        return CreateRtpxDraftReview(record);
+            auditContext);
     }
 
     /// <summary>
@@ -1446,6 +1583,56 @@ public sealed class BeamKitCiServerService
             diff);
     }
 
+    private CiServerRtpxAcceptanceRecord FindRequiredRtpxAcceptance(string id)
+    {
+        return store.FindRtpxAcceptance(id)
+            ?? throw new InvalidOperationException($"RT-PX draft '{id}' was not found.");
+    }
+
+    private RtpxDraftReviewSummary TransitionRtpxDraft(
+        string id,
+        RtpxDraftReviewActionRequest request,
+        RtpxDraftReviewStatus status,
+        string auditAction,
+        CiServerAuditContext? auditContext)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var record = FindRequiredRtpxAcceptance(id);
+        if (record.ReviewStatus == RtpxDraftReviewStatus.Promoted)
+        {
+            throw new InvalidOperationException($"RT-PX draft '{id}' has already been promoted and cannot transition to {status}.");
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var actor = CiServerText.Optional(request.ReviewedBy) ?? auditContext?.Actor;
+        var updated = record with
+        {
+            ReviewStatus = status,
+            ReviewUpdatedAtUtc = now,
+            ReviewedBy = actor,
+            ReviewNote = CiServerText.Optional(request.Note) ?? record.ReviewNote
+        };
+        if (status == RtpxDraftReviewStatus.Rejected)
+        {
+            updated = updated with
+            {
+                RejectedBy = actor,
+                RejectedAtUtc = now,
+                RejectionNote = CiServerText.Optional(request.Note)
+            };
+        }
+
+        var saved = store.SaveRtpxAcceptance(updated);
+        Audit(
+            auditAction,
+            auditContext,
+            runId: saved.Id,
+            caseId: saved.RulePackId,
+            status: saved.ReviewStatus.ToString(),
+            details: CiServerText.Optional(request.Note) ?? saved.VersionId);
+        return CreateRtpxDraftReview(saved);
+    }
+
     private bool IsRtpxAcceptanceActive(CiServerRtpxAcceptanceRecord? record)
     {
         if (record is null || string.IsNullOrWhiteSpace(record.RulePackId) || string.IsNullOrWhiteSpace(record.VersionId))
@@ -1483,46 +1670,56 @@ public sealed class BeamKitCiServerService
 
         var activeReport = DeserializeRtpxAcceptanceReport(activeRecord.ReportJson);
         var changes = new List<RtpxProtocolDiffChange>();
-        AddMetadataChange(changes, "Name", activeReport.LocalPackage.Name, draft.Name);
-        AddMetadataChange(changes, "Version", activeReport.LocalPackage.Version, draft.Version);
-        AddMetadataChange(changes, "Disease Site", activeReport.LocalPackage.DiseaseSite, draft.DiseaseSite);
-        AddMetadataChange(changes, "Intent", activeReport.LocalPackage.Intent, draft.Intent);
-        AddMetadataChange(changes, "Status", activeReport.LocalPackage.Status.ToString(), draft.Status.ToString());
+        AddMetadataChange(changes, "Name", activeReport.LocalPackage.Name, draft.Name, "Review");
+        AddMetadataChange(changes, "Version", activeReport.LocalPackage.Version, draft.Version, "Review");
+        AddMetadataChange(changes, "Disease Site", activeReport.LocalPackage.DiseaseSite, draft.DiseaseSite, "ClinicalImpact");
+        AddMetadataChange(changes, "Intent", activeReport.LocalPackage.Intent, draft.Intent, "ClinicalImpact");
+        AddMetadataChange(changes, "Status", activeReport.LocalPackage.Status.ToString(), draft.Status.ToString(), "Review");
         AddCollectionChanges(
             changes,
             "Structure",
             activeReport.LocalPackage.Structures,
             draft.Structures,
             item => item.Id,
-            item => $"{item.Name} | {item.Role} | {item.Level} | contours={(item.MustHaveContours ? "yes" : "no")}");
+            item => $"{item.Name} | {item.Role} | {item.Level} | contours={(item.MustHaveContours ? "yes" : "no")}",
+            changedSeverity: "ClinicalImpact",
+            removedSeverity: "Blocking");
         AddCollectionChanges(
             changes,
             "Prescription",
             activeReport.LocalPackage.Prescriptions,
             draft.Prescriptions,
             item => item.Id,
-            item => $"{item.Target} | {item.TotalDoseGy} Gy | {item.FractionCount} fx | {item.Technique} | {item.Energy}");
+            item => $"{item.Target} | {item.TotalDoseGy} Gy | {item.FractionCount} fx | {item.Technique} | {item.Energy}",
+            changedSeverity: "ClinicalImpact",
+            removedSeverity: "Blocking");
         AddCollectionChanges(
             changes,
             "DoseConstraint",
             activeReport.LocalPackage.Constraints,
             draft.Constraints,
             item => item.Id,
-            item => $"{item.Structure} {item.Metric} {item.Comparison} {item.Value} {item.Unit} | {item.Level} | active={(item.IsActive ? "yes" : "no")}");
+            item => $"{item.Structure} {item.Metric} {item.Comparison} {item.Value} {item.Unit} | {item.Level} | active={(item.IsActive ? "yes" : "no")}",
+            changedSeverity: "ClinicalImpact",
+            removedSeverity: "Blocking");
         AddCollectionChanges(
             changes,
             "PlanCheck",
             activeReport.LocalPackage.PlanChecks,
             draft.PlanChecks,
             item => item.Id,
-            item => $"{item.Title} | {item.Type} | {item.Level} | active={(item.IsActive ? "yes" : "no")}");
+            item => $"{item.Title} | {item.Type} | {item.Level} | active={(item.IsActive ? "yes" : "no")}",
+            changedSeverity: "Review",
+            removedSeverity: "Review");
         AddCollectionChanges(
             changes,
             "Workflow",
             activeReport.LocalPackage.Workflow,
             draft.Workflow,
             item => item.Id,
-            item => $"{item.Title} | {item.Type} | {item.Level} | active={(item.IsActive ? "yes" : "no")}");
+            item => $"{item.Title} | {item.Type} | {item.Level} | active={(item.IsActive ? "yes" : "no")}",
+            changedSeverity: "Review",
+            removedSeverity: "Review");
 
         return new RtpxProtocolDiffReport(
             draft.Id,
@@ -1559,7 +1756,8 @@ public sealed class BeamKitCiServerService
         ICollection<RtpxProtocolDiffChange> changes,
         string key,
         string? before,
-        string? after)
+        string? after,
+        string severity)
     {
         if (string.Equals(before, after, StringComparison.OrdinalIgnoreCase))
         {
@@ -1570,7 +1768,7 @@ public sealed class BeamKitCiServerService
             "Metadata",
             key,
             "Changed",
-            "Review",
+            severity,
             $"{key} changed.",
             before,
             after));
@@ -1582,7 +1780,9 @@ public sealed class BeamKitCiServerService
         IReadOnlyList<T> before,
         IReadOnlyList<T> after,
         Func<T, string> keySelector,
-        Func<T, string> describe)
+        Func<T, string> describe,
+        string changedSeverity,
+        string removedSeverity)
     {
         var beforeByKey = before
             .Where(item => !string.IsNullOrWhiteSpace(keySelector(item)))
@@ -1599,7 +1799,7 @@ public sealed class BeamKitCiServerService
                     category,
                     key,
                     "Removed",
-                    "Review",
+                    removedSeverity,
                     $"{category} '{key}' was removed.",
                     describe(beforeItem),
                     null));
@@ -1614,7 +1814,7 @@ public sealed class BeamKitCiServerService
                     category,
                     key,
                     "Changed",
-                    "Review",
+                    changedSeverity,
                     $"{category} '{key}' changed.",
                     beforeDescription,
                     afterDescription));
@@ -1632,7 +1832,7 @@ public sealed class BeamKitCiServerService
                 category,
                 key,
                 "Added",
-                "Review",
+                changedSeverity,
                 $"{category} '{key}' was added.",
                 null,
                 describe(afterItem)));

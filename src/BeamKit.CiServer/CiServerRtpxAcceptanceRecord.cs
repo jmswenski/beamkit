@@ -29,7 +29,20 @@ public sealed record CiServerRtpxAcceptanceRecord
         int errorCount,
         int warningCount,
         string reportJson,
-        string? safetyEvidenceJson)
+        string? safetyEvidenceJson,
+        RtpxDraftReviewStatus? reviewStatus = null,
+        DateTimeOffset? reviewUpdatedAtUtc = null,
+        string? reviewedBy = null,
+        string? reviewNote = null,
+        string? approvedBy = null,
+        DateTimeOffset? approvedAtUtc = null,
+        string? approvalNote = null,
+        string? rejectedBy = null,
+        DateTimeOffset? rejectedAtUtc = null,
+        string? rejectionNote = null,
+        string? diffAcknowledgedBy = null,
+        DateTimeOffset? diffAcknowledgedAtUtc = null,
+        IEnumerable<string>? acknowledgedDiffChangeIds = null)
     {
         Id = CiServerText.Required(id, nameof(id));
         CreatedAtUtc = createdAtUtc;
@@ -52,6 +65,26 @@ public sealed record CiServerRtpxAcceptanceRecord
         WarningCount = warningCount;
         ReportJson = CiServerText.Required(reportJson, nameof(reportJson));
         SafetyEvidenceJson = CiServerText.Optional(safetyEvidenceJson);
+        ReviewStatus = reviewStatus ?? CreateInitialReviewStatus(accepted, promoted);
+        ReviewUpdatedAtUtc = reviewUpdatedAtUtc;
+        ReviewedBy = CiServerText.Optional(reviewedBy);
+        ReviewNote = CiServerText.Optional(reviewNote);
+        ApprovedBy = CiServerText.Optional(approvedBy);
+        ApprovedAtUtc = approvedAtUtc;
+        ApprovalNote = CiServerText.Optional(approvalNote);
+        RejectedBy = CiServerText.Optional(rejectedBy);
+        RejectedAtUtc = rejectedAtUtc;
+        RejectionNote = CiServerText.Optional(rejectionNote);
+        DiffAcknowledgedBy = CiServerText.Optional(diffAcknowledgedBy);
+        DiffAcknowledgedAtUtc = diffAcknowledgedAtUtc;
+        AcknowledgedDiffChangeIds = acknowledgedDiffChangeIds?
+            .Select(CiServerText.Optional)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToArray()
+            ?? Array.Empty<string>();
     }
 
     /// <summary>
@@ -158,4 +191,79 @@ public sealed record CiServerRtpxAcceptanceRecord
     /// Serialized safety evidence package generated for the managed rule-pack version.
     /// </summary>
     public string? SafetyEvidenceJson { get; init; }
+
+    /// <summary>
+    /// Durable review state for this draft.
+    /// </summary>
+    public RtpxDraftReviewStatus ReviewStatus { get; init; }
+
+    /// <summary>
+    /// UTC timestamp when review state last changed.
+    /// </summary>
+    public DateTimeOffset? ReviewUpdatedAtUtc { get; init; }
+
+    /// <summary>
+    /// Reviewer who most recently changed review state.
+    /// </summary>
+    public string? ReviewedBy { get; init; }
+
+    /// <summary>
+    /// Most recent review note or decision rationale.
+    /// </summary>
+    public string? ReviewNote { get; init; }
+
+    /// <summary>
+    /// Approver who approved the draft for promotion.
+    /// </summary>
+    public string? ApprovedBy { get; init; }
+
+    /// <summary>
+    /// UTC timestamp when the draft was approved.
+    /// </summary>
+    public DateTimeOffset? ApprovedAtUtc { get; init; }
+
+    /// <summary>
+    /// Approval rationale.
+    /// </summary>
+    public string? ApprovalNote { get; init; }
+
+    /// <summary>
+    /// Reviewer who rejected the draft.
+    /// </summary>
+    public string? RejectedBy { get; init; }
+
+    /// <summary>
+    /// UTC timestamp when the draft was rejected.
+    /// </summary>
+    public DateTimeOffset? RejectedAtUtc { get; init; }
+
+    /// <summary>
+    /// Rejection rationale.
+    /// </summary>
+    public string? RejectionNote { get; init; }
+
+    /// <summary>
+    /// Reviewer who most recently acknowledged protocol diff items.
+    /// </summary>
+    public string? DiffAcknowledgedBy { get; init; }
+
+    /// <summary>
+    /// UTC timestamp when protocol diff acknowledgement last changed.
+    /// </summary>
+    public DateTimeOffset? DiffAcknowledgedAtUtc { get; init; }
+
+    /// <summary>
+    /// Acknowledged protocol diff change ids.
+    /// </summary>
+    public IReadOnlyList<string> AcknowledgedDiffChangeIds { get; init; }
+
+    private static RtpxDraftReviewStatus CreateInitialReviewStatus(bool accepted, bool promoted)
+    {
+        if (promoted)
+        {
+            return RtpxDraftReviewStatus.Promoted;
+        }
+
+        return accepted ? RtpxDraftReviewStatus.Draft : RtpxDraftReviewStatus.Rejected;
+    }
 }

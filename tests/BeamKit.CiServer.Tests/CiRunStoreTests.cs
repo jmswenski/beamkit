@@ -174,6 +174,7 @@ public sealed class CiRunStoreTests
         Assert.NotNull(found);
         Assert.True(found.Accepted);
         Assert.Equal("rtpx-head-neck", found.RulePackId);
+        Assert.Equal(RtpxDraftReviewStatus.Draft, found.ReviewStatus);
     }
 
     private static BeamKitCiRunRecord CreateArtifact(BeamKitCheckStatus status)

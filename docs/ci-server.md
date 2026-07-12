@@ -65,7 +65,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `GET` | `/api/rtpx/acceptance/{id}` | Get one RT-PX acceptance record with serialized report and safety evidence. |
 | `GET` | `/api/rtpx/authoring/templates` | Get the configured RT-PX authoring template library. |
 | `GET` | `/api/rtpx/authoring/snippets` | Get the configured RT-PX authoring snippet library. |
-| `GET` | `/api/rtpx/drafts` | List accepted RT-PX drafts awaiting active-version review. |
+| `GET` | `/api/rtpx/drafts` | List accepted RT-PX draft review records with durable review state. |
 | `GET` | `/api/rtpx/drafts/{id}` | Get one draft with validation, test evidence, safety evidence, and protocol diff. |
 | `GET` | `/api/rule-packs` | List built-in, configured, and active managed rule packs. |
 | `GET` | `/api/rule-packs/versions` | List managed rule-pack versions. Supports `rulePackId`. |
@@ -83,8 +83,12 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `POST` | `/api/rtpx/acceptance` | Accept a `.rtpx.zip` package, persist the report, import the generated rule pack, and optionally promote it. |
 | `POST` | `/api/rtpx/word/extract` | Extract and validate RT-PX from a Word `.docx` upload; returns `rtpx.json` and a generated `.rtpx.zip` when valid. |
 | `POST` | `/api/rtpx/word/publish-draft` | Extract a Word `.docx`, accept it as RT-PX, import the generated rule pack as a draft, and return protocol diff evidence. |
-| `POST` | `/api/rtpx/drafts/{id}/promote` | Promote a draft managed version active using stored safety evidence. |
-| `POST` | `/api/rtpx/drafts/{id}/reject` | Record an audit-only draft rejection. |
+| `POST` | `/api/rtpx/drafts/{id}/review` | Mark a draft as actively under review with reviewer notes. |
+| `POST` | `/api/rtpx/drafts/{id}/acknowledge-diff` | Persist acknowledgement for review-relevant protocol diff items. |
+| `POST` | `/api/rtpx/drafts/{id}/request-changes` | Mark a draft as needing changes with reviewer rationale. |
+| `POST` | `/api/rtpx/drafts/{id}/approve` | Approve a draft for promotion after validation, safety evidence, and diff acknowledgement pass. |
+| `POST` | `/api/rtpx/drafts/{id}/promote` | Promote an approved draft managed version active using stored safety evidence. |
+| `POST` | `/api/rtpx/drafts/{id}/reject` | Persist a rejected draft review decision. |
 | `POST` | `/api/rule-packs/import` | Import a managed rule-pack version from manifest JSON, a server-local manifest path, bundle JSON, or a server-local bundle path. |
 | `POST` | `/api/rule-packs/validate` | Validate a rule pack. |
 | `POST` | `/api/rule-packs/test` | Run rule-pack regression tests. |
@@ -266,6 +270,30 @@ curl -s "$API/api/rtpx/drafts" \
 
 curl -s "$API/api/rtpx/drafts/{id}" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+```
+
+Draft review states are `Draft`, `InReview`, `ChangesRequested`, `Rejected`, `Approved`, and `Promoted`. Promotion is blocked until the draft is accepted, its generated rule pack is valid, regression tests have passed, safety evidence is stored, review-relevant protocol diff items are acknowledged, and the draft is explicitly approved.
+
+```bash
+curl -s "$API/api/rtpx/drafts/{id}/review" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"reviewedBy":"physics","note":"Clinical review started."}'
+
+curl -s "$API/api/rtpx/drafts/{id}/acknowledge-diff" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"reviewedBy":"physics","note":"Protocol diff reviewed."}'
+
+curl -s "$API/api/rtpx/drafts/{id}/approve" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"reviewedBy":"physics","note":"Approved for local release."}'
+
+curl -s "$API/api/rtpx/drafts/{id}/promote" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"reviewedBy":"physics","note":"Promoted after draft review."}'
 ```
 
 Accept an RT-PX package into the managed rule-pack workflow:

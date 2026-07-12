@@ -37,6 +37,7 @@ type PublishDraftResponse = {
     accepted?: boolean;
     rulePackId?: string;
     versionId?: string;
+    reviewStatus?: string;
     packageFingerprint?: string;
     errorCount?: number;
     warningCount?: number;
@@ -547,6 +548,7 @@ let protocolSnippets: ProtocolSnippet[] = [
 ];
 
 let lastPackage: { base64: string; fileName: string } | null = null;
+let lastDraftReviewUrl: string | null = null;
 let lastIssues: ExtractIssue[] = [];
 
 const insertScaffoldButton = element<HTMLButtonElement>("insertScaffoldButton");
@@ -604,6 +606,7 @@ const includeSourceInput = element<HTMLInputElement>("includeSource");
 const quickCheckButton = element<HTMLButtonElement>("quickCheckButton");
 const extractButton = element<HTMLButtonElement>("extractButton");
 const publishDraftButton = element<HTMLButtonElement>("publishDraftButton");
+const openDraftButton = element<HTMLButtonElement>("openDraftButton");
 const downloadButton = element<HTMLButtonElement>("downloadButton");
 const statusText = element<HTMLElement>("statusText");
 const statusBadge = element<HTMLElement>("statusBadge");
@@ -659,6 +662,7 @@ function initialize(): void {
   publishDraftButton.addEventListener("click", () => {
     void publishCurrentDocumentDraft();
   });
+  openDraftButton.addEventListener("click", openDraftReview);
   downloadButton.addEventListener("click", downloadPackage);
 
   renderAuthoringLibraryOptions();
@@ -1219,7 +1223,9 @@ async function publishCurrentDocumentDraft(): Promise<void> {
       result.published ? "pass" : "fail");
   } catch (error) {
     lastPackage = null;
+    lastDraftReviewUrl = null;
     downloadButton.disabled = true;
+    openDraftButton.disabled = true;
     renderError(error);
     setStatus(error instanceof Error ? error.message : "Draft publish failed.", "Failed", "fail");
   } finally {
@@ -1267,7 +1273,9 @@ async function checkCurrentDocument(generatePackage: boolean): Promise<void> {
       result.isValid ? "pass" : "fail");
   } catch (error) {
     lastPackage = null;
+    lastDraftReviewUrl = null;
     downloadButton.disabled = true;
+    openDraftButton.disabled = true;
     renderError(error);
     setStatus(error instanceof Error ? error.message : "RT-PX extraction failed.", "Failed", "fail");
   } finally {
@@ -1288,6 +1296,8 @@ function requestHeaders(): HeadersInit {
 }
 
 function renderResult(result: ExtractResponse): void {
+  lastDraftReviewUrl = null;
+  openDraftButton.disabled = true;
   const protocol = result.extraction?.package;
   const issues = [
     ...(result.extraction?.issues ?? []),
@@ -1339,6 +1349,10 @@ function renderDraftPublishResult(result: PublishDraftResponse): void {
   } satisfies ExtractIssue));
   const issues = [...extractionIssues, ...diffIssues];
   lastIssues = issues;
+  lastDraftReviewUrl = result.dashboardUrl
+    ? `${normalizeServerUrl(serverUrlInput.value)}${result.dashboardUrl}`
+    : null;
+  openDraftButton.disabled = !lastDraftReviewUrl;
 
   protocolName.textContent = protocol?.name
     ? `${protocol.name} (${protocol.id ?? "no id"})`
@@ -1354,7 +1368,7 @@ function renderDraftPublishResult(result: PublishDraftResponse): void {
     `${result.protocolDiff?.changeCount ?? 0} changes`
   ].join(", ");
   draftStatus.textContent = result.acceptance?.id
-    ? `${result.acceptance.accepted ? "Accepted" : "Rejected"} | ${result.acceptance.rulePackId ?? "rule pack pending"} | ${result.acceptance.versionId ?? "version pending"}`
+    ? `${result.acceptance.reviewStatus ?? (result.acceptance.accepted ? "Draft" : "Rejected")} | ${result.acceptance.id} | ${result.acceptance.rulePackId ?? "rule pack pending"} | ${result.acceptance.versionId ?? "version pending"}`
     : "Not published";
 
   summaryPanel.hidden = false;
@@ -1481,8 +1495,10 @@ function renderIssues(issues: ExtractIssue[]): void {
 
 function renderError(error: unknown): void {
   lastIssues = [];
+  lastDraftReviewUrl = null;
   summaryPanel.hidden = true;
   draftStatus.textContent = "-";
+  openDraftButton.disabled = true;
   protocolSummaryPanel.hidden = true;
   protocolSummary.replaceChildren();
   issuesPanel.hidden = false;
@@ -1668,6 +1684,14 @@ function downloadPackage(): void {
   URL.revokeObjectURL(url);
 }
 
+function openDraftReview(): void {
+  if (!lastDraftReviewUrl) {
+    return;
+  }
+
+  window.open(lastDraftReviewUrl, "_blank", "noopener,noreferrer");
+}
+
 function readCurrentDocumentBase64(): Promise<string> {
   if (typeof Office === "undefined") {
     return Promise.reject(new Error("Open this task pane inside Microsoft Word to read the active document."));
@@ -1793,6 +1817,7 @@ function setBusy(isBusy: boolean): void {
   quickCheckButton.disabled = isBusy;
   extractButton.disabled = isBusy;
   publishDraftButton.disabled = isBusy;
+  openDraftButton.disabled = isBusy || !lastDraftReviewUrl;
 }
 
 function setStatus(message: string, badge: string, state: "idle" | "busy" | "pass" | "fail"): void {

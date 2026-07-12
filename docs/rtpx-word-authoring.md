@@ -46,7 +46,7 @@ Use `--include-source` only when the source document is appropriate to redistrib
 
 ## Word Add-in
 
-`src/BeamKit.WordAddIn` contains an Office.js task-pane scaffold for Microsoft Word. It can insert a complete RT-PX scaffold, insert editable disease-site starter templates, append common requirement snippets, repair recognized RT-PX tables, apply metadata fields, append structure/prescription/constraint/plan-check rows, post the active `.docx` to BeamKit CI, display extraction and RT-PX validation issues, render a plain-English protocol summary, navigate/comment on issue rows, offer one-click fixes for common metadata and table-shape issues, run quick checks without package generation, publish drafts to the BeamKit CI review queue, and download the generated `.rtpx.zip` package when the protocol is valid.
+`src/BeamKit.WordAddIn` contains an Office.js task-pane scaffold for Microsoft Word. It can insert a complete RT-PX scaffold, insert editable disease-site starter templates, append common requirement snippets, repair recognized RT-PX tables, apply metadata fields, append structure/prescription/constraint/plan-check rows, post the active `.docx` to BeamKit CI, display extraction and RT-PX validation issues, render a plain-English protocol summary, navigate/comment on issue rows, offer one-click fixes for common metadata and table-shape issues, run quick checks without package generation, publish drafts to the BeamKit CI review queue, open the dashboard review page for the published draft, and download the generated `.rtpx.zip` package when the protocol is valid.
 
 Initial starter templates cover:
 
@@ -137,11 +137,15 @@ Draft review endpoints:
 ```http
 GET /api/rtpx/drafts
 GET /api/rtpx/drafts/{id}
+POST /api/rtpx/drafts/{id}/review
+POST /api/rtpx/drafts/{id}/acknowledge-diff
+POST /api/rtpx/drafts/{id}/request-changes
+POST /api/rtpx/drafts/{id}/approve
 POST /api/rtpx/drafts/{id}/promote
 POST /api/rtpx/drafts/{id}/reject
 ```
 
-Promotion uses the same managed rule-pack safety-evidence gate as normal RT-PX acceptance. Rejection is audit-only in this slice.
+Draft decisions are persisted. The CI server records `Draft`, `InReview`, `ChangesRequested`, `Rejected`, `Approved`, and `Promoted` states with reviewer, approver, notes, timestamps, and acknowledged protocol diff change ids. Promotion uses the same managed rule-pack safety-evidence gate as normal RT-PX acceptance and also requires explicit approval plus acknowledgement of every non-info diff item.
 
 ## Table Detection
 

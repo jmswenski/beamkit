@@ -274,7 +274,19 @@ public sealed class SqliteCiRunStoreTests
     {
         using var database = TemporaryDatabase.Create();
         var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
-        firstStore.SaveRtpxAcceptance(CreateRtpxAcceptance("rtpx-1", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero), accepted: true));
+        firstStore.SaveRtpxAcceptance(CreateRtpxAcceptance("rtpx-1", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero), accepted: true) with
+        {
+            ReviewStatus = RtpxDraftReviewStatus.Approved,
+            ReviewUpdatedAtUtc = new DateTimeOffset(2026, 7, 9, 12, 5, 0, TimeSpan.Zero),
+            ReviewedBy = "physics",
+            ReviewNote = "Reviewed protocol diff.",
+            ApprovedBy = "physics",
+            ApprovedAtUtc = new DateTimeOffset(2026, 7, 9, 12, 6, 0, TimeSpan.Zero),
+            ApprovalNote = "Approved for release.",
+            DiffAcknowledgedBy = "physics",
+            DiffAcknowledgedAtUtc = new DateTimeOffset(2026, 7, 9, 12, 4, 0, TimeSpan.Zero),
+            AcknowledgedDiffChangeIds = new[] { "metadata:name:changed", "structure:cord:added" }
+        });
         firstStore.SaveRtpxAcceptance(CreateRtpxAcceptance("rtpx-2", new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero), accepted: false));
 
         var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
@@ -286,6 +298,55 @@ public sealed class SqliteCiRunStoreTests
         Assert.True(found.Accepted);
         Assert.Equal("sha256:package", found.PackageFingerprint);
         Assert.Contains("acceptance-report", found.ReportJson, StringComparison.Ordinal);
+        Assert.Equal(RtpxDraftReviewStatus.Approved, found.ReviewStatus);
+        Assert.Equal("physics", found.ReviewedBy);
+        Assert.Equal("Approved for release.", found.ApprovalNote);
+        Assert.Equal(new[] { "metadata:name:changed", "structure:cord:added" }, found.AcknowledgedDiffChangeIds);
+    }
+
+    [Fact]
+    public void ExistingRtpxAcceptanceTableMigratesReviewColumnsBeforeIndexCreation()
+    {
+        using var database = TemporaryDatabase.Create();
+        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database.Path, Pooling = false }.ToString()))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                CREATE TABLE ci_rtpx_acceptances (
+                    id TEXT PRIMARY KEY,
+                    created_at_utc TEXT NOT NULL,
+                    institution TEXT NOT NULL,
+                    package_path TEXT NOT NULL,
+                    output_directory TEXT NOT NULL,
+                    accepted INTEGER NOT NULL,
+                    promoted INTEGER NOT NULL,
+                    rule_pack_id TEXT NULL,
+                    version_id TEXT NULL,
+                    source_protocol_id TEXT NOT NULL,
+                    source_protocol_name TEXT NOT NULL,
+                    source_protocol_version TEXT NOT NULL,
+                    local_protocol_id TEXT NOT NULL,
+                    package_fingerprint TEXT NOT NULL,
+                    institution_profile_fingerprint TEXT NOT NULL,
+                    esapi_snapshot_fingerprint TEXT NULL,
+                    has_esapi_evidence INTEGER NOT NULL,
+                    error_count INTEGER NOT NULL,
+                    warning_count INTEGER NOT NULL,
+                    report_json TEXT NOT NULL,
+                    safety_evidence_json TEXT NULL
+                );
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        var store = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        store.SaveRtpxAcceptance(CreateRtpxAcceptance("rtpx-legacy", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero), accepted: true));
+
+        var found = store.FindRtpxAcceptance("rtpx-legacy");
+
+        Assert.NotNull(found);
+        Assert.Equal(RtpxDraftReviewStatus.Promoted, found.ReviewStatus);
     }
 
     private static BeamKitCiServerService CreateService(ICiRunStore store)

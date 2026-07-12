@@ -85,12 +85,14 @@ If `5088` is already occupied, start BeamKit CI on another HTTPS port such as `5
 
 1. Use a valid scaffold or template.
 2. Click `Publish Draft`.
-3. Confirm the task pane shows the draft acceptance id, rule-pack id, version id, package fingerprint, and protocol-diff count.
-4. Open the BeamKit CI dashboard.
+3. Confirm the task pane shows the draft review state, acceptance id, rule-pack id, version id, package fingerprint, and protocol-diff count.
+4. Click `Open Draft Review`.
 5. Confirm the draft appears in `RT-PX Draft Review`.
 6. Click `View` and confirm validation, test evidence, safety evidence, and protocol diff are returned.
-7. Click `Reject` and confirm an audit response is shown.
-8. If the draft is promotable, click `Promote` and confirm the managed rule-pack version becomes active.
+7. Enter a review note, click `Review`, and confirm the draft state becomes `In review`.
+8. Click `Ack Diff`, then `Approve`, and confirm the draft state becomes `Approved` when all gates are satisfied.
+9. If the draft is promotable, click `Promote` and confirm the managed rule-pack version becomes active.
+10. For a separate draft, click `Changes` or `Reject` and confirm the persisted review state changes.
 
 ## Issue Navigation Checks
 

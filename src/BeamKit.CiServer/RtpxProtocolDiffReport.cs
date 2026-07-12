@@ -31,4 +31,10 @@ public sealed record RtpxProtocolDiffChange(
     string Severity,
     string Message,
     string? Before,
-    string? After);
+    string? After)
+{
+    /// <summary>
+    /// Stable id for acknowledgement and review tracking.
+    /// </summary>
+    public string Id => $"{Category}:{Key}:{ChangeType}".ToLowerInvariant();
+}

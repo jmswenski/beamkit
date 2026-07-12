@@ -17,7 +17,7 @@ This first slice supports:
 - Draft rule-pack review and managed-version diff reports.
 - RT-PX package acceptance into managed rule-pack versions, including institution profile fingerprints, optional ESAPI snapshot evidence, generated safety evidence, and optional promotion.
 - RT-PX Word extraction uploads for Word add-ins and protocol authoring clients.
-- RT-PX authoring template/snippet libraries and Word draft publishing into a review queue with protocol diff evidence.
+- RT-PX authoring template/snippet libraries and Word draft publishing into a durable review queue with protocol diff acknowledgement, approval, rejection, and promotion gates.
 - CI run records with plan, prescription, and rule-pack provenance fingerprints.
 - SQLite-backed run metadata and artifact persistence.
 - Run history filters for status, case id, branch, and date ranges.
@@ -192,7 +192,7 @@ curl -s "$API/api/rtpx/word/publish-draft" \
   -d "{\"fileName\":\"protocol.docx\",\"docxBase64\":\"$DOCX_BASE64\",\"rulePackId\":\"institution-protocol-draft\",\"runRegressionTests\":true}"
 ```
 
-Drafts appear in the dashboard RT-PX Draft Review table and are available through `GET /api/rtpx/drafts`. Configure institution-owned libraries with `BeamKit:CiServer:RtpxAuthoring:TemplateLibraryPath` and `BeamKit:CiServer:RtpxAuthoring:SnippetLibraryPath`.
+Drafts appear in the dashboard RT-PX Draft Review table and are available through `GET /api/rtpx/drafts`. Review states are persisted as `Draft`, `InReview`, `ChangesRequested`, `Rejected`, `Approved`, and `Promoted`. Promotion through `POST /api/rtpx/drafts/{id}/promote` requires accepted RT-PX, a valid generated rule pack, passing regression evidence, safety evidence, acknowledged review-relevant protocol diff items, and explicit approval through `POST /api/rtpx/drafts/{id}/approve`. Configure institution-owned libraries with `BeamKit:CiServer:RtpxAuthoring:TemplateLibraryPath` and `BeamKit:CiServer:RtpxAuthoring:SnippetLibraryPath`.
 
 Accept an RT-PX package into the managed rule-pack workflow:
 

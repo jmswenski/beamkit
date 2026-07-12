@@ -171,6 +171,22 @@ app.MapGet("/api/rtpx/drafts/{id}", (string id, BeamKitCiServerService service) 
     var draft = service.FindRtpxDraftReview(id);
     return draft is null ? Results.NotFound() : Results.Ok(draft);
 });
+app.MapPost("/api/rtpx/drafts/{id}/review", (string id, RtpxDraftReviewActionRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.StartRtpxDraftReview(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/rtpx/drafts/{id}/acknowledge-diff", (string id, RtpxDraftReviewActionRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.AcknowledgeRtpxDraftDiff(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/rtpx/drafts/{id}/request-changes", (string id, RtpxDraftReviewActionRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.RequestRtpxDraftChanges(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/rtpx/drafts/{id}/approve", (string id, RtpxDraftReviewActionRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ApproveRtpxDraft(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
 app.MapPost("/api/rtpx/drafts/{id}/promote", (string id, RtpxDraftReviewActionRequest request, HttpContext context, BeamKitCiServerService service) =>
 {
     return Results.Ok(service.PromoteRtpxDraft(id, request, CiServerAuditContext.FromHttpContext(context)));

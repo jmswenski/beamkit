@@ -1,8 +1,11 @@
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
+using BeamKit.Protocols;
 using BeamKit.Protocols.Acceptance;
 using BeamKit.Protocols.Word;
 using BeamKit.Samples;
@@ -358,9 +361,77 @@ public sealed class CiServerHttpSecurityTests
         Assert.True(result.RootElement.GetProperty("protocolDiff").GetProperty("isInitial").GetBoolean());
         var draft = Assert.Single(drafts.RootElement.EnumerateArray());
         Assert.Equal(result.RootElement.GetProperty("acceptance").GetProperty("id").GetString(), draft.GetProperty("acceptance").GetProperty("id").GetString());
+        Assert.Equal("Draft", draft.GetProperty("acceptance").GetProperty("reviewStatus").GetString());
         Assert.True(draft.GetProperty("version").GetProperty("isValid").GetBoolean());
         Assert.True(draft.GetProperty("protocolDiff").GetProperty("isInitial").GetBoolean());
         Assert.Equal(JsonValueKind.Object, draft.GetProperty("safetyEvidence").ValueKind);
+    }
+
+    [Fact]
+    public async Task RtpxDraftReviewEndpointsRequireApprovalBeforePromotion()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var packagePath = CreatePassingHeadNeckRtpxPackage();
+        var payload = JsonSerializer.Serialize(new
+        {
+            packageBase64 = Convert.ToBase64String(File.ReadAllBytes(packagePath)),
+            institutionProfileJson = CreatePassingHeadNeckInstitutionProfileJson(),
+            rulePackId = "draft-governed-head-neck",
+            syntheticCaseId = "head-neck-pass",
+            runRegressionTests = true,
+            importedBy = "physics"
+        });
+        using var publishRequest = CreateJsonRequest(HttpMethod.Post, "/api/rtpx/acceptance", payload);
+        var publishResponse = await client.SendAsync(publishRequest);
+        using var publishResult = JsonDocument.Parse(await publishResponse.Content.ReadAsStringAsync());
+        var draftId = publishResult.RootElement.GetProperty("acceptance").GetProperty("id").GetString()
+            ?? throw new InvalidOperationException("Draft id was not returned.");
+
+        using var earlyPromoteRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/rtpx/drafts/{draftId}/promote",
+            """{"reviewedBy":"physics","note":"Too early."}""");
+        var earlyPromoteResponse = await client.SendAsync(earlyPromoteRequest);
+        using var reviewRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/rtpx/drafts/{draftId}/review",
+            """{"reviewedBy":"physics","note":"Starting clinical review."}""");
+        var reviewResponse = await client.SendAsync(reviewRequest);
+        using var review = JsonDocument.Parse(await reviewResponse.Content.ReadAsStringAsync());
+        using var acknowledgeRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/rtpx/drafts/{draftId}/acknowledge-diff",
+            """{"reviewedBy":"physics","note":"Initial package reviewed."}""");
+        var acknowledgeResponse = await client.SendAsync(acknowledgeRequest);
+        using var acknowledged = JsonDocument.Parse(await acknowledgeResponse.Content.ReadAsStringAsync());
+        using var approveRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/rtpx/drafts/{draftId}/approve",
+            """{"reviewedBy":"physics","note":"Approved for local release."}""");
+        var approveResponse = await client.SendAsync(approveRequest);
+        using var approved = JsonDocument.Parse(await approveResponse.Content.ReadAsStringAsync());
+        using var promoteRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/rtpx/drafts/{draftId}/promote",
+            """{"reviewedBy":"physics","note":"Released after review."}""");
+        var promoteResponse = await client.SendAsync(promoteRequest);
+        using var promoted = JsonDocument.Parse(await promoteResponse.Content.ReadAsStringAsync());
+        using var persisted = await GetJson(client, $"/api/rtpx/drafts/{draftId}");
+
+        Assert.Equal(HttpStatusCode.Created, publishResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, earlyPromoteResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, reviewResponse.StatusCode);
+        Assert.Equal("InReview", review.RootElement.GetProperty("acceptance").GetProperty("reviewStatus").GetString());
+        Assert.Equal(HttpStatusCode.OK, acknowledgeResponse.StatusCode);
+        Assert.True(acknowledged.RootElement.GetProperty("isDiffAcknowledged").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, approveResponse.StatusCode);
+        Assert.Equal("Approved", approved.RootElement.GetProperty("acceptance").GetProperty("reviewStatus").GetString());
+        Assert.Equal(HttpStatusCode.OK, promoteResponse.StatusCode);
+        Assert.Equal("Promoted", promoted.RootElement.GetProperty("acceptance").GetProperty("reviewStatus").GetString());
+        Assert.True(promoted.RootElement.GetProperty("acceptance").GetProperty("promoted").GetBoolean());
+        Assert.Equal("Promoted", persisted.RootElement.GetProperty("acceptance").GetProperty("reviewStatus").GetString());
     }
 
     [Fact]
@@ -491,6 +562,69 @@ public sealed class CiServerHttpSecurityTests
         return packagePath;
     }
 
+    private static string CreatePassingHeadNeckRtpxPackage()
+    {
+        var directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "beamkit-ci-server-http-rtpx", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var packagePath = System.IO.Path.Combine(directory, "head-neck.rtpx.zip");
+        var package = new RadiotherapyProtocolPackage(
+            "rtpx.synthetic.head-neck",
+            "Synthetic Head and Neck Protocol",
+            "1.0",
+            "Head and Neck",
+            "Definitive",
+            structures: new[]
+            {
+                new ProtocolStructureRequirement("ptv.7000", "PTV_7000", ProtocolStructureRole.Target),
+                new ProtocolStructureRequirement("cord", "Cord", ProtocolStructureRole.OrganAtRisk)
+            },
+            prescriptions: new[]
+            {
+                new ProtocolPrescription("rx.primary", "PTV_7000", 70m, 35, technique: "VMAT", energy: "6X")
+            },
+            constraints: new[]
+            {
+                new ProtocolDoseConstraint(
+                    "ptv.d95",
+                    "PTV_7000",
+                    "D95%",
+                    GoalComparison.GreaterThanOrEqual,
+                    66.5m,
+                    "Gy",
+                    description: "PTV D95 coverage objective.")
+            });
+        var manifest = new RtpxWordPackageManifest(
+            "beamkit.rtpx.word-package/0.1",
+            new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero).ToString("O"),
+            package.Id,
+            package.Name,
+            package.Version,
+            package.SchemaVersion,
+            "synthetic.docx",
+            "sha256:synthetic",
+            IncludesSourceDocument: false,
+            new[]
+            {
+                RtpxWordPackageStore.RtpxEntryName,
+                RtpxWordPackageStore.ManifestEntryName,
+                RtpxWordPackageStore.ValidationEntryName
+            });
+        var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            WriteIndented = true,
+            Converters =
+            {
+                new JsonStringEnumConverter()
+            }
+        };
+
+        using var archive = ZipFile.Open(packagePath, ZipArchiveMode.Create);
+        WriteEntry(archive, RtpxWordPackageStore.RtpxEntryName, RadiotherapyProtocolPackageStore.ToJson(package));
+        WriteEntry(archive, RtpxWordPackageStore.ManifestEntryName, JsonSerializer.Serialize(manifest, jsonOptions));
+        WriteEntry(archive, RtpxWordPackageStore.ValidationEntryName, "{}");
+        return packagePath;
+    }
+
     private static string CreateWordProtocolDocument()
     {
         var directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "beamkit-ci-server-http-rtpx-word", Guid.NewGuid().ToString("N"));
@@ -512,6 +646,28 @@ public sealed class CiServerHttpSecurityTests
             acceptedBy: "Physics Director",
             effectiveDate: new DateOnly(2026, 7, 12),
             reviewedBy: "Protocol Physicist"));
+    }
+
+    private static string CreatePassingHeadNeckInstitutionProfileJson()
+    {
+        return RtpxInstitutionProfileStore.ToJson(new RtpxInstitutionProfile(
+            "Synthetic Hospital",
+            new[]
+            {
+                new RtpxStructureMapping("PTV_7000", "PTV_7000"),
+                new RtpxStructureMapping("Cord", "SpinalCord")
+            },
+            acceptedBy: "Physics Director",
+            effectiveDate: new DateOnly(2026, 7, 12),
+            reviewedBy: "Protocol Physicist",
+            localPolicyReference: "Synthetic protocol committee"));
+    }
+
+    private static void WriteEntry(ZipArchive archive, string entryName, string content)
+    {
+        var entry = archive.CreateEntry(entryName);
+        using var writer = new StreamWriter(entry.Open());
+        writer.Write(content);
     }
 
     private static string FindRepositoryRoot()

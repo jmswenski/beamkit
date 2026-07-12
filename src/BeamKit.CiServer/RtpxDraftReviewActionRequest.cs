@@ -14,4 +14,9 @@ public sealed record RtpxDraftReviewActionRequest
     /// Optional review note.
     /// </summary>
     public string? Note { get; init; }
+
+    /// <summary>
+    /// Optional diff change ids acknowledged by the reviewer.
+    /// </summary>
+    public IReadOnlyList<string>? DiffChangeIds { get; init; }
 }

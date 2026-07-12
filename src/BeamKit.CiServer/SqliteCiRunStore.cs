@@ -715,7 +715,20 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     error_count,
                     warning_count,
                     report_json,
-                    safety_evidence_json
+                    safety_evidence_json,
+                    review_status,
+                    review_updated_at_utc,
+                    reviewed_by,
+                    review_note,
+                    approved_by,
+                    approved_at_utc,
+                    approval_note,
+                    rejected_by,
+                    rejected_at_utc,
+                    rejection_note,
+                    diff_acknowledged_by,
+                    diff_acknowledged_at_utc,
+                    acknowledged_diff_change_ids_json
                 )
                 VALUES (
                     $id,
@@ -738,7 +751,20 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     $error_count,
                     $warning_count,
                     $report_json,
-                    $safety_evidence_json
+                    $safety_evidence_json,
+                    $review_status,
+                    $review_updated_at_utc,
+                    $reviewed_by,
+                    $review_note,
+                    $approved_by,
+                    $approved_at_utc,
+                    $approval_note,
+                    $rejected_by,
+                    $rejected_at_utc,
+                    $rejection_note,
+                    $diff_acknowledged_by,
+                    $diff_acknowledged_at_utc,
+                    $acknowledged_diff_change_ids_json
                 )
                 ON CONFLICT(id) DO UPDATE SET
                     created_at_utc = excluded.created_at_utc,
@@ -760,7 +786,20 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     error_count = excluded.error_count,
                     warning_count = excluded.warning_count,
                     report_json = excluded.report_json,
-                    safety_evidence_json = excluded.safety_evidence_json;
+                    safety_evidence_json = excluded.safety_evidence_json,
+                    review_status = excluded.review_status,
+                    review_updated_at_utc = excluded.review_updated_at_utc,
+                    reviewed_by = excluded.reviewed_by,
+                    review_note = excluded.review_note,
+                    approved_by = excluded.approved_by,
+                    approved_at_utc = excluded.approved_at_utc,
+                    approval_note = excluded.approval_note,
+                    rejected_by = excluded.rejected_by,
+                    rejected_at_utc = excluded.rejected_at_utc,
+                    rejection_note = excluded.rejection_note,
+                    diff_acknowledged_by = excluded.diff_acknowledged_by,
+                    diff_acknowledged_at_utc = excluded.diff_acknowledged_at_utc,
+                    acknowledged_diff_change_ids_json = excluded.acknowledged_diff_change_ids_json;
                 """;
             AddRtpxAcceptanceParameters(command, record);
             command.ExecuteNonQuery();
@@ -1241,7 +1280,20 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     error_count INTEGER NOT NULL,
                     warning_count INTEGER NOT NULL,
                     report_json TEXT NOT NULL,
-                    safety_evidence_json TEXT NULL
+                    safety_evidence_json TEXT NULL,
+                    review_status TEXT NOT NULL DEFAULT 'Draft',
+                    review_updated_at_utc TEXT NULL,
+                    reviewed_by TEXT NULL,
+                    review_note TEXT NULL,
+                    approved_by TEXT NULL,
+                    approved_at_utc TEXT NULL,
+                    approval_note TEXT NULL,
+                    rejected_by TEXT NULL,
+                    rejected_at_utc TEXT NULL,
+                    rejection_note TEXT NULL,
+                    diff_acknowledged_by TEXT NULL,
+                    diff_acknowledged_at_utc TEXT NULL,
+                    acknowledged_diff_change_ids_json TEXT NOT NULL DEFAULT '[]'
                 );
 
                 CREATE INDEX IF NOT EXISTS ix_ci_rtpx_acceptances_created_at ON ci_rtpx_acceptances(created_at_utc);
@@ -1303,8 +1355,12 @@ public sealed class SqliteCiRunStore : ICiRunStore
             EnsurePlanSnapshotColumn(connection);
             EnsureRulePackBundleColumn(connection);
             EnsureRulePackSafetyEvidenceColumn(connection);
+            EnsureRtpxAcceptanceReviewColumns(connection);
             using var index = connection.CreateCommand();
-            index.CommandText = "CREATE INDEX IF NOT EXISTS ix_ci_runs_input_kind ON ci_runs(input_kind);";
+            index.CommandText = """
+                CREATE INDEX IF NOT EXISTS ix_ci_runs_input_kind ON ci_runs(input_kind);
+                CREATE INDEX IF NOT EXISTS ix_ci_rtpx_acceptances_review_status ON ci_rtpx_acceptances(review_status);
+                """;
             index.ExecuteNonQuery();
         }
     }
@@ -1425,6 +1481,19 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$warning_count", record.WarningCount);
         command.Parameters.AddWithValue("$report_json", record.ReportJson);
         command.Parameters.AddWithValue("$safety_evidence_json", ToDbValue(record.SafetyEvidenceJson));
+        command.Parameters.AddWithValue("$review_status", record.ReviewStatus.ToString());
+        command.Parameters.AddWithValue("$review_updated_at_utc", record.ReviewUpdatedAtUtc is null ? DBNull.Value : ToStoredTimestamp(record.ReviewUpdatedAtUtc.Value));
+        command.Parameters.AddWithValue("$reviewed_by", ToDbValue(record.ReviewedBy));
+        command.Parameters.AddWithValue("$review_note", ToDbValue(record.ReviewNote));
+        command.Parameters.AddWithValue("$approved_by", ToDbValue(record.ApprovedBy));
+        command.Parameters.AddWithValue("$approved_at_utc", record.ApprovedAtUtc is null ? DBNull.Value : ToStoredTimestamp(record.ApprovedAtUtc.Value));
+        command.Parameters.AddWithValue("$approval_note", ToDbValue(record.ApprovalNote));
+        command.Parameters.AddWithValue("$rejected_by", ToDbValue(record.RejectedBy));
+        command.Parameters.AddWithValue("$rejected_at_utc", record.RejectedAtUtc is null ? DBNull.Value : ToStoredTimestamp(record.RejectedAtUtc.Value));
+        command.Parameters.AddWithValue("$rejection_note", ToDbValue(record.RejectionNote));
+        command.Parameters.AddWithValue("$diff_acknowledged_by", ToDbValue(record.DiffAcknowledgedBy));
+        command.Parameters.AddWithValue("$diff_acknowledged_at_utc", record.DiffAcknowledgedAtUtc is null ? DBNull.Value : ToStoredTimestamp(record.DiffAcknowledgedAtUtc.Value));
+        command.Parameters.AddWithValue("$acknowledged_diff_change_ids_json", JsonSerializer.Serialize(record.AcknowledgedDiffChangeIds, CiServerJson.Options));
     }
 
     private static void AddWorkItemParameters(SqliteCommand command, CaseWorkItem workItem)
@@ -1485,6 +1554,20 @@ public sealed class SqliteCiRunStore : ICiRunStore
     private static string? GetNullableString(SqliteDataReader reader, int ordinal)
     {
         return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+    }
+
+    private static DateTimeOffset? GetNullableTimestamp(SqliteDataReader reader, int ordinal)
+    {
+        return reader.IsDBNull(ordinal)
+            ? null
+            : DateTimeOffset.Parse(reader.GetString(ordinal), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+    }
+
+    private static IReadOnlyList<string> ReadStringArray(string? json)
+    {
+        return string.IsNullOrWhiteSpace(json)
+            ? Array.Empty<string>()
+            : JsonSerializer.Deserialize<string[]>(json, CiServerJson.Options) ?? Array.Empty<string>();
     }
 
     private static string SelectBaselineColumns()
@@ -1627,7 +1710,20 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 error_count,
                 warning_count,
                 report_json,
-                safety_evidence_json
+                safety_evidence_json,
+                review_status,
+                review_updated_at_utc,
+                reviewed_by,
+                review_note,
+                approved_by,
+                approved_at_utc,
+                approval_note,
+                rejected_by,
+                rejected_at_utc,
+                rejection_note,
+                diff_acknowledged_by,
+                diff_acknowledged_at_utc,
+                acknowledged_diff_change_ids_json
             FROM ci_rtpx_acceptances
             """;
     }
@@ -1655,7 +1751,20 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.GetInt32(17),
             reader.GetInt32(18),
             reader.GetString(19),
-            GetNullableString(reader, 20));
+            GetNullableString(reader, 20),
+            Enum.Parse<RtpxDraftReviewStatus>(reader.GetString(21)),
+            GetNullableTimestamp(reader, 22),
+            GetNullableString(reader, 23),
+            GetNullableString(reader, 24),
+            GetNullableString(reader, 25),
+            GetNullableTimestamp(reader, 26),
+            GetNullableString(reader, 27),
+            GetNullableString(reader, 28),
+            GetNullableTimestamp(reader, 29),
+            GetNullableString(reader, 30),
+            GetNullableString(reader, 31),
+            GetNullableTimestamp(reader, 32),
+            ReadStringArray(GetNullableString(reader, 33)));
     }
 
     private static RulePackValidationReport ReadRulePackValidationReport(string json)
@@ -1903,6 +2012,43 @@ public sealed class SqliteCiRunStore : ICiRunStore
 
         using var alter = connection.CreateCommand();
         alter.CommandText = "ALTER TABLE ci_rule_pack_versions ADD COLUMN safety_evidence_json TEXT NULL;";
+        alter.ExecuteNonQuery();
+    }
+
+    private static void EnsureRtpxAcceptanceReviewColumns(SqliteConnection connection)
+    {
+        EnsureColumn(connection, "ci_rtpx_acceptances", "review_status", "TEXT NOT NULL DEFAULT 'Draft'");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "review_updated_at_utc", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "reviewed_by", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "review_note", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "approved_by", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "approved_at_utc", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "approval_note", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "rejected_by", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "rejected_at_utc", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "rejection_note", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "diff_acknowledged_by", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "diff_acknowledged_at_utc", "TEXT NULL");
+        EnsureColumn(connection, "ci_rtpx_acceptances", "acknowledged_diff_change_ids_json", "TEXT NOT NULL DEFAULT '[]'");
+    }
+
+    private static void EnsureColumn(SqliteConnection connection, string tableName, string columnName, string definition)
+    {
+        using var check = connection.CreateCommand();
+        check.CommandText = $"PRAGMA table_info({tableName});";
+        using (var reader = check.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+        }
+
+        using var alter = connection.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {tableName} ADD COLUMN {columnName} {definition};";
         alter.ExecuteNonQuery();
     }
 }

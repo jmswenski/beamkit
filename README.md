@@ -56,7 +56,7 @@ What is usable today:
 - Clinical goal template loading.
 - Clinical rule catalogs for changing institutional, disease-site, and physician rules.
 - RT-PX Radiotherapy Protocol Exchange v0.1 models, schema, Word extraction, zipped package creation/inspection, hospital acceptance profiles, optional ESAPI snapshot evidence, CI-server acceptance records, managed rule-pack import, generated safety evidence, and compilation into BeamKit rule packs.
-- Word add-in scaffold and CI upload endpoint for extracting RT-PX directly from `.docx` protocol documents, including server-backed starter templates, reusable requirement snippets, quick checks, issue navigation/comments, protocol summaries, draft publishing, protocol diffs, and dashboard review.
+- Word add-in scaffold and CI upload endpoint for extracting RT-PX directly from `.docx` protocol documents, including server-backed starter templates, reusable requirement snippets, quick checks, issue navigation/comments, protocol summaries, draft publishing, protocol diffs, durable review states, diff acknowledgement, approval gates, and dashboard review.
 - `BeamKit Check`, a flagship rule-pack workflow that combines clinical goals, plan checks, naming, readiness, metrics, ESAPI/DICOM-ready plan input, and optional write-up evidence.
 - Combined QA pipeline.
 - Rule-pack manifests that compose clinical rule catalogs, plan-check catalogs, naming dictionaries, machine profiles, and readiness defaults.
@@ -66,7 +66,7 @@ What is usable today:
 - Immutable rule-pack bundle artifacts with embedded catalog files, validation evidence, regression evidence, fingerprints, and tamper verification.
 - Explainable predictive case/plan intelligence for complexity, QA risk, planning effort, physics review effort, target metrics, and next-action recommendations.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, RT-PX package acceptance and promotion, registered and managed immutable rule-pack versions, draft rule-pack review, managed-version diffs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, RT-PX package acceptance and approval-gated promotion, registered and managed immutable rule-pack versions, draft rule-pack review, managed-version diffs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.

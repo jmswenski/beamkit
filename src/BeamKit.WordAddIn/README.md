@@ -2,7 +2,7 @@
 
 `BeamKit.WordAddIn` is an Office.js task-pane scaffold for RT-PX authoring in Microsoft Word.
 
-The add-in helps protocol authors create BeamKit-readable RT-PX tables, use server-backed starter disease-site templates and common requirement snippets, read the active `.docx`, post it to a BeamKit CI server, show Word extraction and RT-PX validation issues, summarize the parsed protocol in plain English, publish a draft into the BeamKit CI review queue, and download a generated `.rtpx.zip` package when the protocol is valid.
+The add-in helps protocol authors create BeamKit-readable RT-PX tables, use server-backed starter disease-site templates and common requirement snippets, read the active `.docx`, post it to a BeamKit CI server, show Word extraction and RT-PX validation issues, summarize the parsed protocol in plain English, publish a draft into the BeamKit CI review queue, open the published draft in the dashboard, and download a generated `.rtpx.zip` package when the protocol is valid.
 
 ## Authoring Tools
 
@@ -24,6 +24,7 @@ The task pane can:
 - Run a quick check that validates the Word protocol and renders a summary without generating a zip package.
 - Extract a validated RT-PX package when the author is ready to download and hand off the protocol.
 - Publish the active Word protocol as a draft managed rule-pack version for dashboard review.
+- Show the server review state returned after draft publish and open the dashboard anchor for that draft.
 
 Rows are appended by matching RT-PX table header rows. If a table is missing, insert the scaffold first.
 
@@ -79,7 +80,7 @@ Draft publishing posts to:
 POST /api/rtpx/word/publish-draft
 ```
 
-The draft publish response includes the RT-PX acceptance record, imported managed rule-pack version, safety evidence, protocol diff against the active accepted version, and a dashboard anchor for review.
+The draft publish response includes the RT-PX acceptance record, imported managed rule-pack version, safety evidence, protocol diff against the active accepted version, durable review state, and a dashboard anchor for review. The dashboard then owns acknowledgement, approval, request-changes, rejection, and promotion actions.
 
 ## Local Development
 

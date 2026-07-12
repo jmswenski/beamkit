@@ -83,7 +83,7 @@ internal static class DashboardHtml
               font-weight: 650;
             }
 
-            input, select {
+            input, select, textarea {
               width: 100%;
               min-height: 36px;
               border: 1px solid var(--line);
@@ -91,6 +91,13 @@ internal static class DashboardHtml
               padding: 0 10px;
               color: var(--text);
               background: white;
+            }
+
+            textarea {
+              min-height: 72px;
+              padding: 8px 10px;
+              resize: vertical;
+              font: inherit;
             }
 
             table {
@@ -201,6 +208,28 @@ internal static class DashboardHtml
                 </div>
               </section>
               <section>
+                <h2>RT-PX Draft Review</h2>
+                <div class="stack" style="margin-top:12px">
+                  <label>Status filter
+                    <select id="rtpxDraftStatusFilter" onchange="loadRtpxDrafts()">
+                      <option value="">Any</option>
+                      <option value="Draft">Draft</option>
+                      <option value="InReview">In review</option>
+                      <option value="ChangesRequested">Changes requested</option>
+                      <option value="Approved">Approved</option>
+                      <option value="Rejected">Rejected</option>
+                      <option value="Promoted">Promoted</option>
+                    </select>
+                  </label>
+                  <label>Review note
+                    <textarea id="rtpxDraftReviewNote" placeholder="Reviewer, rationale, requested changes, or promotion note"></textarea>
+                  </label>
+                </div>
+                <div class="actions">
+                  <button class="secondary" onclick="loadRtpxDrafts()">Refresh drafts</button>
+                </div>
+              </section>
+              <section>
                 <h2>Assignment</h2>
                 <div class="stack" style="margin-top:12px">
                   <label>Disease site
@@ -293,9 +322,18 @@ internal static class DashboardHtml
               <h2 style="margin-top:22px">RT-PX Draft Review</h2>
               <table>
                 <thead>
-                  <tr><th>Draft</th><th>Protocol</th><th>Rule Pack</th><th>Validation</th><th>Diff</th><th>Evidence</th><th>Actions</th></tr>
+                  <tr><th>Draft</th><th>Protocol</th><th>Status</th><th>Rule Pack</th><th>Validation</th><th>Diff</th><th>Evidence</th><th>Actions</th></tr>
                 </thead>
                 <tbody id="rtpxDrafts"></tbody>
+              </table>
+              <h2 id="rtpxDraftDiffTitle" style="margin-top:22px">Selected Draft Diff</h2>
+              <table>
+                <thead>
+                  <tr><th>Change</th><th>Severity</th><th>Status</th><th>Before</th><th>After</th></tr>
+                </thead>
+                <tbody id="rtpxDraftDiffs">
+                  <tr><td colspan="5">Select a draft to view protocol differences.</td></tr>
+                </tbody>
               </table>
               <h2 style="margin-top:22px">Work Queue</h2>
               <table>
@@ -595,13 +633,17 @@ internal static class DashboardHtml
             }
 
             async function loadRtpxDrafts() {
-              const response = await fetch("/api/rtpx/drafts?limit=25", { headers: requestHeaders() });
+              const response = await fetch("/api/rtpx/drafts?limit=100", { headers: requestHeaders() });
               if (!response.ok) {
                 document.getElementById("rtpxDrafts").innerHTML = "";
                 return;
               }
 
-              const drafts = await response.json();
+              const statusFilter = document.getElementById("rtpxDraftStatusFilter").value;
+              const drafts = (await response.json()).filter(draft => {
+                const status = draft.acceptance?.reviewStatus || "";
+                return !statusFilter || status === statusFilter;
+              });
               document.getElementById("rtpxDrafts").innerHTML = drafts.map(draft => {
                 const acceptance = draft.acceptance || {};
                 const version = draft.version || {};
@@ -609,17 +651,29 @@ internal static class DashboardHtml
                 const draftId = escapeOnclickString(acceptance.id);
                 const validationClass = version.isValid ? "status-pass" : "status-fail";
                 const testText = version.testPassed === true ? "tests pass" : version.testPassed === false ? "tests fail" : "tests not run";
+                const reviewStatus = acceptance.reviewStatus || "Draft";
+                const required = draft.acknowledgementRequiredChanges?.length || 0;
+                const pending = draft.pendingAcknowledgementChanges?.length || 0;
+                const diffText = diff.isInitial
+                  ? "Initial package"
+                  : `${escapeHtml(diff.changeCount || 0)} change(s)`;
+                const ackText = required === 0 ? "no acknowledgement needed" : `${required - pending}/${required} acknowledged`;
                 return `<tr id="rtpx-draft-${escapeHtml(acceptance.id)}">
                   <td><code>${escapeHtml(acceptance.id)}</code><br>${escapeHtml(new Date(acceptance.createdAtUtc).toLocaleString())}</td>
                   <td>${escapeHtml(acceptance.sourceProtocolName)}<br><code>${escapeHtml(acceptance.sourceProtocolVersion)}</code></td>
+                  <td>${escapeHtml(formatDraftStatus(reviewStatus))}<br>${escapeHtml(acceptance.reviewedBy || "")}</td>
                   <td><code>${escapeHtml(acceptance.rulePackId || "")}</code><br><code>${escapeHtml(acceptance.versionId || "")}</code></td>
                   <td class="${validationClass}">${version.isValid ? "valid" : "invalid"}<br>${escapeHtml(testText)}</td>
-                  <td>${diff.isInitial ? "Initial package" : escapeHtml(diff.changeCount || 0) + " change(s)"}</td>
-                  <td>${draft.safetyEvidence ? "safety evidence" : "missing"}<br>${draft.isPromotable ? "promotable" : "needs review"}</td>
+                  <td>${diffText}<br>${escapeHtml(ackText)}</td>
+                  <td>${draft.safetyEvidence ? "safety evidence" : "missing"}<br>${draft.isPromotable ? "promotable" : draft.isApprovable ? "approvable" : "needs review"}</td>
                   <td>
                     <button class="secondary" style="min-height:28px; padding:0 8px" onclick="viewRtpxDraft('${draftId}')">View</button>
-                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="promoteRtpxDraft('${draftId}')">Promote</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="startRtpxDraftReview('${draftId}')">Review</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="acknowledgeRtpxDraftDiff('${draftId}')">Ack Diff</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="approveRtpxDraft('${draftId}')">Approve</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="requestRtpxDraftChanges('${draftId}')">Changes</button>
                     <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="rejectRtpxDraft('${draftId}')">Reject</button>
+                    <button class="secondary" style="min-height:28px; padding:0 8px; margin-left:6px" onclick="promoteRtpxDraft('${draftId}')">Promote</button>
                   </td>
                 </tr>`;
               }).join("");
@@ -630,27 +684,73 @@ internal static class DashboardHtml
             }
 
             async function viewRtpxDraft(id) {
-              await api(`/api/rtpx/drafts/${id}`, { method: "GET" });
+              const response = await fetch(`/api/rtpx/drafts/${id}`, { headers: requestHeaders() });
+              const text = await response.text();
+              const data = text ? JSON.parse(text) : null;
+              document.getElementById("output").textContent = JSON.stringify(data, null, 2);
+              if (!response.ok) return;
+              renderRtpxDraftDiff(data);
             }
 
-            async function promoteRtpxDraft(id) {
-              await api(`/api/rtpx/drafts/${id}/promote`, {
-                method: "POST",
-                body: JSON.stringify({
-                  reviewedBy: "dashboard",
-                  note: "Promoted from local BeamKit CI dashboard."
-                })
-              });
+            async function startRtpxDraftReview(id) {
+              await postRtpxDraftAction(id, "review", "Started review from local BeamKit CI dashboard.");
+            }
+
+            async function acknowledgeRtpxDraftDiff(id) {
+              await postRtpxDraftAction(id, "acknowledge-diff", "Acknowledged review-relevant protocol diff items.");
+            }
+
+            async function approveRtpxDraft(id) {
+              await postRtpxDraftAction(id, "approve", "Approved for promotion from local BeamKit CI dashboard.");
+            }
+
+            async function requestRtpxDraftChanges(id) {
+              await postRtpxDraftAction(id, "request-changes", "Changes requested from local BeamKit CI dashboard.");
             }
 
             async function rejectRtpxDraft(id) {
-              await api(`/api/rtpx/drafts/${id}/reject`, {
+              await postRtpxDraftAction(id, "reject", "Rejected from local BeamKit CI dashboard.");
+            }
+
+            async function promoteRtpxDraft(id) {
+              await postRtpxDraftAction(id, "promote", "Promoted from local BeamKit CI dashboard.");
+            }
+
+            async function postRtpxDraftAction(id, action, fallbackNote) {
+              const data = await api(`/api/rtpx/drafts/${id}/${action}`, {
                 method: "POST",
                 body: JSON.stringify({
                   reviewedBy: "dashboard",
-                  note: "Rejected from local BeamKit CI dashboard."
+                  note: document.getElementById("rtpxDraftReviewNote").value.trim() || fallbackNote
                 })
               });
+              if (data) renderRtpxDraftDiff(data);
+            }
+
+            function renderRtpxDraftDiff(draft) {
+              const acceptance = draft?.acceptance || {};
+              const changes = draft?.protocolDiff?.changes || [];
+              const acknowledged = new Set((draft?.acknowledgedDiffChangeIds || []).map(value => String(value).toLowerCase()));
+              document.getElementById("rtpxDraftDiffTitle").textContent = acceptance.id
+                ? `Selected Draft Diff: ${acceptance.id}`
+                : "Selected Draft Diff";
+              if (changes.length === 0) {
+                document.getElementById("rtpxDraftDiffs").innerHTML = "<tr><td colspan=\"5\">No protocol changes were detected.</td></tr>";
+                return;
+              }
+
+              document.getElementById("rtpxDraftDiffs").innerHTML = changes.map(change => {
+                const id = String(change.id || `${change.category}:${change.key}:${change.changeType}`).toLowerCase();
+                const needsAck = String(change.severity || "").toLowerCase() !== "info";
+                const status = !needsAck ? "info" : acknowledged.has(id) ? "acknowledged" : "pending";
+                return `<tr>
+                  <td>${escapeHtml(change.category)} / ${escapeHtml(change.changeType)}<br><code>${escapeHtml(change.key)}</code></td>
+                  <td>${escapeHtml(change.severity || "")}</td>
+                  <td>${escapeHtml(status)}</td>
+                  <td>${escapeHtml(change.before || "")}</td>
+                  <td>${escapeHtml(change.after || "")}</td>
+                </tr>`;
+              }).join("");
             }
 
             function selectWorkItem(id) {
@@ -662,6 +762,14 @@ internal static class DashboardHtml
                 case "BeamKitPlanJson": return "BeamKit Plan JSON";
                 case "EsapiSnapshotJson": return "ESAPI Snapshot";
                 default: return "Synthetic";
+              }
+            }
+
+            function formatDraftStatus(status) {
+              switch (status) {
+                case "InReview": return "In review";
+                case "ChangesRequested": return "Changes requested";
+                default: return status || "Draft";
               }
             }
 
