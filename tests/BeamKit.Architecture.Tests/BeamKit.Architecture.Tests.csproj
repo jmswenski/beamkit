@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\BeamKit.Metrics\BeamKit.Metrics.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Naming\BeamKit.Naming.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
+    <ProjectReference Include="..\..\src\BeamKit.Protocols\BeamKit.Protocols.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Qa\BeamKit.Qa.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Release\BeamKit.Release.csproj" />
     <ProjectReference Include="..\..\src\BeamKit.Reporting\BeamKit.Reporting.csproj" />

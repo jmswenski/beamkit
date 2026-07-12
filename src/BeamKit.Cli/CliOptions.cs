@@ -29,6 +29,8 @@ internal sealed record CliOptions
 
     public string? ReminderPath { get; init; }
 
+    public string? ProtocolPath { get; init; }
+
     public string? TemplatePath { get; init; }
 
     public string? RuleCatalogPath { get; init; }
@@ -170,6 +172,20 @@ internal sealed record CliOptions
                 options = options with { Command = $"rule-pack-{args[1]}" };
                 index = 2;
             }
+            else if (string.Equals(args[0], "protocol", StringComparison.OrdinalIgnoreCase)
+                && args.Count > 1
+                && !args[1].StartsWith("--", StringComparison.Ordinal))
+            {
+                options = options with { Command = $"protocol-{args[1]}" };
+                index = 2;
+            }
+            else if (string.Equals(args[0], "rtpx", StringComparison.OrdinalIgnoreCase)
+                && args.Count > 1
+                && !args[1].StartsWith("--", StringComparison.Ordinal))
+            {
+                options = options with { Command = $"rtpx-{args[1]}" };
+                index = 2;
+            }
             else if (string.Equals(args[0], "ci", StringComparison.OrdinalIgnoreCase)
                 && args.Count > 1
                 && !args[1].StartsWith("--", StringComparison.Ordinal))
@@ -259,6 +275,12 @@ internal sealed record CliOptions
                 case "--reminders":
                 case "--reminder":
                     options = options with { ReminderPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--protocol":
+                case "--rtpx":
+                case "--rtpx-package":
+                    options = options with { ProtocolPath = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;
                 case "--template":

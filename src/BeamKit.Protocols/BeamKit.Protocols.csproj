@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>RT-PX Radiotherapy Protocol Exchange models, validation, and rule-pack compilation for BeamKit.</Description>
+    <PackageId>BeamKit.Protocols</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BeamKit.Core\BeamKit.Core.csproj" />
+    <ProjectReference Include="..\BeamKit.Metrics\BeamKit.Metrics.csproj" />
+    <ProjectReference Include="..\BeamKit.PlanCheck\BeamKit.PlanCheck.csproj" />
+    <ProjectReference Include="..\BeamKit.RulePacks\BeamKit.RulePacks.csproj" />
+    <ProjectReference Include="..\BeamKit.Templates\BeamKit.Templates.csproj" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

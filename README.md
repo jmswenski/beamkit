@@ -12,6 +12,7 @@
 [![DICOM RT](https://img.shields.io/badge/DICOM%20RT-initial%20support-blue.svg)](docs/dicom.md)
 [![ESAPI](https://img.shields.io/badge/ESAPI-read--only%20adapter-lightgrey.svg)](docs/esapi.md)
 [![BeamKit Check](https://img.shields.io/badge/BeamKit%20Check-rule%20packs%20%7C%20HTML%20reports-blue.svg)](docs/beamkit-check.md)
+[![RT-PX](https://img.shields.io/badge/RT--PX-protocol%20exchange-blue.svg)](docs/rtpx-specification.md)
 [![Predictive Intelligence](https://img.shields.io/badge/intelligence-explainable%20risk%20scoring-blue.svg)](src/BeamKit.Intelligence/README.md)
 [![Docs](https://img.shields.io/badge/docs-included-blue.svg)](#documentation)
 [![Code Style](https://img.shields.io/badge/warnings-as%20errors-informational.svg)](Directory.Build.props)
@@ -19,7 +20,9 @@
 
 **A modern, open-source platform for radiation oncology workflow automation, analytics, plan QA, and treatment-planning integrations.**
 
-BeamKit provides a vendor-neutral C#/.NET foundation for modeling radiation oncology plans, running CI/CD-style plan checks, normalizing structure names, evaluating clinical and physics rules, automating dosimetry tasks, importing DICOM RT metadata, adapting treatment-planning-system data, calculating plan-quality metrics, producing portable QA reports, predicting case complexity and QA risk, and generating plan write-up consistency evidence.
+BeamKit provides a vendor-neutral C#/.NET foundation for modeling radiation oncology plans, exchanging computable protocol intent with RT-PX, running CI/CD-style plan checks, normalizing structure names, evaluating clinical and physics rules, automating dosimetry tasks, importing DICOM RT metadata, adapting treatment-planning-system data, calculating plan-quality metrics, producing portable QA reports, predicting case complexity and QA risk, and generating plan write-up consistency evidence.
+
+**RT-PX** means **Radiotherapy Protocol Exchange**: an open protocol-as-code format for researchers, cooperative groups, and institutions to transmit treatment intent, prescriptions, structure requirements, dose constraints, workflow requirements, and source-document traceability in a portable machine-readable package.
 
 It is designed so core functionality can be built and tested on Linux, Windows, and macOS without proprietary treatment-planning-system SDKs, while still allowing optional adapters for systems such as Eclipse/ESAPI, RayStation, DICOM RT, FHIR/Epic, Aria, Mosaiq, and future clinical applications.
 
@@ -33,6 +36,7 @@ BeamKit is intended to become a common software layer for radiation oncology tea
 | Area | What BeamKit is building toward |
 | --- | --- |
 | Domain model | A vendor-neutral representation of patients, prescriptions, structures, beams, dose, DVH data, clinical goals, and workflow state. |
+| Protocol exchange | RT-PX packages that let research groups and institutions transmit computable radiotherapy protocol intent that can be validated or compiled into BeamKit rule packs. |
 | Dosimetry automation | Structure naming, missing-structure validation, PTV ring recipes, dose/fraction calculations, and repeatable planning helpers. |
 | Clinical and physics QA | Configurable catalogs for clinical goals, physician preferences, dose checks, beam model checks, dose-grid checks, jaw policy, MU/degree, and treatment-vs-QA plan integrity. |
 | Workflow orchestration | Plan readiness, change detection, write-up evidence manifests, approvals, peer-review queues, notifications, assignment logic, and treatment-readiness gates. |
@@ -51,6 +55,7 @@ What is usable today:
 - Structure name normalization.
 - Clinical goal template loading.
 - Clinical rule catalogs for changing institutional, disease-site, and physician rules.
+- RT-PX Radiotherapy Protocol Exchange v0.1 models, schema, sample package, CLI validation, and compilation into BeamKit rule packs.
 - `BeamKit Check`, a flagship rule-pack workflow that combines clinical goals, plan checks, naming, readiness, metrics, ESAPI/DICOM-ready plan input, and optional write-up evidence.
 - Combined QA pipeline.
 - Rule-pack manifests that compose clinical rule catalogs, plan-check catalogs, naming dictionaries, machine profiles, and readiness defaults.
@@ -113,6 +118,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 - Dosimetry automation for recurring setup work such as optimization rings, dose calculations, and reminder-list checks.
 - Plan write-up consistency evidence for export/document handoff workflows.
 - Versioned clinical rule catalogs with owner, approval, reference, rationale, and tag metadata.
+- RT-PX packages for exchanging computable protocol intent from research groups, trials, or local protocol owners to treating institutions.
 - Explainable predictive intelligence for case complexity, plan QA risk, effort estimation, and early physics-review triage.
 - Repeatable derived-structure recipes for common PTV optimization rings.
 - Plan readiness and workflow checks.
@@ -129,7 +135,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | Physicists | Check Rx-vs-plan consistency, beam model selection, dose-grid spacing, jaw policy, MU/degree thresholds, calculation model/version, and treatment-vs-QA plan integrity. |
 | Physicians | Maintain disease-site or physician-specific clinical goal catalogs and review structured pass/warning/fail reports. |
 | Clinical informatics teams | Build optional adapters around DICOM RT, ESAPI, future RayStation APIs, FHIR/Epic workflows, and hospital notification systems. |
-| Researchers | Use synthetic fixtures, vendor-neutral plan models, DVH metrics, plan-quality summaries, and future export pipelines without binding to one treatment-planning system. |
+| Researchers | Author or transmit RT-PX protocol packages, use synthetic fixtures, vendor-neutral plan models, DVH metrics, plan-quality summaries, and future export pipelines without binding to one treatment-planning system. |
 
 ## Design Principles
 
@@ -154,6 +160,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.Metrics`](src/BeamKit.Metrics/README.md) | Standardized DVH metric expressions and target plan-quality summaries. | Active |
 | [`BeamKit.Naming`](src/BeamKit.Naming/README.md) | Structure name normalization, aliases, regex mappings, ambiguity, and missing-structure checks. | Active |
 | [`BeamKit.PlanCheck`](src/BeamKit.PlanCheck/README.md) | Configurable plan-check catalogs that combine structure, prescription, dose, metric, model, and deliverability checks. | Active |
+| [`BeamKit.Protocols`](src/BeamKit.Protocols/README.md) | RT-PX Radiotherapy Protocol Exchange models that encode treatment intent, prescriptions, structures, constraints, workflow requirements, and source traceability, then compile into rule packs. | Initial |
 | [`BeamKit.Structures`](src/BeamKit.Structures/README.md) | Derived-structure recipes, including deterministic PTV ring specifications. | Active |
 | [`BeamKit.Rules`](src/BeamKit.Rules/README.md) | Clinical rule engine and built-in plan checks. | Active |
 | [`BeamKit.Safety`](src/BeamKit.Safety/README.md) | Clinical safety case, hazard, control, and validation evidence models. | Initial |
@@ -256,6 +263,20 @@ List and run PHI-free synthetic clinical cases:
 ```bash
 dotnet run --project src/BeamKit.Cli -- cases
 dotnet run --project src/BeamKit.Cli -- check --case head-neck-cord-fail
+```
+
+Validate and compile an RT-PX protocol package:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rtpx validate \
+  --rtpx samples/rtpx/lung-sbrt-v1
+
+dotnet run --project src/BeamKit.Cli -- rtpx compile \
+  --rtpx samples/rtpx/lung-sbrt-v1 \
+  --output artifacts/rtpx-rule-packs/lung-sbrt-v1
+
+dotnet run --project src/BeamKit.Cli -- rule-pack doctor \
+  --rule-pack artifacts/rtpx-rule-packs/lung-sbrt-v1/beamkit-rule-pack.json
 ```
 
 Scaffold and inspect a disease-site rule pack:
@@ -738,6 +759,8 @@ See [docs/esapi.md](docs/esapi.md).
 | Risk management | [docs/risk-management.md](docs/risk-management.md) |
 | Clinical safety case | [docs/clinical-safety-case.md](docs/clinical-safety-case.md) |
 | BeamKit Check | [docs/beamkit-check.md](docs/beamkit-check.md) |
+| RT-PX protocol exchange | [docs/rtpx.md](docs/rtpx.md) |
+| RT-PX specification | [docs/rtpx-specification.md](docs/rtpx-specification.md) |
 | Rule-pack authoring | [docs/rule-pack-authoring.md](docs/rule-pack-authoring.md) |
 | Sample rule packs | [samples/rule-packs/README.md](samples/rule-packs/README.md) |
 | CI server | [docs/ci-server.md](docs/ci-server.md) |

@@ -11,6 +11,7 @@ using BeamKit.Intelligence;
 using BeamKit.Metrics;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
+using BeamKit.Protocols;
 using BeamKit.Qa;
 using BeamKit.Release;
 using BeamKit.Reporting;
@@ -48,6 +49,7 @@ public sealed class ArchitectureBoundaryTests
             "BeamKit.Intelligence",
             "BeamKit.Metrics",
             "BeamKit.PlanCheck",
+            "BeamKit.Protocols",
             "BeamKit.Qa",
             "BeamKit.Release",
             "BeamKit.Reporting",
@@ -107,6 +109,7 @@ public sealed class ArchitectureBoundaryTests
             typeof(CasePlanIntelligenceService).Assembly,
             typeof(PlanQualityMetricService).Assembly,
             typeof(PlanCheckEngine).Assembly,
+            typeof(RadiotherapyProtocolCompiler).Assembly,
             typeof(StructureNameNormalizer).Assembly,
             typeof(PlanQaPipeline).Assembly,
             typeof(WriteUpManifestBuilder).Assembly,

@@ -113,6 +113,27 @@ public sealed class CliBehaviorTests
     }
 
     [Fact]
+    public void ParserReadsProtocolSubcommands()
+    {
+        var validate = CliOptions.Parse(new[] { "rtpx", "validate", "--rtpx", "rtpx.json" });
+        var compile = CliOptions.Parse(new[]
+        {
+            "rtpx",
+            "compile",
+            "--rtpx",
+            "rtpx.json",
+            "--output",
+            "rule-pack"
+        });
+
+        Assert.Equal("rtpx-validate", validate.Command);
+        Assert.Equal("rtpx.json", validate.ProtocolPath);
+        Assert.Equal("rtpx-compile", compile.Command);
+        Assert.Equal("rtpx.json", compile.ProtocolPath);
+        Assert.Equal("rule-pack", compile.OutputPath);
+    }
+
+    [Fact]
     public void ParserReadsCiRunOptions()
     {
         var options = CliOptions.Parse(new[]
@@ -613,6 +634,64 @@ public sealed class CliBehaviorTests
             Assert.Equal(0, doctorExitCode);
             Assert.Contains("BeamKit Rule-Pack Doctor", doctorOutput.ToString(), StringComparison.Ordinal);
             Assert.Contains("Healthy: Yes", doctorOutput.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsProtocolValidateAndCompileCommands()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "beamkit-cli-protocol-tests", Guid.NewGuid().ToString("N"));
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var validateOutput = new StringWriter();
+            using var validateError = new StringWriter();
+            Console.SetOut(validateOutput);
+            Console.SetError(validateError);
+
+            var validateExitCode = Program.Main(new[]
+            {
+                "rtpx",
+                "validate",
+                "--rtpx",
+                SampleProtocolPath()
+            });
+
+            Assert.Equal(0, validateExitCode);
+            Assert.Contains("BeamKit RT-PX Validation", validateOutput.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Valid: Yes", validateOutput.ToString(), StringComparison.Ordinal);
+
+            using var compileOutput = new StringWriter();
+            using var compileError = new StringWriter();
+            Console.SetOut(compileOutput);
+            Console.SetError(compileError);
+
+            var compileExitCode = Program.Main(new[]
+            {
+                "rtpx",
+                "compile",
+                "--rtpx",
+                SampleProtocolPath(),
+                "--output",
+                directory
+            });
+
+            Assert.Equal(0, compileExitCode);
+            Assert.Contains("BeamKit RT-PX Compile", compileOutput.ToString(), StringComparison.Ordinal);
+            Assert.True(File.Exists(Path.Combine(directory, "beamkit-rule-pack.json")));
+            Assert.True(File.Exists(Path.Combine(directory, "clinical-rules.json")));
+            Assert.True(File.Exists(Path.Combine(directory, "plan-checks.json")));
         }
         finally
         {
@@ -1232,6 +1311,20 @@ public sealed class CliBehaviorTests
             Console.SetError(originalError);
             File.Delete(path);
         }
+    }
+
+    private static string SampleProtocolPath()
+    {
+        return Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "samples",
+            "rtpx",
+            "lung-sbrt-v1"));
     }
 
     private const string TestPlanJson = """

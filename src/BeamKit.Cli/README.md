@@ -82,6 +82,20 @@ dotnet run --project src/BeamKit.Cli -- rule-pack import-reminders \
   --reminders artifacts/monthly-reminders.md
 ```
 
+Validate and compile an RT-PX Radiotherapy Protocol Exchange package into a normal BeamKit rule pack:
+
+```bash
+dotnet run --project src/BeamKit.Cli -- rtpx validate \
+  --rtpx samples/rtpx/lung-sbrt-v1
+
+dotnet run --project src/BeamKit.Cli -- rtpx compile \
+  --rtpx samples/rtpx/lung-sbrt-v1 \
+  --output artifacts/rtpx-rule-packs/lung-sbrt-v1
+
+dotnet run --project src/BeamKit.Cli -- rule-pack doctor \
+  --rule-pack artifacts/rtpx-rule-packs/lung-sbrt-v1/beamkit-rule-pack.json
+```
+
 Run a CI/CD-style plan gate with provenance metadata:
 
 ```bash

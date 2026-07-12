@@ -10,6 +10,7 @@ Current schemas:
 - [naming-dictionary.schema.json](../schemas/naming-dictionary.schema.json)
 - [machine-profile.schema.json](../schemas/machine-profile.schema.json)
 - [plan-check-catalog.schema.json](../schemas/plan-check-catalog.schema.json)
+- [rtpx-0.1.schema.json](../schemas/rtpx-0.1.schema.json)
 - [rule-catalog.schema.json](../schemas/rule-catalog.schema.json)
 - [staff-roster.schema.json](../schemas/staff-roster.schema.json)
 - [synthetic-plan.schema.json](../schemas/synthetic-plan.schema.json)

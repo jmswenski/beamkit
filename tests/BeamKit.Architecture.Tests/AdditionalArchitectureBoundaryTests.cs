@@ -6,6 +6,7 @@ using BeamKit.Dicom;
 using BeamKit.Metrics;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
+using BeamKit.Protocols;
 using BeamKit.Qa;
 using BeamKit.Release;
 using BeamKit.Reporting;
@@ -33,6 +34,7 @@ public sealed class AdditionalArchitectureBoundaryTests
             typeof(DicomRtDoseImporter).Assembly,
             typeof(PlanQualityMetricService).Assembly,
             typeof(PlanCheckEngine).Assembly,
+            typeof(RadiotherapyProtocolValidator).Assembly,
             typeof(StructureNameNormalizer).Assembly,
             typeof(PlanQaPipeline).Assembly,
             typeof(WriteUpManifestBuilder).Assembly,

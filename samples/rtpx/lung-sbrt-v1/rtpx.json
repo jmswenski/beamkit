@@ -1,0 +1,234 @@
+{
+  "$schema": "https://beamkit.dev/schemas/rtpx-0.1.schema.json",
+  "schemaVersion": "0.1",
+  "id": "synthetic-lung-sbrt-protocol",
+  "name": "Synthetic Lung SBRT Protocol",
+  "version": "2026.1",
+  "diseaseSite": "Lung",
+  "intent": "Definitive",
+  "status": "Approved",
+  "owner": "BeamKit examples",
+  "description": "PHI-free sample showing how a low-volume protocol document can become portable computable validation intent.",
+  "tags": [
+    "lung",
+    "sbrt",
+    "rtpx",
+    "synthetic"
+  ],
+  "sourceDocument": {
+    "title": "Synthetic Lung SBRT Protocol",
+    "version": "2026-07",
+    "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "uri": "samples/rtpx/lung-sbrt-v1/rtpx.json"
+  },
+  "approval": {
+    "reviewedBy": "Physics QA Committee",
+    "approvedBy": "Clinical Director",
+    "effectiveDate": "2026-07-12",
+    "reviewDueDate": "2027-07-12",
+    "reference": "Synthetic protocol review",
+    "rationale": "Demonstrates protocol-as-code validation without patient data."
+  },
+  "structures": [
+    {
+      "id": "body",
+      "name": "BODY",
+      "role": "External",
+      "level": "Required",
+      "aliases": [
+        "Body",
+        "External"
+      ],
+      "mustHaveContours": true,
+      "source": {
+        "section": "Required Structures",
+        "page": 4,
+        "anchor": "Table 1"
+      }
+    },
+    {
+      "id": "ptv5000",
+      "name": "PTV_5000",
+      "role": "Target",
+      "level": "Required",
+      "mustHaveContours": true,
+      "source": {
+        "section": "Target Volumes",
+        "page": 5,
+        "anchor": "Primary PTV"
+      }
+    },
+    {
+      "id": "cord",
+      "name": "SpinalCord",
+      "role": "OrganAtRisk",
+      "level": "Required",
+      "aliases": [
+        "Cord"
+      ],
+      "source": {
+        "section": "Organs At Risk",
+        "page": 6,
+        "anchor": "Cord"
+      }
+    },
+    {
+      "id": "heart",
+      "name": "Heart",
+      "role": "OrganAtRisk",
+      "level": "Recommended",
+      "source": {
+        "section": "Organs At Risk",
+        "page": 6,
+        "anchor": "Heart"
+      }
+    },
+    {
+      "id": "lung_r",
+      "name": "Lung_R",
+      "role": "OrganAtRisk",
+      "level": "Required",
+      "aliases": [
+        "Right Lung",
+        "Rt Lung"
+      ],
+      "source": {
+        "section": "Organs At Risk",
+        "page": 6,
+        "anchor": "Ipsilateral lung"
+      }
+    },
+    {
+      "id": "lung_l",
+      "name": "Lung_L",
+      "role": "OrganAtRisk",
+      "level": "Required",
+      "aliases": [
+        "Left Lung",
+        "Lt Lung"
+      ],
+      "source": {
+        "section": "Organs At Risk",
+        "page": 6,
+        "anchor": "Contralateral lung"
+      }
+    }
+  ],
+  "prescriptions": [
+    {
+      "id": "primary",
+      "target": "PTV_5000",
+      "totalDoseGy": 50,
+      "fractionCount": 5,
+      "dosePerFractionGy": 10,
+      "technique": "SBRT",
+      "level": "Required",
+      "description": "Primary SBRT course prescription.",
+      "source": {
+        "section": "Prescription",
+        "page": 8,
+        "anchor": "Dose and fractionation"
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "id": "ptv.d95",
+      "structure": "PTV_5000",
+      "metric": "D95%",
+      "comparison": "GreaterThanOrEqual",
+      "value": 47.5,
+      "unit": "Gy",
+      "level": "Required",
+      "description": "At least 95% of the PTV should receive 95% of prescription dose.",
+      "source": {
+        "section": "Planning Objectives",
+        "page": 9,
+        "anchor": "Target coverage"
+      }
+    },
+    {
+      "id": "cord.max",
+      "structure": "SpinalCord",
+      "metric": "Max",
+      "comparison": "LessThanOrEqual",
+      "value": 18,
+      "unit": "Gy",
+      "level": "Required",
+      "source": {
+        "section": "Dose Constraints",
+        "page": 10,
+        "anchor": "Spinal cord"
+      }
+    },
+    {
+      "id": "heart.mean",
+      "structure": "Heart",
+      "metric": "Mean",
+      "comparison": "LessThanOrEqual",
+      "value": 10,
+      "unit": "Gy",
+      "level": "Recommended",
+      "source": {
+        "section": "Dose Constraints",
+        "page": 10,
+        "anchor": "Heart"
+      }
+    },
+    {
+      "id": "lung.r.v20",
+      "structure": "Lung_R",
+      "metric": "V20Gy",
+      "comparison": "LessThanOrEqual",
+      "value": 10,
+      "unit": "%",
+      "level": "Required",
+      "source": {
+        "section": "Dose Constraints",
+        "page": 10,
+        "anchor": "Ipsilateral lung V20"
+      }
+    }
+  ],
+  "planChecks": [
+    {
+      "id": "dose.grid.spacing",
+      "title": "Dose grid spacing",
+      "type": "dose-grid-max-spacing",
+      "level": "Required",
+      "parameters": {
+        "maxSpacingMm": "2.0"
+      },
+      "source": {
+        "section": "Physics Requirements",
+        "page": 12,
+        "anchor": "Dose calculation"
+      }
+    },
+    {
+      "id": "deliverability.profile",
+      "title": "Deliverability profile",
+      "type": "deliverability",
+      "level": "Recommended",
+      "source": {
+        "section": "Physics Requirements",
+        "page": 12,
+        "anchor": "Delivery QA"
+      }
+    }
+  ],
+  "workflow": [
+    {
+      "id": "peer-review.before-treatment",
+      "title": "Peer review before first treatment",
+      "type": "peer-review",
+      "level": "Required",
+      "description": "Protocol cases require peer review before treatment start.",
+      "source": {
+        "section": "Workflow Requirements",
+        "page": 14,
+        "anchor": "Review timing"
+      }
+    }
+  ]
+}

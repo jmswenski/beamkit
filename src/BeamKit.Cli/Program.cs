@@ -13,6 +13,7 @@ using BeamKit.Intelligence;
 using BeamKit.Metrics;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
+using BeamKit.Protocols;
 using BeamKit.Qa;
 using BeamKit.Release;
 using BeamKit.Reporting;
@@ -53,6 +54,10 @@ internal static class Program
                 "rule-pack-import-reminders" => RunRulePackImportReminders(options),
                 "rule-pack-validate" => RunRulePackValidate(options),
                 "rule-pack-test" => RunRulePackTest(options),
+                "protocol-validate" => RunProtocolValidate(options),
+                "protocol-compile" => RunProtocolCompile(options),
+                "rtpx-validate" => RunProtocolValidate(options),
+                "rtpx-compile" => RunProtocolCompile(options),
                 "ci-run" => RunCiRun(options),
                 "assignment-recommend" => RunAssignmentRecommend(options),
                 "assignment-recommend-team" => RunAssignmentRecommendTeam(options),
@@ -273,6 +278,37 @@ internal static class Program
 
         WriteOutput(output, options.OutputPath);
         return report.Passed ? 0 : 2;
+    }
+
+    private static int RunProtocolValidate(CliOptions options)
+    {
+        var protocolPath = RequireProtocolPath(options);
+        var package = RadiotherapyProtocolPackageStore.FromPath(protocolPath);
+        var report = new RadiotherapyProtocolValidator().Validate(package);
+        var cliReport = new ProtocolValidationCliReport(
+            Path.GetFullPath(RadiotherapyProtocolPackageStore.ResolveProtocolFile(protocolPath)),
+            package,
+            report);
+        WriteOutput(WriteProtocolValidationReport(cliReport, options.Format), options.OutputPath);
+        return report.IsValid ? 0 : 2;
+    }
+
+    private static int RunProtocolCompile(CliOptions options)
+    {
+        var protocolPath = RequireProtocolPath(options);
+        var outputDirectory = options.OutputPath
+            ?? throw new ArgumentException("Protocol compilation requires --output directory.");
+        var compilation = new RadiotherapyProtocolCompiler().CompilePath(protocolPath);
+        compilation.Scaffold.WriteToDirectory(outputDirectory, options.Overwrite);
+        var report = new ProtocolCompileCliReport(
+            Path.GetFullPath(RadiotherapyProtocolPackageStore.ResolveProtocolFile(protocolPath)),
+            Path.GetFullPath(outputDirectory),
+            Path.Combine(Path.GetFullPath(outputDirectory), compilation.ManifestPath),
+            compilation.Package,
+            compilation.Validation,
+            compilation.Scaffold.Files.Select(file => file.RelativePath).ToArray());
+        WriteOutput(WriteProtocolCompileReport(report, options.Format), null);
+        return compilation.Validation.IsValid ? 0 : 2;
     }
 
     private static int RunCiRun(CliOptions options)
@@ -669,6 +705,13 @@ internal static class Program
         return string.IsNullOrWhiteSpace(options.RulePackBundlePath)
             ? throw new ArgumentException("Rule-pack bundle verification requires --bundle.")
             : options.RulePackBundlePath;
+    }
+
+    private static string RequireProtocolPath(CliOptions options)
+    {
+        return string.IsNullOrWhiteSpace(options.ProtocolPath)
+            ? throw new ArgumentException("RT-PX command requires --rtpx or --protocol path.")
+            : options.ProtocolPath;
     }
 
     private static string ResolveManifestReference(string manifestPath, string relativePath)
@@ -1389,6 +1432,10 @@ internal static class Program
         Console.Error.WriteLine("  beamkit rule-pack import-reminders --rule-pack manifest.json --reminders reminders.md [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit rule-pack validate [--rule-pack path] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit rule-pack test [--rule-pack path] [--case id] [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rtpx validate --rtpx rtpx.json|directory [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit rtpx compile --rtpx rtpx.json|directory --output rule-pack-directory [--overwrite] [--format json|markdown|html]");
+        Console.Error.WriteLine("  beamkit protocol validate --protocol rtpx.json|directory [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit protocol compile --protocol rtpx.json|directory --output rule-pack-directory [--overwrite] [--format json|markdown|html]");
         Console.Error.WriteLine("  beamkit ci run [--plan path | --esapi-snapshot path | --case id] [--rule-pack path] [--branch name] [--commit sha] [--build-id id] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit assignment recommend [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist] [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit assignment recommend-team [--roster staff.json] [--case id|--plan plan.json|--esapi-snapshot snapshot.json] [--disease-site name] [--physician name] [--required-skill skill]... [--role Dosimetrist|Physicist]... [--complexity 1-5] [--priority 1-5] [--due-date yyyy-MM-dd] [--format json|markdown|html] [--output path]");
@@ -1414,7 +1461,7 @@ internal static class Program
         Console.Error.WriteLine("Exit codes:");
         Console.Error.WriteLine("  0 success");
         Console.Error.WriteLine("  1 command line or output error");
-        Console.Error.WriteLine("  2 clinical, workflow, naming, QA, plan-check, metric, deliverability, policy, CI, or write-up consistency gate did not pass");
+        Console.Error.WriteLine("  2 clinical, workflow, naming, QA, plan-check, metric, deliverability, protocol, policy, CI, or write-up consistency gate did not pass");
     }
 
     private static void WriteDisclaimer()
@@ -2155,6 +2202,80 @@ internal static class Program
         foreach (var id in report.ImportedCheckIds)
         {
             builder.AppendLine($"- `{id}`");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteProtocolValidationReport(ProtocolValidationCliReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteProtocolValidationMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit RT-PX Validation", WriteProtocolValidationMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteProtocolValidationMarkdown(ProtocolValidationCliReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit RT-PX Validation");
+        builder.AppendLine();
+        builder.AppendLine($"- Protocol: {report.Package.Name} ({report.Package.Version})");
+        builder.AppendLine($"- Protocol id: `{report.Package.Id}`");
+        builder.AppendLine($"- Path: `{report.ProtocolPath}`");
+        builder.AppendLine($"- Disease site: {report.Package.DiseaseSite}");
+        builder.AppendLine($"- Status: {report.Package.Status}");
+        builder.AppendLine($"- Valid: {(report.Validation.IsValid ? "Yes" : "No")}");
+        builder.AppendLine($"- Errors: {report.Validation.ErrorCount}");
+        builder.AppendLine($"- Warnings: {report.Validation.WarningCount}");
+        builder.AppendLine();
+        if (report.Validation.Issues.Count == 0)
+        {
+            builder.AppendLine("No RT-PX authoring issues were detected.");
+            return builder.ToString();
+        }
+
+        builder.AppendLine("| Severity | Code | Subject | Message |");
+        builder.AppendLine("| --- | --- | --- | --- |");
+        foreach (var issue in report.Validation.Issues)
+        {
+            builder.AppendLine($"| {issue.Severity} | `{issue.Code}` | `{issue.Subject ?? string.Empty}` | {issue.Message} |");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string WriteProtocolCompileReport(ProtocolCompileCliReport report, ReportFormat format)
+    {
+        return format switch
+        {
+            ReportFormat.Json => JsonSerializer.Serialize(report, CliJsonOptions),
+            ReportFormat.Markdown => WriteProtocolCompileMarkdown(report),
+            ReportFormat.Html => WriteSimpleHtml("BeamKit RT-PX Compile", WriteProtocolCompileMarkdown(report)),
+            _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unsupported report format.")
+        };
+    }
+
+    private static string WriteProtocolCompileMarkdown(ProtocolCompileCliReport report)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# BeamKit RT-PX Compile");
+        builder.AppendLine();
+        builder.AppendLine($"- Protocol: {report.Package.Name} ({report.Package.Version})");
+        builder.AppendLine($"- Protocol id: `{report.Package.Id}`");
+        builder.AppendLine($"- Source: `{report.ProtocolPath}`");
+        builder.AppendLine($"- Output directory: `{report.OutputDirectory}`");
+        builder.AppendLine($"- Manifest: `{report.ManifestPath}`");
+        builder.AppendLine($"- Validation: {(report.Validation.IsValid ? "Valid" : "Invalid")} ({report.Validation.ErrorCount} errors, {report.Validation.WarningCount} warnings)");
+        builder.AppendLine();
+        builder.AppendLine("| File |");
+        builder.AppendLine("| --- |");
+        foreach (var file in report.Files)
+        {
+            builder.AppendLine($"| `{file}` |");
         }
 
         return builder.ToString();
@@ -2907,6 +3028,19 @@ internal static class Program
         IReadOnlyList<string> ImportedCheckIds);
 
     private sealed record RulePackBundleCliReport(string OutputPath, RulePackBundle Bundle);
+
+    private sealed record ProtocolValidationCliReport(
+        string ProtocolPath,
+        RadiotherapyProtocolPackage Package,
+        ProtocolValidationReport Validation);
+
+    private sealed record ProtocolCompileCliReport(
+        string ProtocolPath,
+        string OutputDirectory,
+        string ManifestPath,
+        RadiotherapyProtocolPackage Package,
+        ProtocolValidationReport Validation,
+        IReadOnlyList<string> Files);
 
     private sealed record DoseCalculationCliReport(BiologicalDoseResult BiologicalDose, EquivalentFractionationResult? EquivalentFractionation);
 
