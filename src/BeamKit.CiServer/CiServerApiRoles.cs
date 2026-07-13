@@ -26,6 +26,11 @@ public static class CiServerApiRoles
     public const string RulePackManager = "RulePackManager";
 
     /// <summary>
+    /// Can import, review, diff, and promote structure-name dictionaries.
+    /// </summary>
+    public const string NamingDictionaryManager = "NamingDictionaryManager";
+
+    /// <summary>
     /// Can accept RT-PX packages, run protocol authoring flows, and accept protocol variances.
     /// </summary>
     public const string ProtocolManager = "ProtocolManager";

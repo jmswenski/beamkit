@@ -76,6 +76,36 @@ public interface ICiRunStore
         string? note = null);
 
     /// <summary>
+    /// Adds or replaces a managed naming-dictionary version.
+    /// </summary>
+    CiServerManagedNamingDictionaryVersion SaveNamingDictionaryVersion(CiServerManagedNamingDictionaryVersion version);
+
+    /// <summary>
+    /// Finds a managed naming-dictionary version.
+    /// </summary>
+    CiServerManagedNamingDictionaryVersion? FindNamingDictionaryVersion(string dictionaryId, string versionId);
+
+    /// <summary>
+    /// Finds the active managed version for a naming-dictionary id.
+    /// </summary>
+    CiServerManagedNamingDictionaryVersion? FindActiveNamingDictionaryVersion(string dictionaryId);
+
+    /// <summary>
+    /// Lists managed naming-dictionary versions.
+    /// </summary>
+    IReadOnlyList<CiServerManagedNamingDictionaryVersionSummary> ListNamingDictionaryVersions(string? dictionaryId = null);
+
+    /// <summary>
+    /// Promotes one managed naming-dictionary version as active.
+    /// </summary>
+    CiServerManagedNamingDictionaryVersion PromoteNamingDictionaryVersion(
+        string dictionaryId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null);
+
+    /// <summary>
     /// Adds or replaces an RT-PX package acceptance record.
     /// </summary>
     CiServerRtpxAcceptanceRecord SaveRtpxAcceptance(CiServerRtpxAcceptanceRecord record);

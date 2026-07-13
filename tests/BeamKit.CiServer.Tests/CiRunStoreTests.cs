@@ -1,4 +1,5 @@
 using BeamKit.Check;
+using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.Reporting;
 using BeamKit.Workflow;
@@ -161,6 +162,35 @@ public sealed class CiRunStoreTests
     }
 
     [Fact]
+    public void SaveNamingDictionaryVersionStoresQueryableVersionHistory()
+    {
+        var store = new CiRunStore();
+        store.SaveNamingDictionaryVersion(CreateNamingDictionaryVersion("institution-tg263", "v1", DateTimeOffset.UtcNow.AddMinutes(-1)));
+        store.SaveNamingDictionaryVersion(CreateNamingDictionaryVersion("institution-tg263", "v2", DateTimeOffset.UtcNow));
+
+        var versions = store.ListNamingDictionaryVersions("INSTITUTION-TG263");
+
+        Assert.Equal(new[] { "v2", "v1" }, versions.Select(version => version.VersionId));
+        var found = store.FindNamingDictionaryVersion("institution-tg263", "V1") ?? throw new InvalidOperationException("Version was not stored.");
+        Assert.Equal("sha256:v1", found.Fingerprint);
+    }
+
+    [Fact]
+    public void PromoteNamingDictionaryVersionMakesOnlyOneVersionActive()
+    {
+        var store = new CiRunStore();
+        store.SaveNamingDictionaryVersion(CreateNamingDictionaryVersion("institution-tg263", "v1", DateTimeOffset.UtcNow.AddMinutes(-1)));
+        store.SaveNamingDictionaryVersion(CreateNamingDictionaryVersion("institution-tg263", "v2", DateTimeOffset.UtcNow));
+
+        var promoted = store.PromoteNamingDictionaryVersion("institution-tg263", "v2", DateTimeOffset.UtcNow, "dosimetry", "Approved.");
+
+        Assert.True(promoted.IsActive);
+        Assert.Equal("dosimetry", promoted.ActivatedBy);
+        Assert.Equal("v2", store.FindActiveNamingDictionaryVersion("INSTITUTION-TG263")?.VersionId);
+        Assert.False(store.FindNamingDictionaryVersion("institution-tg263", "v1")!.IsActive);
+    }
+
+    [Fact]
     public void SaveRtpxAcceptanceStoresQueryableAcceptanceHistory()
     {
         var store = new CiRunStore();
@@ -265,6 +295,33 @@ public sealed class CiRunStoreTests
             $"sha256:{versionId}",
             new RulePackValidationReport("Rule pack", versionId, $"sha256:{versionId}", Array.Empty<RulePackPolicyIssue>()),
             new RulePackTestReport("Rule pack", versionId, importedAtUtc, Array.Empty<RulePackTestResult>()));
+    }
+
+    private static CiServerManagedNamingDictionaryVersion CreateNamingDictionaryVersion(string dictionaryId, string versionId, DateTimeOffset importedAtUtc)
+    {
+        var dictionary = new StructureNameDictionary(
+            "Institution TG-263",
+            new[] { "Body", "Lung_R" },
+            requiredStructureNames: new[] { "Body" },
+            id: dictionaryId,
+            version: versionId,
+            source: "Institution",
+            tags: new[] { "tg263" });
+        return new CiServerManagedNamingDictionaryVersion(
+            dictionaryId,
+            versionId,
+            importedAtUtc,
+            "dosimetry",
+            "InlineJson",
+            "test",
+            StructureNameDictionaryLoader.ToJson(dictionary),
+            dictionary.Name,
+            dictionary.Version,
+            dictionary.Description,
+            dictionary.Source,
+            dictionary.Tags,
+            $"sha256:{versionId}",
+            new StructureNameDictionaryReviewer().Review(dictionary));
     }
 
     private static CiServerRtpxAcceptanceRecord CreateRtpxAcceptance(string id, DateTimeOffset createdAtUtc, bool accepted)

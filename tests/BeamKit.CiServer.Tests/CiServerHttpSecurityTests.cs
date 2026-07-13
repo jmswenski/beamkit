@@ -92,6 +92,26 @@ public sealed class CiServerHttpSecurityTests
     }
 
     [Fact]
+    public async Task RulePackManagerApiKeyCannotManageNamingDictionaries()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path, apiKeyRoles: new[] { CiServerApiRoles.RulePackManager });
+        using var client = factory.CreateClient();
+        var payload = JsonSerializer.Serialize(new
+        {
+            dictionaryId = "institution-tg263",
+            dictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.0")
+        });
+        using var importDictionary = CreateJsonRequest(HttpMethod.Post, "/api/naming-dictionaries/import", payload);
+
+        var response = await client.SendAsync(importDictionary);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Contains("requires the NamingDictionaryManager role", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AuthorizedRunCreationWritesAuditEvent()
     {
         using var database = TemporaryDatabase.Create();
@@ -345,6 +365,59 @@ public sealed class CiServerHttpSecurityTests
         Assert.True(review.RootElement.GetProperty("validation").GetProperty("isValid").GetBoolean());
         Assert.True(review.RootElement.GetProperty("testReport").GetProperty("passed").GetBoolean());
         Assert.Equal("synthetic-head-neck", review.RootElement.GetProperty("rulePackId").GetString());
+    }
+
+    [Fact]
+    public async Task ManagedNamingDictionaryImportPromoteAndDiffFlowUsesApiKey()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(
+            database.Path,
+            apiKeyRoles: new[] { CiServerApiRoles.Reader, CiServerApiRoles.NamingDictionaryManager });
+        using var client = factory.CreateClient();
+        var importPayload = JsonSerializer.Serialize(new
+        {
+            dictionaryId = "institution-tg263",
+            dictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.0"),
+            importedBy = "dosimetry"
+        });
+        using var importRequest = CreateJsonRequest(HttpMethod.Post, "/api/naming-dictionaries/import", importPayload);
+
+        var importResponse = await client.SendAsync(importRequest);
+        using var importResult = JsonDocument.Parse(await importResponse.Content.ReadAsStringAsync());
+        var versionId = importResult.RootElement.GetProperty("version").GetProperty("versionId").GetString()
+            ?? throw new InvalidOperationException("Import did not return a version id.");
+        using var reviewRequest = CreateJsonRequest(HttpMethod.Post, $"/api/naming-dictionaries/institution-tg263/versions/{versionId}/review", "{}");
+        var reviewResponse = await client.SendAsync(reviewRequest);
+        using var promoteRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/naming-dictionaries/institution-tg263/versions/{versionId}/promote",
+            """{"promotedBy":"dosimetry","note":"Approved."}""");
+        var promoteResponse = await client.SendAsync(promoteRequest);
+        var secondPayload = JsonSerializer.Serialize(new
+        {
+            dictionaryId = "institution-tg263",
+            dictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.1", includeHeart: true),
+            importedBy = "dosimetry"
+        });
+        using var secondImportRequest = CreateJsonRequest(HttpMethod.Post, "/api/naming-dictionaries/import", secondPayload);
+        var secondImportResponse = await client.SendAsync(secondImportRequest);
+        using var secondImportResult = JsonDocument.Parse(await secondImportResponse.Content.ReadAsStringAsync());
+        var secondVersionId = secondImportResult.RootElement.GetProperty("version").GetProperty("versionId").GetString()
+            ?? throw new InvalidOperationException("Second import did not return a version id.");
+        using var diff = await GetJson(client, $"/api/naming-dictionaries/institution-tg263/versions/{versionId}/diff/{secondVersionId}");
+        using var versions = await GetJson(client, "/api/naming-dictionaries?dictionaryId=institution-tg263");
+
+        Assert.Equal(HttpStatusCode.Created, importResponse.StatusCode);
+        Assert.True(importResult.RootElement.GetProperty("review").GetProperty("isValid").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, reviewResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, promoteResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, secondImportResponse.StatusCode);
+        Assert.True(diff.RootElement.GetProperty("policyRelevantCount").GetInt32() > 0);
+        Assert.Contains(
+            versions.RootElement.EnumerateArray(),
+            version => version.GetProperty("versionId").GetString() == versionId
+                && version.GetProperty("isActive").GetBoolean());
     }
 
     [Fact]
@@ -731,6 +804,33 @@ public sealed class CiServerHttpSecurityTests
     private static string SampleRulePackPath()
     {
         return System.IO.Path.Combine(FindRepositoryRoot(), "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+    }
+
+    private static string CreateNamingDictionaryJson(string dictionaryId, string version, bool includeHeart = false)
+    {
+        var canonicalNames = includeHeart
+            ? new[] { "Body", "Lung_R", "Heart" }
+            : new[] { "Body", "Lung_R" };
+        return JsonSerializer.Serialize(new
+        {
+            id = dictionaryId,
+            name = "Institution TG-263",
+            version,
+            description = "Institutional TG-263 subset.",
+            source = "Institution",
+            tags = new[] { "tg263", "institution" },
+            canonicalNames,
+            aliases = new[]
+            {
+                new
+                {
+                    alias = "Right Lung",
+                    canonicalName = "Lung_R",
+                    source = "Institution"
+                }
+            },
+            requiredStructureNames = new[] { "Body" }
+        });
     }
 
     private static string CreateWordRtpxPackage()

@@ -12,6 +12,7 @@ public sealed class CiRunStore : ICiRunStore
     private readonly ConcurrentDictionary<string, CiRunBaseline> baselines = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerAuditEvent> auditEvents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerManagedRulePackVersion> rulePackVersions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CiServerManagedNamingDictionaryVersion> namingDictionaryVersions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerRtpxAcceptanceRecord> rtpxAcceptances = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ProtocolComplianceRunRecord> protocolComplianceRuns = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CaseWorkItem> workItems = new(StringComparer.OrdinalIgnoreCase);
@@ -208,6 +209,95 @@ public sealed class CiRunStore : ICiRunStore
     }
 
     /// <summary>
+    /// Adds or replaces a managed naming-dictionary version.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersion SaveNamingDictionaryVersion(CiServerManagedNamingDictionaryVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        namingDictionaryVersions[CreateNamingDictionaryVersionKey(version.DictionaryId, version.VersionId)] = version;
+        return version;
+    }
+
+    /// <summary>
+    /// Finds a managed naming-dictionary version.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersion? FindNamingDictionaryVersion(string dictionaryId, string versionId)
+    {
+        return string.IsNullOrWhiteSpace(dictionaryId) || string.IsNullOrWhiteSpace(versionId)
+            ? null
+            : namingDictionaryVersions.GetValueOrDefault(CreateNamingDictionaryVersionKey(dictionaryId, versionId));
+    }
+
+    /// <summary>
+    /// Finds the active managed version for a naming-dictionary id.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersion? FindActiveNamingDictionaryVersion(string dictionaryId)
+    {
+        if (string.IsNullOrWhiteSpace(dictionaryId))
+        {
+            return null;
+        }
+
+        return namingDictionaryVersions.Values
+            .Where(version => version.IsActive)
+            .Where(version => string.Equals(version.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(version => version.ActivatedAtUtc ?? version.ImportedAtUtc)
+            .ThenBy(version => version.VersionId, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Lists managed naming-dictionary versions.
+    /// </summary>
+    public IReadOnlyList<CiServerManagedNamingDictionaryVersionSummary> ListNamingDictionaryVersions(string? dictionaryId = null)
+    {
+        return namingDictionaryVersions.Values
+            .Where(version => string.IsNullOrWhiteSpace(dictionaryId)
+                || string.Equals(version.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(version => version.DictionaryId, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(version => version.ImportedAtUtc)
+            .ThenBy(version => version.VersionId, StringComparer.OrdinalIgnoreCase)
+            .Select(version => version.ToSummary())
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Promotes one managed naming-dictionary version as active.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersion PromoteNamingDictionaryVersion(
+        string dictionaryId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null)
+    {
+        var version = FindNamingDictionaryVersion(dictionaryId, versionId)
+            ?? throw new InvalidOperationException($"Naming dictionary version '{dictionaryId}/{versionId}' was not found.");
+
+        foreach (var existing in namingDictionaryVersions.Values.Where(existing => string.Equals(existing.DictionaryId, dictionaryId, StringComparison.OrdinalIgnoreCase)))
+        {
+            namingDictionaryVersions[CreateNamingDictionaryVersionKey(existing.DictionaryId, existing.VersionId)] = existing with
+            {
+                IsActive = false,
+                ActivatedAtUtc = null,
+                ActivatedBy = null,
+                ActivationNote = null
+            };
+        }
+
+        var promoted = version with
+        {
+            IsActive = true,
+            ActivatedAtUtc = activatedAtUtc,
+            ActivatedBy = CiServerText.Optional(activatedBy),
+            ActivationNote = CiServerText.Optional(note)
+        };
+        namingDictionaryVersions[CreateNamingDictionaryVersionKey(dictionaryId, versionId)] = promoted;
+        return promoted;
+    }
+
+    /// <summary>
     /// Adds or replaces an RT-PX package acceptance record.
     /// </summary>
     public CiServerRtpxAcceptanceRecord SaveRtpxAcceptance(CiServerRtpxAcceptanceRecord record)
@@ -358,5 +448,10 @@ public sealed class CiRunStore : ICiRunStore
     private static string CreateRulePackVersionKey(string rulePackId, string versionId)
     {
         return $"{rulePackId.Trim()}::{versionId.Trim()}";
+    }
+
+    private static string CreateNamingDictionaryVersionKey(string dictionaryId, string versionId)
+    {
+        return $"{dictionaryId.Trim()}::{versionId.Trim()}";
     }
 }

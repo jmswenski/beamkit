@@ -324,6 +324,44 @@ app.MapPost("/api/rule-packs/{id}/test", (string id, RulePackTestServerRequest r
 {
     return Results.Ok(service.TestRulePack(id, request, CiServerAuditContext.FromHttpContext(context)));
 });
+app.MapGet("/api/naming-dictionaries", (BeamKitCiServerService service, string? dictionaryId) =>
+{
+    return Results.Ok(service.ListManagedNamingDictionaryVersions(dictionaryId));
+});
+app.MapGet("/api/naming-dictionaries/versions", (BeamKitCiServerService service, string? dictionaryId) =>
+{
+    return Results.Ok(service.ListManagedNamingDictionaryVersions(dictionaryId));
+});
+app.MapPost("/api/naming-dictionaries/import", (NamingDictionaryImportServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    var result = service.ImportNamingDictionary(request, CiServerAuditContext.FromHttpContext(context));
+    return Results.Created($"/api/naming-dictionaries/{result.Version.DictionaryId}/versions/{result.Version.VersionId}", result);
+});
+app.MapGet("/api/naming-dictionaries/{id}/versions", (string id, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ListManagedNamingDictionaryVersions(id));
+});
+app.MapGet("/api/naming-dictionaries/{id}/versions/{versionId}", (string id, string versionId, BeamKitCiServerService service) =>
+{
+    var version = service.FindManagedNamingDictionaryVersion(id, versionId);
+    return version is null ? Results.NotFound() : Results.Ok(version);
+});
+app.MapPost("/api/naming-dictionaries/{id}/review-draft", (string id, NamingDictionaryImportServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ReviewNamingDictionaryDraft(id, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/naming-dictionaries/{id}/versions/{versionId}/review", (string id, string versionId, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ReviewManagedNamingDictionaryVersion(id, versionId, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapGet("/api/naming-dictionaries/{id}/versions/{oldVersionId}/diff/{newVersionId}", (string id, string oldVersionId, string newVersionId, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.CompareManagedNamingDictionaryVersions(id, oldVersionId, newVersionId, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/naming-dictionaries/{id}/versions/{versionId}/promote", (string id, string versionId, NamingDictionaryPromotionServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.PromoteManagedNamingDictionaryVersion(id, versionId, request, CiServerAuditContext.FromHttpContext(context)));
+});
 app.MapPost("/api/assignments/recommend", (AssignmentServerRequest request, HttpContext context, BeamKitCiServerService service) =>
 {
     return Results.Ok(service.RecommendAssignment(request, CiServerAuditContext.FromHttpContext(context)));

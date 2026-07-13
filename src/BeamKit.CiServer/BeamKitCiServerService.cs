@@ -932,6 +932,194 @@ public sealed class BeamKitCiServerService
     }
 
     /// <summary>
+    /// Imports a managed naming-dictionary version into CI-server storage.
+    /// </summary>
+    public CiServerNamingDictionaryImportResult ImportNamingDictionary(
+        NamingDictionaryImportServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var source = LoadNamingDictionaryImportSource(request);
+        var dictionary = StructureNameDictionaryLoader.FromJson(source.DictionaryJson);
+        var dictionaryId = NormalizeManagedNamingDictionaryId(CiServerText.Optional(request.DictionaryId) ?? dictionary.Id);
+        var dictionaryJson = StructureNameDictionaryLoader.ToJson(dictionary);
+        var fingerprint = HashText(dictionaryJson);
+        var review = new StructureNameDictionaryReviewer().Review(dictionary);
+        var importedBy = CiServerText.Optional(request.ImportedBy) ?? auditContext?.Actor;
+        var version = new CiServerManagedNamingDictionaryVersion(
+            dictionaryId,
+            CreateNamingDictionaryVersionId(fingerprint),
+            timeProvider.GetUtcNow(),
+            importedBy,
+            source.SourceKind,
+            source.Source,
+            dictionaryJson,
+            dictionary.Name,
+            dictionary.Version,
+            dictionary.Description,
+            dictionary.Source,
+            dictionary.Tags,
+            fingerprint,
+            review);
+        var saved = store.SaveNamingDictionaryVersion(version);
+        Audit(
+            "naming-dictionary.imported",
+            auditContext,
+            caseId: saved.DictionaryId,
+            status: review.IsValid ? "Valid" : "Invalid",
+            details: $"{saved.VersionId}:{saved.Fingerprint}");
+
+        var activated = false;
+        if (request.Promote)
+        {
+            saved = PromoteManagedNamingDictionaryVersion(
+                saved.DictionaryId,
+                saved.VersionId,
+                new NamingDictionaryPromotionServerRequest
+                {
+                    PromotedBy = importedBy,
+                    Note = request.Note
+                },
+                auditContext);
+            activated = true;
+        }
+
+        return new CiServerNamingDictionaryImportResult(saved.ToSummary(), review, activated);
+    }
+
+    /// <summary>
+    /// Lists managed naming-dictionary versions.
+    /// </summary>
+    public IReadOnlyList<CiServerManagedNamingDictionaryVersionSummary> ListManagedNamingDictionaryVersions(string? dictionaryId = null)
+    {
+        return store.ListNamingDictionaryVersions(dictionaryId);
+    }
+
+    /// <summary>
+    /// Finds one managed naming-dictionary version.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersionDetail? FindManagedNamingDictionaryVersion(string dictionaryId, string versionId)
+    {
+        var version = store.FindNamingDictionaryVersion(dictionaryId, versionId);
+        return version is null ? null : new CiServerManagedNamingDictionaryVersionDetail(version);
+    }
+
+    /// <summary>
+    /// Reviews a draft naming dictionary against the active version without importing it.
+    /// </summary>
+    public CiServerNamingDictionaryDraftReviewResult ReviewNamingDictionaryDraft(
+        string dictionaryId,
+        NamingDictionaryImportServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var source = LoadNamingDictionaryImportSource(request);
+        var draft = StructureNameDictionaryLoader.FromJson(source.DictionaryJson);
+        var normalizedDictionaryId = NormalizeManagedNamingDictionaryId(dictionaryId);
+        var activeVersion = store.FindActiveNamingDictionaryVersion(normalizedDictionaryId);
+        var baseline = activeVersion is null ? null : LoadManagedNamingDictionary(activeVersion);
+        var review = new StructureNameDictionaryReviewer().Review(draft);
+        var diff = baseline is null ? null : new StructureNameDictionaryDiffer().Compare(baseline, draft);
+        var result = new CiServerNamingDictionaryDraftReviewResult(
+            normalizedDictionaryId,
+            activeVersion?.VersionId,
+            review,
+            diff);
+        Audit(
+            "naming-dictionary.draft.reviewed",
+            auditContext,
+            caseId: normalizedDictionaryId,
+            status: result.IsPromotable ? "Promotable" : "Blocked",
+            details: $"{activeVersion?.VersionId ?? "none"}->{HashText(StructureNameDictionaryLoader.ToJson(draft))}:{diff?.PolicyRelevantCount ?? 0}");
+        return result;
+    }
+
+    /// <summary>
+    /// Reviews a managed naming-dictionary version and stores the latest report.
+    /// </summary>
+    public StructureNameDictionaryReviewReport ReviewManagedNamingDictionaryVersion(
+        string dictionaryId,
+        string versionId,
+        CiServerAuditContext? auditContext = null)
+    {
+        var version = FindRequiredManagedNamingDictionaryVersion(dictionaryId, versionId);
+        var dictionary = LoadManagedNamingDictionary(version);
+        var report = new StructureNameDictionaryReviewer().Review(dictionary);
+        var saved = store.SaveNamingDictionaryVersion(version with { ReviewReport = report });
+        Audit(
+            "naming-dictionary.version.reviewed",
+            auditContext,
+            caseId: saved.DictionaryId,
+            status: report.IsValid ? "Valid" : "Invalid",
+            details: $"{saved.VersionId}:{report.ErrorCount}/{report.WarningCount}");
+        return report;
+    }
+
+    /// <summary>
+    /// Compares two managed naming-dictionary versions.
+    /// </summary>
+    public StructureNameDictionaryDiffReport CompareManagedNamingDictionaryVersions(
+        string dictionaryId,
+        string oldVersionId,
+        string newVersionId,
+        CiServerAuditContext? auditContext = null)
+    {
+        var oldVersion = FindRequiredManagedNamingDictionaryVersion(dictionaryId, oldVersionId);
+        var newVersion = FindRequiredManagedNamingDictionaryVersion(dictionaryId, newVersionId);
+        var report = new StructureNameDictionaryDiffer().Compare(
+            LoadManagedNamingDictionary(oldVersion),
+            LoadManagedNamingDictionary(newVersion));
+        Audit(
+            "naming-dictionary.version.diffed",
+            auditContext,
+            caseId: dictionaryId,
+            status: report.PolicyRelevantCount > 0 ? "Changed" : "Unchanged",
+            details: $"{oldVersionId}->{newVersionId}:{report.PolicyRelevantCount}");
+        return report;
+    }
+
+    /// <summary>
+    /// Promotes a managed naming-dictionary version as active.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersion PromoteManagedNamingDictionaryVersion(
+        string dictionaryId,
+        string versionId,
+        NamingDictionaryPromotionServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var version = FindRequiredManagedNamingDictionaryVersion(dictionaryId, versionId);
+        var dictionary = LoadManagedNamingDictionary(version);
+        var review = new StructureNameDictionaryReviewer().Review(dictionary);
+        version = store.SaveNamingDictionaryVersion(version with { ReviewReport = review });
+        if (!review.IsValid)
+        {
+            var details = string.Join("; ", review.Findings
+                .Where(finding => finding.Severity == StructureNameDictionaryReviewSeverity.Error)
+                .Select(finding => $"{finding.Code}: {finding.Subject ?? version.DictionaryId}"));
+            throw new InvalidOperationException($"Naming dictionary version '{dictionaryId}/{versionId}' cannot be promoted because review has {review.ErrorCount} error(s): {details}");
+        }
+
+        var promotedBy = CiServerText.Optional(request.PromotedBy) ?? auditContext?.Actor;
+        var promoted = store.PromoteNamingDictionaryVersion(
+            version.DictionaryId,
+            version.VersionId,
+            timeProvider.GetUtcNow(),
+            promotedBy,
+            request.Note);
+        Audit(
+            "naming-dictionary.version.promoted",
+            auditContext,
+            caseId: promoted.DictionaryId,
+            status: "Active",
+            details: $"{promoted.VersionId}:{promoted.Fingerprint}");
+        return promoted;
+    }
+
+    /// <summary>
     /// Extracts and validates RT-PX protocol intent from a Word document upload.
     /// </summary>
     public RtpxWordAuthoringServerResult ExtractRtpxWordProtocol(
@@ -2062,6 +2250,19 @@ public sealed class BeamKitCiServerService
         return rulePack;
     }
 
+    private static StructureNameDictionary LoadManagedNamingDictionary(CiServerManagedNamingDictionaryVersion version)
+    {
+        var dictionary = StructureNameDictionaryLoader.FromJson(version.DictionaryJson);
+        var currentFingerprint = HashText(StructureNameDictionaryLoader.ToJson(dictionary));
+        if (!string.Equals(currentFingerprint, version.Fingerprint, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Managed naming dictionary version '{version.DictionaryId}/{version.VersionId}' no longer matches its imported fingerprint. Expected {version.Fingerprint}; loaded {currentFingerprint}.");
+        }
+
+        return dictionary;
+    }
+
     private static string SerializeSafetyEvidence(ValidationEvidencePackage evidence)
     {
         return System.Text.Json.JsonSerializer.Serialize(evidence, CiServerJson.Options);
@@ -2873,6 +3074,12 @@ public sealed class BeamKitCiServerService
             ?? throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' was not found.");
     }
 
+    private CiServerManagedNamingDictionaryVersion FindRequiredManagedNamingDictionaryVersion(string dictionaryId, string versionId)
+    {
+        return store.FindNamingDictionaryVersion(dictionaryId, versionId)
+            ?? throw new InvalidOperationException($"Naming dictionary version '{dictionaryId}/{versionId}' was not found.");
+    }
+
     private static CiServerRulePackSummary CreateManagedRulePackSummary(CiServerManagedRulePackVersionSummary version)
     {
         return new CiServerRulePackSummary(
@@ -2911,6 +3118,17 @@ public sealed class BeamKitCiServerService
         }
 
         return rulePackId;
+    }
+
+    private static string NormalizeManagedNamingDictionaryId(string? value)
+    {
+        var dictionaryId = CiServerText.Required(value, nameof(value));
+        if (dictionaryId.Any(character => !char.IsLetterOrDigit(character) && character is not '-' and not '_' and not '.'))
+        {
+            throw new ArgumentException("Naming dictionary id may only contain letters, numbers, dashes, underscores, and periods.", nameof(value));
+        }
+
+        return dictionaryId;
     }
 
     private RulePackImportSource LoadRulePackImportSource(RulePackImportServerRequest request)
@@ -2974,6 +3192,34 @@ public sealed class BeamKitCiServerService
             null);
     }
 
+    private NamingDictionaryImportSource LoadNamingDictionaryImportSource(NamingDictionaryImportServerRequest request)
+    {
+        var dictionaryJson = GetJson(request.Dictionary, request.DictionaryJson);
+        var sourceCount = new[]
+        {
+            !string.IsNullOrWhiteSpace(request.DictionaryPath),
+            !string.IsNullOrWhiteSpace(dictionaryJson)
+        }.Count(value => value);
+        if (sourceCount != 1)
+        {
+            throw new ArgumentException("Naming-dictionary import requires exactly one of 'dictionaryPath' or 'dictionary'/'dictionaryJson'.", nameof(request));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.DictionaryPath))
+        {
+            var fullPath = ResolveAllowedServerLocalPath(request.DictionaryPath, "dictionaryPath");
+            return new NamingDictionaryImportSource(
+                File.ReadAllText(fullPath),
+                "File",
+                fullPath);
+        }
+
+        return new NamingDictionaryImportSource(
+            dictionaryJson ?? throw new ArgumentException("Dictionary JSON is required.", nameof(request)),
+            "InlineJson",
+            CiServerText.Optional(request.Source) ?? "inline-json");
+    }
+
     private static RulePackBundle VerifyBundleSource(RulePackBundle bundle)
     {
         var report = new RulePackBundleVerifier().Verify(bundle);
@@ -2992,6 +3238,14 @@ public sealed class BeamKitCiServerService
             ? fingerprint["sha256:".Length..Math.Min(fingerprint.Length, "sha256:".Length + 12)]
             : fingerprint[..Math.Min(fingerprint.Length, 12)];
         return $"rpv-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{fingerprintSuffix}-{Guid.NewGuid():N}"[..59];
+    }
+
+    private string CreateNamingDictionaryVersionId(string fingerprint)
+    {
+        var fingerprintSuffix = fingerprint.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
+            ? fingerprint["sha256:".Length..Math.Min(fingerprint.Length, "sha256:".Length + 12)]
+            : fingerprint[..Math.Min(fingerprint.Length, 12)];
+        return $"ndv-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{fingerprintSuffix}-{Guid.NewGuid():N}"[..59];
     }
 
     private void Audit(
@@ -3177,6 +3431,8 @@ public sealed class BeamKitCiServerService
     private sealed record UploadedPlan(Plan Plan, CiRunInputKind InputKind, string DefaultInputSource);
 
     private sealed record RulePackImportSource(string ManifestJson, string BaseDirectory, string SourceKind, string Source, RulePackBundle? Bundle);
+
+    private sealed record NamingDictionaryImportSource(string DictionaryJson, string SourceKind, string Source);
 
     private sealed record RtpxWordDocxSource(string Path, string FileName, string Fingerprint);
 

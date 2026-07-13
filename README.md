@@ -64,9 +64,10 @@ What is usable today:
 - Rule-pack policy-as-code validation with deterministic fingerprints.
 - Rule-pack regression testing against PHI-free synthetic cases.
 - Immutable rule-pack bundle artifacts with embedded catalog files, validation evidence, regression evidence, fingerprints, and tamper verification.
+- Managed naming-dictionary versions with review, diff, promotion, fingerprints, and audit trail.
 - Explainable predictive case/plan intelligence for complexity, QA risk, planning effort, physics review effort, target metrics, and next-action recommendations.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, RT-PX package acceptance and approval-gated promotion, active protocol compliance packets with variance tracking, registered and managed immutable rule-pack versions, draft rule-pack review, managed-version diffs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, RT-PX package acceptance and approval-gated promotion, active protocol compliance packets with variance tracking, registered and managed immutable rule-pack versions, managed naming dictionaries, draft review, managed-version diffs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -155,7 +156,7 @@ BeamKit aims to provide a common, open, testable software layer for:
 | [`BeamKit.Core`](src/BeamKit.Core/README.md) | Vendor-neutral models for patients, plans, structures, dose, beams, prescriptions, and clinical goals. | Active |
 | [`BeamKit.ChangeDetection`](src/BeamKit.ChangeDetection/README.md) | Vendor-neutral plan change detection and treatment-vs-QA plan integrity verification. | Active |
 | [`BeamKit.Check`](src/BeamKit.Check/README.md) | Flagship rule-pack workflow for CI/CD-style plan QA, polished reports, readiness, metrics, naming, and write-up evidence. | Active |
-| [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for API-key protected plan gates, active RT-PX protocol compliance packets, managed rule-pack versions, audit events, provenance artifacts, baseline comparisons, and assignment recommendations. | Initial |
+| [`BeamKit.CiServer`](src/BeamKit.CiServer/README.md) | Self-hosted HTTP server and dashboard for API-key protected plan gates, active RT-PX protocol compliance packets, managed rule-pack/naming-dictionary versions, audit events, provenance artifacts, baseline comparisons, and assignment recommendations. | Initial |
 | [`BeamKit.WordAddIn`](src/BeamKit.WordAddIn/README.md) | Office.js Word task-pane scaffold for authoring RT-PX tables, applying server-backed templates/snippets, quick-checking protocols, publishing drafts to BeamKit CI review, and downloading generated RT-PX packages. | Scaffold |
 | [`BeamKit.Deliverability`](src/BeamKit.Deliverability/README.md) | Beam deliverability and machine-profile checks for MU, MU/degree, jaw policy, beam model, and calculation model constraints. | Active |
 | [`BeamKit.Intelligence`](src/BeamKit.Intelligence/README.md) | Explainable predictive case and plan intelligence for complexity, QA risk, planning effort, and physics review triage. | Initial |
@@ -430,7 +431,7 @@ curl -s "$API/api/runs/{laterId}/baseline-comparison" \
 
 When both runs have retained BeamKit plan snapshots, the baseline comparison response includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes in addition to provenance fingerprints.
 
-For production-like deployments, split CI server API keys by role instead of sharing one admin key. BeamKit supports `Reader`, `Runner`, `BaselineManager`, `RulePackManager`, `ProtocolManager`, `WorkQueueManager`, and `Admin`; keys without explicit roles remain `Admin` for backward compatibility. Request-supplied server-local paths are also constrained to configured allowed roots, defaulting to `samples` and `artifacts`.
+For production-like deployments, split CI server API keys by role instead of sharing one admin key. BeamKit supports `Reader`, `Runner`, `BaselineManager`, `RulePackManager`, `NamingDictionaryManager`, `ProtocolManager`, `WorkQueueManager`, and `Admin`; keys without explicit roles remain `Admin` for backward compatibility. Request-supplied server-local paths are also constrained to configured allowed roots, defaulting to `samples` and `artifacts`.
 
 Submit a locally extracted ESAPI snapshot or BeamKit plan JSON to the server:
 
@@ -739,6 +740,7 @@ BeamKit rule packs are intended to be reviewed like software:
 - The CI server can promote a run as a baseline and compare later runs against it using both exact fingerprints and field-level plan changes when snapshots are available.
 - The CI server can protect plan-gate APIs with API keys, record audit events, enforce upload-size limits, reject uploaded snapshots with obvious patient identifiers by default, and run registered rule packs by stable id.
 - Managed rule-pack versions can be draft-reviewed, diffed, imported, validated, regression-tested, promoted active, and audited before they drive plan gates.
+- Managed naming-dictionary versions can be draft-reviewed, diffed, imported, reviewed, promoted active, and audited before they become institutional naming policy.
 
 This is the open-source foundation for treating radiation plans like reproducible clinical build artifacts: every rule change can be reviewed, tested, and traced.
 

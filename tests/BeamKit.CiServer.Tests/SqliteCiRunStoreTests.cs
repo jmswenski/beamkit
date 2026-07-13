@@ -1,4 +1,5 @@
 using BeamKit.Check;
+using BeamKit.Naming;
 using BeamKit.Sdk;
 using Microsoft.Data.Sqlite;
 using Xunit;
@@ -270,6 +271,27 @@ public sealed class SqliteCiRunStoreTests
     }
 
     [Fact]
+    public void NamingDictionaryVersionsSurviveNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        firstStore.SaveNamingDictionaryVersion(CreateNamingDictionaryVersion("institution-tg263", "v1", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero)));
+        firstStore.SaveNamingDictionaryVersion(CreateNamingDictionaryVersion("institution-tg263", "v2", new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero)));
+        firstStore.PromoteNamingDictionaryVersion("institution-tg263", "v2", new DateTimeOffset(2026, 7, 9, 12, 2, 0, TimeSpan.Zero), "dosimetry", "Approved.");
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var versions = secondStore.ListNamingDictionaryVersions("institution-tg263");
+        var active = secondStore.FindActiveNamingDictionaryVersion("institution-tg263");
+
+        Assert.Equal(new[] { "v2", "v1" }, versions.Select(version => version.VersionId));
+        Assert.NotNull(active);
+        Assert.Equal("v2", active.VersionId);
+        Assert.Equal("dosimetry", active.ActivatedBy);
+        Assert.True(active.ReviewReport.IsValid);
+        Assert.Contains("Lung_R", active.DictionaryJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RtpxAcceptancesSurviveNewStoreInstance()
     {
         using var database = TemporaryDatabase.Create();
@@ -418,6 +440,33 @@ public sealed class SqliteCiRunStoreTests
             $"sha256:{versionId}",
             new RulePackValidationReport("Rule pack", versionId, $"sha256:{versionId}", Array.Empty<RulePackPolicyIssue>()),
             new RulePackTestReport("Rule pack", versionId, importedAtUtc, Array.Empty<RulePackTestResult>()));
+    }
+
+    private static CiServerManagedNamingDictionaryVersion CreateNamingDictionaryVersion(string dictionaryId, string versionId, DateTimeOffset importedAtUtc)
+    {
+        var dictionary = new StructureNameDictionary(
+            "Institution TG-263",
+            new[] { "Body", "Lung_R" },
+            requiredStructureNames: new[] { "Body" },
+            id: dictionaryId,
+            version: versionId,
+            source: "Institution",
+            tags: new[] { "tg263" });
+        return new CiServerManagedNamingDictionaryVersion(
+            dictionaryId,
+            versionId,
+            importedAtUtc,
+            "dosimetry",
+            "InlineJson",
+            "test",
+            StructureNameDictionaryLoader.ToJson(dictionary),
+            dictionary.Name,
+            dictionary.Version,
+            dictionary.Description,
+            dictionary.Source,
+            dictionary.Tags,
+            $"sha256:{versionId}",
+            new StructureNameDictionaryReviewer().Review(dictionary));
     }
 
     private static CiServerRtpxAcceptanceRecord CreateRtpxAcceptance(string id, DateTimeOffset createdAtUtc, bool accepted)

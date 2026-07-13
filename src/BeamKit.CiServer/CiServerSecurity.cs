@@ -172,6 +172,11 @@ internal static class CiServerSecurity
             return CiServerApiRoles.RulePackManager;
         }
 
+        if (path.StartsWithSegments("/api/naming-dictionaries", StringComparison.OrdinalIgnoreCase))
+        {
+            return CiServerApiRoles.NamingDictionaryManager;
+        }
+
         if (path.StartsWithSegments("/api/assignments", StringComparison.OrdinalIgnoreCase)
             || path.StartsWithSegments("/api/work-items", StringComparison.OrdinalIgnoreCase))
         {

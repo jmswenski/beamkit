@@ -6,6 +6,7 @@ using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
 using BeamKit.Esapi;
+using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.Protocols;
 using BeamKit.Protocols.Acceptance;
@@ -400,6 +401,88 @@ public sealed class BeamKitCiServerServiceTests
         var auditEvent = Assert.Single(store.ListAuditEvents(new CiServerAuditQuery { Action = "rule-pack.imported" }));
         Assert.Equal("physics-key", auditEvent.Actor);
         Assert.Equal("institution-head-neck", auditEvent.CaseId);
+    }
+
+    [Fact]
+    public void ImportNamingDictionaryStoresReviewAndAuditHistory()
+    {
+        var store = new CiRunStore();
+        var service = CreateService(store);
+
+        var result = service.ImportNamingDictionary(
+            new NamingDictionaryImportServerRequest
+            {
+                DictionaryId = "institution-tg263",
+                DictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.0"),
+                ImportedBy = "dosimetry"
+            },
+            new CiServerAuditContext("naming-key", "/api/naming-dictionaries/import", "POST"));
+
+        Assert.Equal("institution-tg263", result.Version.DictionaryId);
+        Assert.True(result.Review.IsValid);
+        Assert.False(result.Activated);
+        var stored = Assert.Single(service.ListManagedNamingDictionaryVersions("institution-tg263"));
+        Assert.Equal(result.Version.VersionId, stored.VersionId);
+        Assert.True(stored.IsValid);
+        var auditEvent = Assert.Single(store.ListAuditEvents(new CiServerAuditQuery { Action = "naming-dictionary.imported" }));
+        Assert.Equal("naming-key", auditEvent.Actor);
+        Assert.Equal("institution-tg263", auditEvent.CaseId);
+    }
+
+    [Fact]
+    public void CompareManagedNamingDictionaryVersionsReportsPolicyChanges()
+    {
+        var service = CreateService();
+        var first = service.ImportNamingDictionary(new NamingDictionaryImportServerRequest
+        {
+            DictionaryId = "institution-tg263",
+            DictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.0", includeLung: false),
+            Promote = true
+        });
+        var second = service.ImportNamingDictionary(new NamingDictionaryImportServerRequest
+        {
+            DictionaryId = "institution-tg263",
+            DictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.1", includeLung: true)
+        });
+
+        var diff = service.CompareManagedNamingDictionaryVersions(
+            "institution-tg263",
+            first.Version.VersionId,
+            second.Version.VersionId);
+
+        Assert.True(diff.PolicyRelevantCount > 0);
+        Assert.Contains(diff.Changes, change => change.Category == "Canonical" && change.NewValue == "Lung_R");
+        var review = service.ReviewNamingDictionaryDraft(
+            "institution-tg263",
+            new NamingDictionaryImportServerRequest { DictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.2", includeLung: true) });
+        Assert.Equal(first.Version.VersionId, review.BaselineVersionId);
+        Assert.NotNull(review.Diff);
+    }
+
+    [Fact]
+    public void PromoteNamingDictionaryBlocksReviewErrors()
+    {
+        var service = CreateService();
+        var invalidDictionary = new StructureNameDictionary(
+            "Invalid Dictionary",
+            new[] { "Body" },
+            requiredStructureNames: new[] { "Body" },
+            id: "institution-invalid",
+            version: "1.0",
+            deprecatedNames: new[] { new DeprecatedStructureName("Body", "Body", "Do not deprecate an active canonical name.") });
+
+        var result = service.ImportNamingDictionary(new NamingDictionaryImportServerRequest
+        {
+            DictionaryId = "institution-invalid",
+            DictionaryJson = StructureNameDictionaryLoader.ToJson(invalidDictionary)
+        });
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.PromoteManagedNamingDictionaryVersion(
+            "institution-invalid",
+            result.Version.VersionId,
+            new NamingDictionaryPromotionServerRequest { PromotedBy = "dosimetry" }));
+        Assert.Contains("cannot be promoted", exception.Message, StringComparison.Ordinal);
+        Assert.Null(service.ListManagedNamingDictionaryVersions("institution-invalid").Single().ActivatedAtUtc);
     }
 
     [Fact]
@@ -1222,6 +1305,27 @@ public sealed class BeamKitCiServerServiceTests
     private static string SampleRulePackPath()
     {
         return Path.Combine(FindRepositoryRoot(), "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+    }
+
+    private static string CreateNamingDictionaryJson(string dictionaryId, string version, bool includeLung = true)
+    {
+        var canonicalNames = includeLung
+            ? new[] { "Body", "Lung_R" }
+            : new[] { "Body" };
+        var aliases = includeLung
+            ? new[] { new StructureNameAlias("Right Lung", "Lung_R", "Institution") }
+            : Array.Empty<StructureNameAlias>();
+        var dictionary = new StructureNameDictionary(
+            "Institution TG-263",
+            canonicalNames,
+            aliases,
+            requiredStructureNames: new[] { "Body" },
+            id: dictionaryId,
+            version: version,
+            description: "Institutional TG-263 subset.",
+            source: "Institution",
+            tags: new[] { "tg263", "institution" });
+        return StructureNameDictionaryLoader.ToJson(dictionary);
     }
 
     private static string CreateTemporarySampleRulePackCopy()

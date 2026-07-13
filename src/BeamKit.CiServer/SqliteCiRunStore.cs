@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using BeamKit.Check;
+using BeamKit.Naming;
 using BeamKit.Workflow;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
@@ -680,6 +681,237 @@ public sealed class SqliteCiRunStore : ICiRunStore
 
         return FindRulePackVersion(rulePackId, versionId)
             ?? throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' was not found after promotion.");
+    }
+
+    /// <summary>
+    /// Adds or replaces a managed naming-dictionary version.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersion SaveNamingDictionaryVersion(CiServerManagedNamingDictionaryVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ci_naming_dictionary_versions (
+                    dictionary_id,
+                    version_id,
+                    imported_at_utc,
+                    imported_by,
+                    source_kind,
+                    source,
+                    dictionary_json,
+                    name,
+                    dictionary_version,
+                    description,
+                    dictionary_source,
+                    tags_json,
+                    fingerprint,
+                    review_report_json,
+                    is_active,
+                    activated_at_utc,
+                    activated_by,
+                    activation_note
+                )
+                VALUES (
+                    $dictionary_id,
+                    $version_id,
+                    $imported_at_utc,
+                    $imported_by,
+                    $source_kind,
+                    $source,
+                    $dictionary_json,
+                    $name,
+                    $dictionary_version,
+                    $description,
+                    $dictionary_source,
+                    $tags_json,
+                    $fingerprint,
+                    $review_report_json,
+                    $is_active,
+                    $activated_at_utc,
+                    $activated_by,
+                    $activation_note
+                )
+                ON CONFLICT(dictionary_id, version_id) DO UPDATE SET
+                    imported_at_utc = excluded.imported_at_utc,
+                    imported_by = excluded.imported_by,
+                    source_kind = excluded.source_kind,
+                    source = excluded.source,
+                    dictionary_json = excluded.dictionary_json,
+                    name = excluded.name,
+                    dictionary_version = excluded.dictionary_version,
+                    description = excluded.description,
+                    dictionary_source = excluded.dictionary_source,
+                    tags_json = excluded.tags_json,
+                    fingerprint = excluded.fingerprint,
+                    review_report_json = excluded.review_report_json,
+                    is_active = excluded.is_active,
+                    activated_at_utc = excluded.activated_at_utc,
+                    activated_by = excluded.activated_by,
+                    activation_note = excluded.activation_note;
+                """;
+            AddNamingDictionaryVersionParameters(command, version);
+            command.ExecuteNonQuery();
+        }
+
+        return version;
+    }
+
+    /// <summary>
+    /// Finds a managed naming-dictionary version.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersion? FindNamingDictionaryVersion(string dictionaryId, string versionId)
+    {
+        if (string.IsNullOrWhiteSpace(dictionaryId) || string.IsNullOrWhiteSpace(versionId))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectNamingDictionaryVersionColumns()}
+                WHERE dictionary_id = $dictionary_id AND version_id = $version_id;
+                """;
+            command.Parameters.AddWithValue("$dictionary_id", dictionaryId.Trim());
+            command.Parameters.AddWithValue("$version_id", versionId.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadNamingDictionaryVersion(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Finds the active managed version for a naming-dictionary id.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersion? FindActiveNamingDictionaryVersion(string dictionaryId)
+    {
+        if (string.IsNullOrWhiteSpace(dictionaryId))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectNamingDictionaryVersionColumns()}
+                WHERE dictionary_id = $dictionary_id AND is_active = 1
+                ORDER BY COALESCE(activated_at_utc, imported_at_utc) DESC, version_id ASC
+                LIMIT 1;
+                """;
+            command.Parameters.AddWithValue("$dictionary_id", dictionaryId.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadNamingDictionaryVersion(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Lists managed naming-dictionary versions.
+    /// </summary>
+    public IReadOnlyList<CiServerManagedNamingDictionaryVersionSummary> ListNamingDictionaryVersions(string? dictionaryId = null)
+    {
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            var where = string.Empty;
+            if (!string.IsNullOrWhiteSpace(dictionaryId))
+            {
+                where = "WHERE dictionary_id = $dictionary_id";
+                command.Parameters.AddWithValue("$dictionary_id", dictionaryId.Trim());
+            }
+
+            command.CommandText = $"""
+                {SelectNamingDictionaryVersionColumns()}
+                {where}
+                ORDER BY dictionary_id ASC, imported_at_utc DESC, version_id ASC;
+                """;
+
+            var versions = new List<CiServerManagedNamingDictionaryVersionSummary>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                versions.Add(ReadNamingDictionaryVersion(reader).ToSummary());
+            }
+
+            return versions;
+        }
+    }
+
+    /// <summary>
+    /// Promotes one managed naming-dictionary version as active.
+    /// </summary>
+    public CiServerManagedNamingDictionaryVersion PromoteNamingDictionaryVersion(
+        string dictionaryId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null)
+    {
+        if (string.IsNullOrWhiteSpace(dictionaryId))
+        {
+            throw new ArgumentException("Naming dictionary id is required.", nameof(dictionaryId));
+        }
+
+        if (string.IsNullOrWhiteSpace(versionId))
+        {
+            throw new ArgumentException("Version id is required.", nameof(versionId));
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var transaction = connection.BeginTransaction();
+
+            using (var clear = connection.CreateCommand())
+            {
+                clear.Transaction = transaction;
+                clear.CommandText = """
+                    UPDATE ci_naming_dictionary_versions
+                    SET is_active = 0,
+                        activated_at_utc = NULL,
+                        activated_by = NULL,
+                        activation_note = NULL
+                    WHERE dictionary_id = $dictionary_id;
+                    """;
+                clear.Parameters.AddWithValue("$dictionary_id", dictionaryId.Trim());
+                clear.ExecuteNonQuery();
+            }
+
+            using (var promote = connection.CreateCommand())
+            {
+                promote.Transaction = transaction;
+                promote.CommandText = """
+                    UPDATE ci_naming_dictionary_versions
+                    SET is_active = 1,
+                        activated_at_utc = $activated_at_utc,
+                        activated_by = $activated_by,
+                        activation_note = $activation_note
+                    WHERE dictionary_id = $dictionary_id AND version_id = $version_id;
+                    """;
+                promote.Parameters.AddWithValue("$dictionary_id", dictionaryId.Trim());
+                promote.Parameters.AddWithValue("$version_id", versionId.Trim());
+                promote.Parameters.AddWithValue("$activated_at_utc", ToStoredTimestamp(activatedAtUtc));
+                promote.Parameters.AddWithValue("$activated_by", ToDbValue(activatedBy));
+                promote.Parameters.AddWithValue("$activation_note", ToDbValue(note));
+                var updated = promote.ExecuteNonQuery();
+                if (updated == 0)
+                {
+                    throw new InvalidOperationException($"Naming dictionary version '{dictionaryId}/{versionId}' was not found.");
+                }
+            }
+
+            transaction.Commit();
+        }
+
+        return FindNamingDictionaryVersion(dictionaryId, versionId)
+            ?? throw new InvalidOperationException($"Naming dictionary version '{dictionaryId}/{versionId}' was not found after promotion.");
     }
 
     /// <summary>
@@ -1409,6 +1641,33 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_active ON ci_rule_pack_versions(rule_pack_id, is_active);
                 CREATE INDEX IF NOT EXISTS ix_ci_rule_pack_versions_imported_at ON ci_rule_pack_versions(imported_at_utc);
 
+                CREATE TABLE IF NOT EXISTS ci_naming_dictionary_versions (
+                    dictionary_id TEXT NOT NULL,
+                    version_id TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL,
+                    imported_by TEXT NULL,
+                    source_kind TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    dictionary_json TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    dictionary_version TEXT NULL,
+                    description TEXT NULL,
+                    dictionary_source TEXT NULL,
+                    tags_json TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    review_report_json TEXT NOT NULL,
+                    is_active INTEGER NOT NULL,
+                    activated_at_utc TEXT NULL,
+                    activated_by TEXT NULL,
+                    activation_note TEXT NULL,
+                    PRIMARY KEY (dictionary_id, version_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_ci_naming_dictionary_versions_dictionary_id ON ci_naming_dictionary_versions(dictionary_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_naming_dictionary_versions_fingerprint ON ci_naming_dictionary_versions(fingerprint);
+                CREATE INDEX IF NOT EXISTS ix_ci_naming_dictionary_versions_active ON ci_naming_dictionary_versions(dictionary_id, is_active);
+                CREATE INDEX IF NOT EXISTS ix_ci_naming_dictionary_versions_imported_at ON ci_naming_dictionary_versions(imported_at_utc);
+
                 CREATE TABLE IF NOT EXISTS ci_rtpx_acceptances (
                     id TEXT PRIMARY KEY,
                     created_at_utc TEXT NOT NULL,
@@ -1640,6 +1899,28 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$activated_by", ToDbValue(version.ActivatedBy));
         command.Parameters.AddWithValue("$activation_note", ToDbValue(version.ActivationNote));
         command.Parameters.AddWithValue("$safety_evidence_json", ToDbValue(version.SafetyEvidenceJson));
+    }
+
+    private static void AddNamingDictionaryVersionParameters(SqliteCommand command, CiServerManagedNamingDictionaryVersion version)
+    {
+        command.Parameters.AddWithValue("$dictionary_id", version.DictionaryId);
+        command.Parameters.AddWithValue("$version_id", version.VersionId);
+        command.Parameters.AddWithValue("$imported_at_utc", ToStoredTimestamp(version.ImportedAtUtc));
+        command.Parameters.AddWithValue("$imported_by", ToDbValue(version.ImportedBy));
+        command.Parameters.AddWithValue("$source_kind", version.SourceKind);
+        command.Parameters.AddWithValue("$source", version.Source);
+        command.Parameters.AddWithValue("$dictionary_json", version.DictionaryJson);
+        command.Parameters.AddWithValue("$name", version.Name);
+        command.Parameters.AddWithValue("$dictionary_version", ToDbValue(version.DictionaryVersion));
+        command.Parameters.AddWithValue("$description", ToDbValue(version.Description));
+        command.Parameters.AddWithValue("$dictionary_source", ToDbValue(version.DictionarySource));
+        command.Parameters.AddWithValue("$tags_json", JsonSerializer.Serialize(version.Tags, CiServerJson.Options));
+        command.Parameters.AddWithValue("$fingerprint", version.Fingerprint);
+        command.Parameters.AddWithValue("$review_report_json", JsonSerializer.Serialize(version.ReviewReport, CiServerJson.Options));
+        command.Parameters.AddWithValue("$is_active", version.IsActive ? 1 : 0);
+        command.Parameters.AddWithValue("$activated_at_utc", version.ActivatedAtUtc is null ? DBNull.Value : ToStoredTimestamp(version.ActivatedAtUtc.Value));
+        command.Parameters.AddWithValue("$activated_by", ToDbValue(version.ActivatedBy));
+        command.Parameters.AddWithValue("$activation_note", ToDbValue(version.ActivationNote));
     }
 
     private static void AddRtpxAcceptanceParameters(SqliteCommand command, CiServerRtpxAcceptanceRecord record)
@@ -1899,6 +2180,58 @@ public sealed class SqliteCiRunStore : ICiRunStore
             GetNullableString(reader, 22));
     }
 
+    private static string SelectNamingDictionaryVersionColumns()
+    {
+        return """
+            SELECT
+                dictionary_id,
+                version_id,
+                imported_at_utc,
+                imported_by,
+                source_kind,
+                source,
+                dictionary_json,
+                name,
+                dictionary_version,
+                description,
+                dictionary_source,
+                tags_json,
+                fingerprint,
+                review_report_json,
+                is_active,
+                activated_at_utc,
+                activated_by,
+                activation_note
+            FROM ci_naming_dictionary_versions
+            """;
+    }
+
+    private static CiServerManagedNamingDictionaryVersion ReadNamingDictionaryVersion(SqliteDataReader reader)
+    {
+        var tags = JsonSerializer.Deserialize<string[]>(reader.GetString(11), CiServerJson.Options)
+            ?? Array.Empty<string>();
+
+        return new CiServerManagedNamingDictionaryVersion(
+            reader.GetString(0),
+            reader.GetString(1),
+            DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            GetNullableString(reader, 3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetString(7),
+            GetNullableString(reader, 8),
+            GetNullableString(reader, 9),
+            GetNullableString(reader, 10),
+            tags,
+            reader.GetString(12),
+            ReadNamingDictionaryReviewReport(reader.GetString(13)),
+            reader.GetInt32(14) != 0,
+            reader.IsDBNull(15) ? null : DateTimeOffset.Parse(reader.GetString(15), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            GetNullableString(reader, 16),
+            GetNullableString(reader, 17));
+    }
+
     private static string SelectRtpxAcceptanceColumns()
     {
         return """
@@ -2066,6 +2399,32 @@ public sealed class SqliteCiRunStore : ICiRunStore
             element.GetProperty("code").GetString() ?? "policy.issue",
             severity,
             element.GetProperty("message").GetString() ?? "Policy issue.",
+            element.TryGetProperty("subject", out var subject) ? subject.GetString() : null);
+    }
+
+    private static StructureNameDictionaryReviewReport ReadNamingDictionaryReviewReport(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var findings = root.TryGetProperty("findings", out var findingsElement) && findingsElement.ValueKind == JsonValueKind.Array
+            ? findingsElement.EnumerateArray().Select(ReadNamingDictionaryReviewFinding).ToArray()
+            : Array.Empty<StructureNameDictionaryReviewFinding>();
+        return new StructureNameDictionaryReviewReport(
+            root.GetProperty("dictionaryName").GetString() ?? "Structure-name dictionary",
+            root.TryGetProperty("dictionaryId", out var dictionaryId) ? dictionaryId.GetString() : null,
+            root.TryGetProperty("dictionaryVersion", out var dictionaryVersion) ? dictionaryVersion.GetString() : null,
+            findings);
+    }
+
+    private static StructureNameDictionaryReviewFinding ReadNamingDictionaryReviewFinding(JsonElement element)
+    {
+        var severity = Enum.Parse<StructureNameDictionaryReviewSeverity>(
+            element.GetProperty("severity").GetString() ?? StructureNameDictionaryReviewSeverity.Error.ToString(),
+            ignoreCase: true);
+        return new StructureNameDictionaryReviewFinding(
+            element.GetProperty("code").GetString() ?? "dictionary.review.issue",
+            severity,
+            element.GetProperty("message").GetString() ?? "Dictionary review issue.",
             element.TryGetProperty("subject", out var subject) ? subject.GetString() : null);
     }
 

@@ -15,6 +15,7 @@ This first slice supports:
 - Managed rule-pack version import from manifests or immutable bundles, regression evidence, and active-version promotion.
 - Safety and validation evidence review for managed rule-pack promotion, including clinical-promotion traceability and safety-registry reference gates.
 - Draft rule-pack review and managed-version diff reports.
+- Managed structure-name dictionary import, review, diff, promotion, version history, and audit trail.
 - RT-PX package acceptance into managed rule-pack versions, including institution profile fingerprints, optional ESAPI snapshot evidence, generated safety evidence, and optional promotion.
 - RT-PX Word extraction uploads for Word add-ins and protocol authoring clients.
 - RT-PX authoring template/snippet libraries and Word draft publishing into a durable review queue with protocol diff acknowledgement, approval, rejection, and promotion gates.
@@ -76,6 +77,11 @@ GET /api/rule-packs/{id}/versions
 GET /api/rule-packs/{id}/versions/{versionId}
 GET /api/rule-packs/{id}/versions/{versionId}/safety-evidence
 GET /api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}
+GET /api/naming-dictionaries
+GET /api/naming-dictionaries/versions
+GET /api/naming-dictionaries/{id}/versions
+GET /api/naming-dictionaries/{id}/versions/{versionId}
+GET /api/naming-dictionaries/{id}/versions/{oldVersionId}/diff/{newVersionId}
 GET /api/work-items
 GET /api/work-items/{id}
 GET /api/audit-events
@@ -99,6 +105,10 @@ POST /api/rule-packs/{id}/versions/{versionId}/test
 POST /api/rule-packs/{id}/versions/{versionId}/safety-evidence/validate
 POST /api/rule-packs/{id}/versions/{versionId}/promote
 POST /api/rule-packs/{id}/review-draft
+POST /api/naming-dictionaries/import
+POST /api/naming-dictionaries/{id}/review-draft
+POST /api/naming-dictionaries/{id}/versions/{versionId}/review
+POST /api/naming-dictionaries/{id}/versions/{versionId}/promote
 POST /api/assignments/recommend
 POST /api/assignments/recommend-team
 POST /api/work-items
@@ -337,7 +347,7 @@ curl -s "$API/api/audit-events?action=run.created&limit=25" \
 
 `/` and `/health` are public. `/api/*` requires the configured `X-BeamKit-Api-Key` header by default. API-key labels are recorded in audit events; raw key values are not.
 
-API keys can be scoped with roles. Use `Reader` for read-only clients, `Runner` for run submission, `BaselineManager` for baseline promotion, `RulePackManager` for rule-pack import/review/promotion, `ProtocolManager` for RT-PX and protocol-variance flows, `WorkQueueManager` for work queues and assignment recommendations, and `Admin` for full access. Keys without explicit roles are treated as `Admin` for backward compatibility; production deployments should configure explicit roles.
+API keys can be scoped with roles. Use `Reader` for read-only clients, `Runner` for run submission, `BaselineManager` for baseline promotion, `RulePackManager` for rule-pack import/review/promotion, `NamingDictionaryManager` for structure-name dictionary import/review/promotion, `ProtocolManager` for RT-PX and protocol-variance flows, `WorkQueueManager` for work queues and assignment recommendations, and `Admin` for full access. Keys without explicit roles are treated as `Admin` for backward compatibility; production deployments should configure explicit roles.
 
 Plan snapshot, protocol compliance, RT-PX acceptance, and RT-PX Word uploads are capped by `BeamKit:CiServer:Security:MaxPlanSnapshotUploadBytes`, defaulting to 5 MB and clamped between 1 KB and 100 MB.
 
@@ -431,6 +441,45 @@ curl -s "$API/api/rule-packs/institution-head-neck/versions/{oldVersionId}/diff/
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
+## Naming-Dictionary Registry
+
+Structure-name policy can be managed as versioned CI-server state instead of mutable JSON files. Imports accept inline dictionary JSON or a server-local `dictionaryPath`, run `StructureNameDictionaryReviewer`, store the imported fingerprint and review report, and require a clean review before promotion.
+
+```bash
+curl -s "$API/api/naming-dictionaries/import" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "dictionaryId": "institution-tg263",
+    "dictionaryPath": "samples/naming-dictionary-head-neck.json",
+    "importedBy": "dosimetry"
+  }'
+
+curl -s "$API/api/naming-dictionaries/institution-tg263/versions/{versionId}/review" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{}'
+
+curl -s "$API/api/naming-dictionaries/institution-tg263/versions/{versionId}/promote" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"promotedBy":"dosimetry","note":"Approved TG-263 overlay."}'
+```
+
+Use draft review and diffs before changing active naming policy:
+
+```bash
+curl -s "$API/api/naming-dictionaries/institution-tg263/review-draft" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"dictionaryPath":"samples/naming-dictionary-head-neck.json"}'
+
+curl -s "$API/api/naming-dictionaries/institution-tg263/versions/{oldVersionId}/diff/{newVersionId}" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+```
+
+Promotion blocks dictionaries with reviewer errors such as alias collisions, canonical token collisions, or deprecated names that are still canonical. Warnings remain visible in the stored review report so teams can choose local governance rules without losing traceability.
+
 ## Storage
 
 The default SQLite database is:
@@ -448,6 +497,8 @@ Configure it under `BeamKit:CiServer:Storage`:
   "EnableRetention": true
 }
 ```
+
+SQLite stores managed naming-dictionary JSON, review reports, fingerprints, active-version markers, and promotion metadata in `ci_naming_dictionary_versions`.
 
 ## Current Boundaries
 

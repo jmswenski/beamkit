@@ -34,6 +34,7 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 - Review and store safety and validation evidence required for managed rule-pack promotion.
 - Review draft rule packs before import or promotion, including validation, optional synthetic regression evidence, and a diff against the active baseline.
 - Compare two managed rule-pack versions with a field-level diff report.
+- Import, review, diff, promote, and audit managed structure-name dictionary versions.
 - Accept RT-PX protocol packages into managed rule-pack versions with institution profile provenance, optional ESAPI snapshot evidence, generated safety evidence, and optional promotion.
 - Serve versioned RT-PX authoring template and snippet libraries for Word add-ins and protocol-authoring clients.
 - Publish Word-authored RT-PX protocols as draft managed versions with protocol diff, safety evidence, and dashboard review actions.
@@ -80,6 +81,11 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `GET` | `/api/rule-packs/{id}/versions/{versionId}` | Get one managed rule-pack version with validation and test evidence. |
 | `GET` | `/api/rule-packs/{id}/versions/{versionId}/safety-evidence` | Get stored safety and validation evidence for one managed version. |
 | `GET` | `/api/rule-packs/{id}/versions/{oldVersionId}/diff/{newVersionId}` | Compare two managed rule-pack versions. |
+| `GET` | `/api/naming-dictionaries` | List managed naming-dictionary versions. Supports `dictionaryId`. |
+| `GET` | `/api/naming-dictionaries/versions` | List managed naming-dictionary versions. Supports `dictionaryId`. |
+| `GET` | `/api/naming-dictionaries/{id}/versions` | List managed versions for one naming-dictionary id. |
+| `GET` | `/api/naming-dictionaries/{id}/versions/{versionId}` | Get one managed naming-dictionary version with review evidence. |
+| `GET` | `/api/naming-dictionaries/{id}/versions/{oldVersionId}/diff/{newVersionId}` | Compare two managed naming-dictionary versions. |
 | `GET` | `/api/work-items` | List persistent queue items. Supports `limit`, `status`, `caseId`, `diseaseSite`, `assignedStaffId`, and `activeOnly`. |
 | `GET` | `/api/work-items/{id}` | Get one queue item with assignment history and stored intelligence context. |
 | `GET` | `/api/audit-events` | List audit events. Supports `limit`, `action`, `runId`, and `caseId`. |
@@ -107,6 +113,10 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `POST` | `/api/rule-packs/{id}/versions/{versionId}/safety-evidence/validate` | Validate a safety evidence package against a managed version id and fingerprint. |
 | `POST` | `/api/rule-packs/{id}/versions/{versionId}/promote` | Promote a valid, passing managed rule-pack version active. |
 | `POST` | `/api/rule-packs/{id}/review-draft` | Review a draft rule pack without importing it. |
+| `POST` | `/api/naming-dictionaries/import` | Import a managed naming-dictionary version from inline JSON or a server-local JSON path. |
+| `POST` | `/api/naming-dictionaries/{id}/review-draft` | Review a draft naming dictionary without importing it. |
+| `POST` | `/api/naming-dictionaries/{id}/versions/{versionId}/review` | Re-run dictionary review and store the latest report. |
+| `POST` | `/api/naming-dictionaries/{id}/versions/{versionId}/promote` | Promote a valid managed naming-dictionary version active. |
 | `POST` | `/api/assignments/recommend` | Recommend a planner assignment. |
 | `POST` | `/api/assignments/recommend-team` | Recommend dosimetrist and physicist staffing for one case. |
 | `POST` | `/api/work-items` | Create a persistent queue item from a synthetic case, BeamKit plan JSON, ESAPI snapshot JSON, or manually supplied metadata. |
@@ -478,6 +488,7 @@ Recommended production role split:
 | `Runner` | Submit synthetic, uploaded-plan, and protocol-compliance CI runs. |
 | `BaselineManager` | Promote a stored run artifact to a case baseline. |
 | `RulePackManager` | Import, validate, test, review, and promote managed rule packs. |
+| `NamingDictionaryManager` | Import, review, diff, and promote managed structure-name dictionaries. |
 | `ProtocolManager` | Accept RT-PX packages, run Word/RT-PX authoring flows, review RT-PX drafts, and accept protocol-compliance variances. |
 | `WorkQueueManager` | Create work items, run assignment recommendations, assign staff, and update work-item status. |
 | `Admin` | Full access to every protected API endpoint. |
@@ -626,6 +637,49 @@ curl -s "$API/api/rule-packs/institution-head-neck/versions/{oldVersionId}/diff/
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
+## Managed Naming Dictionaries
+
+Naming dictionaries are clinical policy. The server can import them as immutable managed versions, review them for collisions and governance issues, diff versions before activation, promote exactly one active version per dictionary id, and audit each protected action.
+
+```bash
+curl -s "$API/api/naming-dictionaries/import" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "dictionaryId": "institution-tg263",
+    "dictionaryPath": "samples/naming-dictionary-head-neck.json",
+    "importedBy": "dosimetry"
+  }'
+```
+
+The import response includes `version.versionId`, `review`, and `activated=false`. Promote only after the review report is acceptable:
+
+```bash
+curl -s "$API/api/naming-dictionaries/institution-tg263/versions/{versionId}/review" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{}'
+
+curl -s "$API/api/naming-dictionaries/institution-tg263/versions/{versionId}/promote" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"promotedBy":"dosimetry","note":"Approved TG-263 overlay."}'
+```
+
+Draft review and managed diffs are meant for change control:
+
+```bash
+curl -s "$API/api/naming-dictionaries/institution-tg263/review-draft" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"dictionaryPath":"samples/naming-dictionary-head-neck.json"}'
+
+curl -s "$API/api/naming-dictionaries/institution-tg263/versions/{oldVersionId}/diff/{newVersionId}" \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
+```
+
+Promotion is blocked when review has errors, including canonical token collisions, aliases that normalize to multiple canonical names, or deprecated names that remain active canonical names. Warnings are stored with the version so local policy committees can track non-blocking cleanup work.
+
 ## Storage
 
 By default, the server stores run metadata and artifact JSON at:
@@ -655,6 +709,8 @@ The `ci_runs` table stores searchable metadata separately from the full artifact
 The `ci_audit_events` table stores protected API activity with actor label, action, endpoint, method, optional run/case ids, source IP, status, and compact details.
 
 The `ci_rule_pack_versions` table stores managed rule-pack version history, immutable bundle JSON, validation evidence, latest regression-test evidence, and the active version marker.
+
+The `ci_naming_dictionary_versions` table stores managed naming-dictionary JSON, review reports, fingerprints, active-version markers, and promotion metadata.
 
 ## Current Boundaries
 
