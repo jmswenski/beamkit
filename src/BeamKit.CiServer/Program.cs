@@ -35,6 +35,7 @@ builder.Services.Configure<CiServerStorageOptions>(builder.Configuration.GetSect
 builder.Services.Configure<CiServerSecurityOptions>(builder.Configuration.GetSection("BeamKit:CiServer:Security"));
 builder.Services.Configure<CiServerRulePackRegistryOptions>(builder.Configuration.GetSection("BeamKit:CiServer:RulePackRegistry"));
 builder.Services.Configure<CiServerRtpxAuthoringOptions>(builder.Configuration.GetSection("BeamKit:CiServer:RtpxAuthoring"));
+builder.Services.Configure<CiServerSafetyOptions>(builder.Configuration.GetSection("BeamKit:CiServer:Safety"));
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<BeamKitClient>();
 builder.Services.AddSingleton<ICiRunStore, SqliteCiRunStore>();
@@ -82,6 +83,12 @@ app.Use(async (context, next) =>
     if (!CiServerSecurity.TryAuthenticate(context, security, out var failure))
     {
         await failure!.ExecuteAsync(context);
+        return;
+    }
+
+    if (!CiServerSecurity.TryAuthorize(context, out var authorizationFailure))
+    {
+        await authorizationFailure!.ExecuteAsync(context);
         return;
     }
 

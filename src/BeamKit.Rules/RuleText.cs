@@ -15,6 +15,23 @@ internal static class RuleText
         return value.Trim();
     }
 
+    public static string? Optional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    public static IReadOnlyList<string> CleanList(IEnumerable<string>? values)
+    {
+        return values?
+            .Select(Optional)
+            .Where(value => value is not null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .Select(value => value!)
+            .ToArray()
+            ?? Array.Empty<string>();
+    }
+
     public static string Slug(string value)
     {
         var chars = value

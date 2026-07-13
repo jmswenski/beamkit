@@ -33,7 +33,7 @@ public static class SyntheticClinicalRuleCatalogFactory
                             "Left parotid mean dose review goal.",
                             "Synthetic physician preference",
                             "Documents physician-specific planning preference without changing code.",
-                            new[] { "head-neck", "parotid", "physician-addendum" })
+                            tags: new[] { "head-neck", "parotid", "physician-addendum" })
                     },
                     diseaseSite: "Head and Neck",
                     institution: "Synthetic",

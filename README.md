@@ -399,6 +399,7 @@ Start the self-hosted BeamKit CI server:
 ```bash
 export BeamKit__CiServer__Security__ApiKeys__0__Label=local-admin
 export BeamKit__CiServer__Security__ApiKeys__0__Key=dev-secret
+export BeamKit__CiServer__Security__ApiKeys__0__Roles__0=Admin
 
 dotnet run --project src/BeamKit.CiServer --urls http://localhost:5088
 ```
@@ -428,6 +429,8 @@ curl -s "$API/api/runs/{laterId}/baseline-comparison" \
 ```
 
 When both runs have retained BeamKit plan snapshots, the baseline comparison response includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes in addition to provenance fingerprints.
+
+For production-like deployments, split CI server API keys by role instead of sharing one admin key. BeamKit supports `Reader`, `Runner`, `BaselineManager`, `RulePackManager`, `ProtocolManager`, `WorkQueueManager`, and `Admin`; keys without explicit roles remain `Admin` for backward compatibility. Request-supplied server-local paths are also constrained to configured allowed roots, defaulting to `samples` and `artifacts`.
 
 Submit a locally extracted ESAPI snapshot or BeamKit plan JSON to the server:
 
@@ -625,6 +628,9 @@ The normalizer supports:
 - Regex mappings.
 - Ambiguous match reporting.
 - Required-structure validation.
+- Deprecated-name migration gates.
+- Versioned dictionary review and diff tooling.
+- Institution, physician, disease-site, and protocol overlays.
 - JSON dictionary loading.
 
 See [docs/structure-normalization.md](docs/structure-normalization.md).
@@ -725,12 +731,13 @@ BeamKit rule packs are intended to be reviewed like software:
 - `rule-pack doctor` checks missing references, incomplete approval metadata, stale review dates, and policy validation errors.
 - `rule-pack import-reminders` converts structured monthly reminder notes into executable plan-check catalog entries.
 - `rule-pack diff` and `rule-pack changelog` show reviewable field-level policy changes before promotion.
+- Clinical-promotion validation can require source references, rationales, requirement ids, hazard links, and safety-control links for every active clinical rule and plan check.
 - `rule-pack validate` catches missing metadata and duplicate IDs before promotion.
 - `rule-pack test` runs curated or synthetic cases against expected pass/fail outcomes.
 - `ci run` emits a single record containing policy validation, plan check results, and provenance fingerprints.
 - Fingerprints make it possible to prove which plan, prescription, and rule pack produced a report.
 - The CI server can promote a run as a baseline and compare later runs against it using both exact fingerprints and field-level plan changes when snapshots are available.
-- The CI server can protect plan-gate APIs with API keys, record audit events, enforce upload-size limits, and run registered rule packs by stable id.
+- The CI server can protect plan-gate APIs with API keys, record audit events, enforce upload-size limits, reject uploaded snapshots with obvious patient identifiers by default, and run registered rule packs by stable id.
 - Managed rule-pack versions can be draft-reviewed, diffed, imported, validated, regression-tested, promoted active, and audited before they drive plan gates.
 
 This is the open-source foundation for treating radiation plans like reproducible clinical build artifacts: every rule change can be reviewed, tested, and traced.
@@ -786,6 +793,7 @@ See [docs/esapi.md](docs/esapi.md).
 | Intended use | [docs/intended-use.md](docs/intended-use.md) |
 | Risk management | [docs/risk-management.md](docs/risk-management.md) |
 | Clinical safety case | [docs/clinical-safety-case.md](docs/clinical-safety-case.md) |
+| Starter safety registry | [samples/clinical-safety/hazards.json](samples/clinical-safety/hazards.json) |
 | BeamKit Check | [docs/beamkit-check.md](docs/beamkit-check.md) |
 | RT-PX protocol exchange | [docs/rtpx.md](docs/rtpx.md) |
 | RT-PX Word authoring | [docs/rtpx-word-authoring.md](docs/rtpx-word-authoring.md) |
@@ -869,7 +877,7 @@ samples/
 
 Near-term:
 
-- Fuller TG-263 dictionary coverage.
+- Fuller TG-263 dictionary coverage after source/licensing review.
 - More report snapshots and schema validation tests.
 - More configurable plan-check types based on real dosimetry and physics reminder lists.
 - More disease-site-specific synthetic clinical cases, especially failing, warning, breast, and palliative examples.

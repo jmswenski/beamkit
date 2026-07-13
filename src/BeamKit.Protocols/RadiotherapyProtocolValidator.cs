@@ -7,6 +7,16 @@ namespace BeamKit.Protocols;
 /// </summary>
 public sealed class RadiotherapyProtocolValidator
 {
+    private readonly RadiotherapyProtocolValidationOptions options;
+
+    /// <summary>
+    /// Creates an RT-PX validator.
+    /// </summary>
+    public RadiotherapyProtocolValidator(RadiotherapyProtocolValidationOptions? options = null)
+    {
+        this.options = options ?? RadiotherapyProtocolValidationOptions.Default;
+    }
+
     /// <summary>
     /// Validates an RT-PX package.
     /// </summary>
@@ -35,16 +45,19 @@ public sealed class RadiotherapyProtocolValidator
         return Validate(RadiotherapyProtocolPackageStore.FromPath(path));
     }
 
-    private static void CheckRequiredMetadata(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
+    private void CheckRequiredMetadata(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
     {
         if (package.SourceDocument is null)
         {
-            Add(issues, "rtpx.source.missing", ProtocolValidationSeverity.Warning, "RT-PX packages should identify the source document.", package.Id);
+            Add(issues, "rtpx.source.missing", RequiredOrWarning(options.RequireSourceDocument), "RT-PX packages should identify the source document.", package.Id);
         }
         else if (string.IsNullOrWhiteSpace(package.SourceDocument.Hash))
         {
-            Add(issues, "rtpx.source.hash-missing", ProtocolValidationSeverity.Warning, "Source document should include a content hash for traceability.", package.Id);
+            Add(issues, "rtpx.source.hash-missing", RequiredOrWarning(options.RequireSourceDocumentHash), "Source document should include a content hash for traceability.", package.Id);
         }
+
+        AddMissingIfRequired(issues, options.RequireOwner, package.Owner, "rtpx.owner.missing", "RT-PX packages accepted for clinical pilots should declare an owner.", package.Id);
+        AddMissingIfRequired(issues, options.RequireDescription, package.Description, "rtpx.description.missing", "RT-PX packages accepted for clinical pilots should include a description.", package.Id);
 
         if (!string.Equals(package.SchemaVersion, RtpxConventions.CurrentSchemaVersion, StringComparison.Ordinal))
         {
@@ -62,11 +75,11 @@ public sealed class RadiotherapyProtocolValidator
         }
     }
 
-    private static void CheckApproval(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
+    private void CheckApproval(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
     {
         if (package.Status != ProtocolPackageStatus.Approved)
         {
-            Add(issues, "rtpx.status.not-approved", ProtocolValidationSeverity.Warning, "RT-PX package is not approved and should remain draft-only.", package.Id);
+            Add(issues, "rtpx.status.not-approved", RequiredOrWarning(options.RequireApprovedStatus), "RT-PX package is not approved and should remain draft-only.", package.Id);
             return;
         }
 
@@ -90,6 +103,13 @@ public sealed class RadiotherapyProtocolValidator
         {
             Add(issues, "rtpx.approval.effective-date-missing", ProtocolValidationSeverity.Error, "Approved RT-PX packages require an effective date.", package.Id);
         }
+
+        AddMissingIfRequired(issues, options.RequireApprovalReference, package.Approval.Reference, "rtpx.approval.reference-missing", "Accepted RT-PX packages should cite an approval reference.", package.Id);
+        AddMissingIfRequired(issues, options.RequireApprovalRationale, package.Approval.Rationale, "rtpx.approval.rationale-missing", "Accepted RT-PX packages should include approval rationale.", package.Id);
+        if (options.RequireApprovalReviewDueDate && !package.Approval.ReviewDueDate.HasValue)
+        {
+            Add(issues, "rtpx.approval.review-due-date-missing", ProtocolValidationSeverity.Error, "Accepted RT-PX packages should include a review due date.", package.Id);
+        }
     }
 
     private static void CheckDuplicateIds(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
@@ -101,7 +121,7 @@ public sealed class RadiotherapyProtocolValidator
         CheckDuplicates(issues, package.Workflow.Select(item => item.Id), "rtpx.workflow.duplicate", "Duplicate workflow id");
     }
 
-    private static void CheckStructures(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
+    private void CheckStructures(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
     {
         CheckDuplicates(issues, package.Structures.Select(item => item.Name), "rtpx.structure.name-duplicate", "Duplicate canonical structure name");
 
@@ -109,12 +129,12 @@ public sealed class RadiotherapyProtocolValidator
         {
             if (structure.Source is null)
             {
-                Add(issues, "rtpx.structure.source-missing", ProtocolValidationSeverity.Warning, "Structure should map to a source-document reference.", structure.Id);
+                Add(issues, "rtpx.structure.source-missing", MissingSourceSeverity(), "Structure should map to a source-document reference.", structure.Id);
             }
         }
     }
 
-    private static void CheckPrescriptions(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
+    private void CheckPrescriptions(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
     {
         if (package.Prescriptions.Count > 1)
         {
@@ -149,12 +169,12 @@ public sealed class RadiotherapyProtocolValidator
 
             if (prescription.Source is null)
             {
-                Add(issues, "rtpx.prescription.source-missing", ProtocolValidationSeverity.Warning, "Prescription should map to a source-document reference.", prescription.Id);
+                Add(issues, "rtpx.prescription.source-missing", MissingSourceSeverity(), "Prescription should map to a source-document reference.", prescription.Id);
             }
         }
     }
 
-    private static void CheckConstraints(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
+    private void CheckConstraints(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
     {
         foreach (var constraint in package.Constraints)
         {
@@ -185,29 +205,29 @@ public sealed class RadiotherapyProtocolValidator
 
             if (constraint.Source is null)
             {
-                Add(issues, "rtpx.constraint.source-missing", ProtocolValidationSeverity.Warning, "Constraint should map to a source-document reference.", constraint.Id);
+                Add(issues, "rtpx.constraint.source-missing", MissingSourceSeverity(), "Constraint should map to a source-document reference.", constraint.Id);
             }
         }
     }
 
-    private static void CheckPlanChecks(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
+    private void CheckPlanChecks(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
     {
         foreach (var check in package.PlanChecks)
         {
             if (check.IsActive && check.Source is null)
             {
-                Add(issues, "rtpx.plan-check.source-missing", ProtocolValidationSeverity.Warning, "Plan check should map to a source-document reference.", check.Id);
+                Add(issues, "rtpx.plan-check.source-missing", MissingSourceSeverity(), "Plan check should map to a source-document reference.", check.Id);
             }
         }
     }
 
-    private static void CheckWorkflow(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
+    private void CheckWorkflow(RadiotherapyProtocolPackage package, List<ProtocolValidationIssue> issues)
     {
         foreach (var requirement in package.Workflow)
         {
             if (requirement.IsActive && requirement.Source is null)
             {
-                Add(issues, "rtpx.workflow.source-missing", ProtocolValidationSeverity.Warning, "Workflow requirement should map to a source-document reference.", requirement.Id);
+                Add(issues, "rtpx.workflow.source-missing", MissingSourceSeverity(), "Workflow requirement should map to a source-document reference.", requirement.Id);
             }
         }
     }
@@ -240,5 +260,31 @@ public sealed class RadiotherapyProtocolValidator
         string? subject = null)
     {
         issues.Add(new ProtocolValidationIssue(code, severity, message, subject));
+    }
+
+    private ProtocolValidationSeverity MissingSourceSeverity()
+    {
+        return options.TreatMissingRequirementSourcesAsErrors
+            ? ProtocolValidationSeverity.Error
+            : ProtocolValidationSeverity.Warning;
+    }
+
+    private static void AddMissingIfRequired(
+        List<ProtocolValidationIssue> issues,
+        bool required,
+        string? value,
+        string code,
+        string message,
+        string? subject)
+    {
+        if (required && string.IsNullOrWhiteSpace(value))
+        {
+            Add(issues, code, ProtocolValidationSeverity.Error, message, subject);
+        }
+    }
+
+    private static ProtocolValidationSeverity RequiredOrWarning(bool required)
+    {
+        return required ? ProtocolValidationSeverity.Error : ProtocolValidationSeverity.Warning;
     }
 }

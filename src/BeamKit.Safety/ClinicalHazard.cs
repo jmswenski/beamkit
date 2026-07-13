@@ -6,6 +6,23 @@ namespace BeamKit.Safety;
 public sealed record ClinicalHazard
 {
     /// <summary>
+    /// Creates an empty hazard for JSON deserialization.
+    /// </summary>
+    public ClinicalHazard()
+    {
+        Id = string.Empty;
+        Title = string.Empty;
+        HazardousSituation = string.Empty;
+        PotentialHarm = string.Empty;
+        Severity = SafetySeverity.Major;
+        Probability = SafetyProbability.Occasional;
+        ResidualRisk = SafetyRiskLevel.High;
+        Status = HazardStatus.Open;
+        ControlIds = Array.Empty<string>();
+        EvidenceIds = Array.Empty<string>();
+    }
+
+    /// <summary>
     /// Creates a clinical hazard.
     /// </summary>
     public ClinicalHazard(

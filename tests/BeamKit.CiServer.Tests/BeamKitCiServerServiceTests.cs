@@ -119,6 +119,50 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void CreateRunFromBeamKitPlanJsonRejectsPotentialPhiByDefault()
+    {
+        var store = new CiRunStore();
+        var service = CreateService(store);
+        var plan = SyntheticClinicalCaseLibrary.HeadAndNeckBaseline().Plan with
+        {
+            Patient = new Patient("MRN-123456", "Doe, Jane", new DateOnly(1975, 4, 12))
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.CreateRunFromPlanSnapshot(new HostedCiRunUploadRequest
+        {
+            PlanJson = BeamKitPlanJson.ToJson(plan)
+        }));
+
+        Assert.Contains("privacy screening failed", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("patient.id-not-deidentified", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("patient.display-name-present", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("patient.date-of-birth-present", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(store.List(new CiRunQuery()));
+    }
+
+    [Fact]
+    public void CreateRunFromBeamKitPlanJsonCanAllowIdentifiedSnapshotsWhenConfigured()
+    {
+        var store = new CiRunStore();
+        var service = CreateService(
+            store,
+            securityOptions: new CiServerSecurityOptions { RequireDeidentifiedPlanSnapshots = false });
+        var plan = SyntheticClinicalCaseLibrary.HeadAndNeckBaseline().Plan with
+        {
+            Patient = new Patient("MRN-123456", "Doe, Jane", new DateOnly(1975, 4, 12))
+        };
+
+        var record = service.CreateRunFromPlanSnapshot(new HostedCiRunUploadRequest
+        {
+            PlanJson = BeamKitPlanJson.ToJson(plan)
+        });
+
+        Assert.Equal("HN-SYN-001", record.CaseId);
+        Assert.True(record.HasPlanSnapshot);
+        Assert.Contains("MRN-123456", store.FindPlanSnapshotJson(record.Id), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CreateRunFromEsapiSnapshotJsonValidatesConvertsAndStoresArtifact()
     {
         var service = CreateService();
@@ -137,6 +181,26 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Equal(BeamKitCheckStatus.Pass, record.Status);
         Assert.Equal("esapi-snapshot:HN-SYN-001", record.Artifact.Provenance.InputSource);
         Assert.Equal("uploaded-esapi", record.Artifact.Provenance.Commit);
+    }
+
+    [Fact]
+    public void CreateRunFromEsapiSnapshotJsonRejectsPotentialPhiByDefault()
+    {
+        var service = CreateService();
+        var snapshot = CreateEsapiSnapshot(SyntheticClinicalCaseLibrary.HeadAndNeckBaseline().Plan) with
+        {
+            PatientId = "123456",
+            PatientDisplayName = "Doe, Jane"
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => service.CreateRunFromPlanSnapshot(new HostedCiRunUploadRequest
+        {
+            EsapiSnapshotJson = EsapiPlanSnapshotJson.ToJson(snapshot)
+        }));
+
+        Assert.Contains("privacy screening failed", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("patient.id-not-deidentified", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("patient.display-name-present", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -560,6 +624,76 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void PromoteManagedRulePackVersionRequiresClinicalTraceabilityMetadata()
+    {
+        var root = CreateTemporarySampleRulePackCopy();
+        try
+        {
+            var manifestPath = Path.Combine(root, "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+            RemoveFirstPlanCheckRequirementId(Path.Combine(root, "samples", "plan-check-baseline.json"));
+            var service = CreateService();
+            var imported = service.ImportRulePack(new RulePackImportServerRequest
+            {
+                RulePackId = "institution-head-neck",
+                ManifestPath = manifestPath,
+                SyntheticCaseId = "head-neck-pass"
+            });
+
+            var exception = Assert.Throws<InvalidOperationException>(() => service.PromoteManagedRulePackVersion(
+                imported.Version.RulePackId,
+                imported.Version.VersionId,
+                new RulePackPromotionServerRequest
+                {
+                    PromotedBy = "physics",
+                    SafetyEvidence = CreateRulePackSafetyEvidence(imported.Version)
+                }));
+
+            Assert.True(imported.TestReport?.Passed);
+            Assert.Contains("clinical-promotion validation", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("plan-checks.requirement-id-missing", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PromoteManagedRulePackVersionRequiresKnownSafetyRegistryReferences()
+    {
+        var root = CreateTemporarySampleRulePackCopy();
+        try
+        {
+            var manifestPath = Path.Combine(root, "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
+            ReplaceFirstPlanCheckHazardId(Path.Combine(root, "samples", "plan-check-baseline.json"), "HZ-UNKNOWN-TEST");
+            var service = CreateService();
+            var imported = service.ImportRulePack(new RulePackImportServerRequest
+            {
+                RulePackId = "institution-head-neck",
+                ManifestPath = manifestPath,
+                SyntheticCaseId = "head-neck-pass"
+            });
+
+            var exception = Assert.Throws<InvalidOperationException>(() => service.PromoteManagedRulePackVersion(
+                imported.Version.RulePackId,
+                imported.Version.VersionId,
+                new RulePackPromotionServerRequest
+                {
+                    PromotedBy = "physics",
+                    SafetyEvidence = CreateRulePackSafetyEvidence(imported.Version)
+                }));
+
+            Assert.True(imported.TestReport?.Passed);
+            Assert.Contains("safety registry references are incomplete", exception.Message, StringComparison.Ordinal);
+            Assert.Contains("HZ-UNKNOWN-TEST", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReviewManagedRulePackSafetyEvidenceRejectsMismatchedEvidence()
     {
         var service = CreateService();
@@ -974,9 +1108,27 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Single(store.ListAuditEvents(new CiServerAuditQuery { Action = "work-item.assignment-recommended" }));
     }
 
-    private static BeamKitCiServerService CreateService(ICiRunStore? store = null)
+    private static BeamKitCiServerService CreateService(
+        ICiRunStore? store = null,
+        CiServerSecurityOptions? securityOptions = null)
     {
-        return new BeamKitCiServerService(new BeamKitClient(), store ?? new CiRunStore(), new FixedTimeProvider());
+        return new BeamKitCiServerService(
+            new BeamKitClient(),
+            store ?? new CiRunStore(),
+            new FixedTimeProvider(),
+            securityOptions: Microsoft.Extensions.Options.Options.Create(securityOptions ?? CreateTestSecurityOptions()));
+    }
+
+    private static CiServerSecurityOptions CreateTestSecurityOptions()
+    {
+        return new CiServerSecurityOptions
+        {
+            AllowedServerLocalFilePathRoots = new()
+            {
+                FindRepositoryRoot(),
+                Path.GetTempPath()
+            }
+        };
     }
 
     private static ValidationEvidencePackage CreateRulePackSafetyEvidence(CiServerManagedRulePackVersionSummary version)
@@ -1107,6 +1259,31 @@ public sealed class BeamKitCiServerServiceTests
                 : check);
 
         PlanCheckCatalogStore.Save(catalogPath, catalog with { Checks = changedChecks.ToArray() });
+    }
+
+    private static void RemoveFirstPlanCheckRequirementId(string catalogPath)
+    {
+        MutateFirstPlanCheck(catalogPath, check => check.Remove("requirementId"));
+    }
+
+    private static void ReplaceFirstPlanCheckHazardId(string catalogPath, string hazardId)
+    {
+        MutateFirstPlanCheck(catalogPath, check =>
+        {
+            check["hazardIds"] = new JsonArray(hazardId);
+        });
+    }
+
+    private static void MutateFirstPlanCheck(string catalogPath, Action<JsonObject> mutate)
+    {
+        var catalog = JsonNode.Parse(File.ReadAllText(catalogPath))?.AsObject()
+            ?? throw new InvalidOperationException("Plan-check catalog could not be parsed.");
+        var checks = catalog["checks"]?.AsArray()
+            ?? throw new InvalidOperationException("Plan-check catalog does not contain checks.");
+        var firstCheck = checks.OfType<JsonObject>().FirstOrDefault()
+            ?? throw new InvalidOperationException("Plan-check catalog does not contain a mutable check object.");
+        mutate(firstCheck);
+        File.WriteAllText(catalogPath, catalog.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private static string CreateHeadNeckRtpxPackage()

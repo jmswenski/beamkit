@@ -11,6 +11,8 @@ public sealed class StructureNameNormalizer
     private readonly Dictionary<string, string> canonicalByNormalizedName;
     private readonly Dictionary<string, List<AliasCandidate>> aliasCandidatesByExactName;
     private readonly Dictionary<string, List<AliasCandidate>> aliasCandidatesByNormalizedName;
+    private readonly Dictionary<string, DeprecatedStructureName> deprecatedByExactName;
+    private readonly Dictionary<string, DeprecatedStructureName> deprecatedByNormalizedName;
 
     /// <summary>
     /// Creates a structure name normalizer.
@@ -21,6 +23,8 @@ public sealed class StructureNameNormalizer
         canonicalByNormalizedName = dictionary.CanonicalNames.ToDictionary(NamingText.NormalizeToken, StringComparer.OrdinalIgnoreCase);
         aliasCandidatesByExactName = BuildAliasIndex(dictionary.Aliases, alias => alias.Alias);
         aliasCandidatesByNormalizedName = BuildAliasIndex(dictionary.Aliases, alias => NamingText.NormalizeToken(alias.Alias));
+        deprecatedByExactName = BuildDeprecatedIndex(dictionary.DeprecatedNames, name => name.Name);
+        deprecatedByNormalizedName = BuildDeprecatedIndex(dictionary.DeprecatedNames, name => NamingText.NormalizeToken(name.Name));
     }
 
     /// <summary>
@@ -30,6 +34,20 @@ public sealed class StructureNameNormalizer
     {
         var name = NamingText.Required(structureName, nameof(structureName));
         var normalizedToken = NamingText.NormalizeToken(name);
+
+        if (deprecatedByExactName.TryGetValue(name, out var deprecated)
+            || deprecatedByNormalizedName.TryGetValue(normalizedToken, out deprecated))
+        {
+            return new StructureNameNormalizationResult(
+                name,
+                NormalizationStatus.Deprecated,
+                deprecated.CanonicalName,
+                NormalizationConfidence.High,
+                NormalizationSource.Deprecated,
+                string.IsNullOrWhiteSpace(deprecated.Reason)
+                    ? $"{name} is deprecated; use {deprecated.CanonicalName}."
+                    : $"{name} is deprecated; use {deprecated.CanonicalName}. {deprecated.Reason}");
+        }
 
         if (canonicalByNormalizedName.TryGetValue(normalizedToken, out var canonicalName))
         {
@@ -153,6 +171,19 @@ public sealed class StructureNameNormalizer
             }
 
             candidates.Add(new AliasCandidate(alias.CanonicalName, alias.Source));
+        }
+
+        return index;
+    }
+
+    private static Dictionary<string, DeprecatedStructureName> BuildDeprecatedIndex(
+        IEnumerable<DeprecatedStructureName> deprecatedNames,
+        Func<DeprecatedStructureName, string> keySelector)
+    {
+        var index = new Dictionary<string, DeprecatedStructureName>(StringComparer.OrdinalIgnoreCase);
+        foreach (var deprecated in deprecatedNames)
+        {
+            index[keySelector(deprecated)] = deprecated;
         }
 
         return index;

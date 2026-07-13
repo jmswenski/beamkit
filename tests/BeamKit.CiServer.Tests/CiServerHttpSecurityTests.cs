@@ -38,6 +38,60 @@ public sealed class CiServerHttpSecurityTests
     }
 
     [Fact]
+    public async Task ReadOnlyApiKeyCanReadButCannotCreateRun()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path, apiKeyRoles: new[] { CiServerApiRoles.Reader });
+        using var client = factory.CreateClient();
+        using var readRuns = CreateRequest(HttpMethod.Get, "/api/runs");
+        using var createRun = CreateJsonRequest(HttpMethod.Post, "/api/runs", """{"syntheticCaseId":"head-neck-pass"}""");
+
+        var readResponse = await client.SendAsync(readRuns);
+        var createResponse = await client.SendAsync(createRun);
+        var createBody = await createResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, readResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, createResponse.StatusCode);
+        Assert.Contains("requires the Runner role", createBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunnerApiKeyCanCreateRunButCannotManageRulePacks()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path, apiKeyRoles: new[] { CiServerApiRoles.Runner });
+        using var client = factory.CreateClient();
+        using var createRun = CreateJsonRequest(HttpMethod.Post, "/api/runs", """{"syntheticCaseId":"head-neck-pass"}""");
+        using var validateRulePack = CreateJsonRequest(HttpMethod.Post, "/api/rule-packs/synthetic-head-neck/validate", "{}");
+
+        var createResponse = await client.SendAsync(createRun);
+        var validateResponse = await client.SendAsync(validateRulePack);
+        var validateBody = await validateResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, validateResponse.StatusCode);
+        Assert.Contains("requires the RulePackManager role", validateBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RulePackManagerApiKeyCanValidateRulePackButCannotManageWorkQueue()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path, apiKeyRoles: new[] { CiServerApiRoles.RulePackManager });
+        using var client = factory.CreateClient();
+        using var validateRulePack = CreateJsonRequest(HttpMethod.Post, "/api/rule-packs/synthetic-head-neck/validate", "{}");
+        using var createWorkItem = CreateJsonRequest(HttpMethod.Post, "/api/work-items", "{}");
+
+        var validateResponse = await client.SendAsync(validateRulePack);
+        var workItemResponse = await client.SendAsync(createWorkItem);
+        var workItemBody = await workItemResponse.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, validateResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, workItemResponse.StatusCode);
+        Assert.Contains("requires the WorkQueueManager role", workItemBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AuthorizedRunCreationWritesAuditEvent()
     {
         using var database = TemporaryDatabase.Create();
@@ -147,6 +201,67 @@ public sealed class CiServerHttpSecurityTests
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.Equal("HN-SYN-001", run.RootElement.GetProperty("caseId").GetString());
         Assert.Equal("Pass", run.RootElement.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task UploadedPlanWithPotentialPhiReturnsBadRequestWithoutEchoingIdentifier()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(database.Path);
+        using var client = factory.CreateClient();
+        var plan = SyntheticClinicalCaseLibrary.HeadAndNeckBaseline().Plan with
+        {
+            Patient = new Patient("MRN-123456", "Doe, Jane", new DateOnly(1975, 4, 12))
+        };
+        var payload = JsonSerializer.Serialize(new
+        {
+            format = "beamkit-plan-json",
+            planJson = BeamKitPlanJson.ToJson(plan)
+        });
+        using var request = CreateJsonRequest(HttpMethod.Post, "/api/runs/from-plan-snapshot", payload);
+
+        var response = await client.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("privacy screening failed", body, StringComparison.Ordinal);
+        Assert.Contains("patient.id-not-deidentified", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("MRN-123456", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("Doe, Jane", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RulePackImportRejectsManifestPathOutsideAllowedRoots()
+    {
+        using var database = TemporaryDatabase.Create();
+        var allowedRoot = System.IO.Path.Combine(FindRepositoryRoot(), "samples");
+        await using var factory = new TestCiServerFactory(database.Path, allowedServerLocalFilePathRoots: new[] { allowedRoot });
+        using var client = factory.CreateClient();
+        var disallowedDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "beamkit-disallowed-rule-pack-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(disallowedDirectory);
+        try
+        {
+            var disallowedManifestPath = System.IO.Path.Combine(disallowedDirectory, "beamkit-rule-pack.json");
+            File.WriteAllText(disallowedManifestPath, "{}");
+            var payload = JsonSerializer.Serialize(new
+            {
+                rulePackId = "outside-root",
+                manifestPath = disallowedManifestPath,
+                importedBy = "physics"
+            });
+            using var request = CreateJsonRequest(HttpMethod.Post, "/api/rule-packs/import", payload);
+
+            var response = await client.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Contains("must be under one of the configured", body, StringComparison.Ordinal);
+            Assert.DoesNotContain(disallowedManifestPath, body, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(disallowedDirectory, recursive: true);
+        }
     }
 
     [Fact]
@@ -766,18 +881,27 @@ public sealed class CiServerHttpSecurityTests
     {
         private readonly string databasePath;
         private readonly long maxPlanSnapshotUploadBytes;
+        private readonly IReadOnlyList<string> apiKeyRoles;
+        private readonly IReadOnlyList<string> allowedServerLocalFilePathRoots;
 
-        public TestCiServerFactory(string databasePath, long maxPlanSnapshotUploadBytes = 5_000_000)
+        public TestCiServerFactory(
+            string databasePath,
+            long maxPlanSnapshotUploadBytes = 5_000_000,
+            IEnumerable<string>? apiKeyRoles = null,
+            IEnumerable<string>? allowedServerLocalFilePathRoots = null)
         {
             this.databasePath = databasePath;
             this.maxPlanSnapshotUploadBytes = maxPlanSnapshotUploadBytes;
+            this.apiKeyRoles = apiKeyRoles?.ToArray() ?? Array.Empty<string>();
+            this.allowedServerLocalFilePathRoots = allowedServerLocalFilePathRoots?.ToArray()
+                ?? new[] { FindRepositoryRoot(), System.IO.Path.GetTempPath() };
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.ConfigureAppConfiguration((_, configuration) =>
             {
-                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                var values = new Dictionary<string, string?>
                 {
                     ["BeamKit:CiServer:Storage:DatabasePath"] = databasePath,
                     ["BeamKit:CiServer:Storage:EnableRetention"] = "false",
@@ -786,7 +910,17 @@ public sealed class CiServerHttpSecurityTests
                     ["BeamKit:CiServer:Security:MaxPlanSnapshotUploadBytes"] = maxPlanSnapshotUploadBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     ["BeamKit:CiServer:Security:ApiKeys:0:Label"] = "test-key",
                     ["BeamKit:CiServer:Security:ApiKeys:0:Key"] = ApiKey
-                });
+                };
+                for (var i = 0; i < apiKeyRoles.Count; i++)
+                {
+                    values[$"BeamKit:CiServer:Security:ApiKeys:0:Roles:{i}"] = apiKeyRoles[i];
+                }
+                for (var i = 0; i < allowedServerLocalFilePathRoots.Count; i++)
+                {
+                    values[$"BeamKit:CiServer:Security:AllowedServerLocalFilePathRoots:{i}"] = allowedServerLocalFilePathRoots[i];
+                }
+
+                configuration.AddInMemoryCollection(values);
             });
         }
     }

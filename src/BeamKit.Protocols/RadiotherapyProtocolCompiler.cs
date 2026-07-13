@@ -2,7 +2,9 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using BeamKit.Core.Domain;
+using BeamKit.Deliverability;
 using BeamKit.Metrics;
+using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.RulePacks;
 using BeamKit.Templates;
@@ -14,6 +16,38 @@ namespace BeamKit.Protocols;
 /// </summary>
 public sealed class RadiotherapyProtocolCompiler
 {
+    private static readonly string[] DefaultClinicalHazardIds = { "HZ-FALSE-PASS", "HZ-WRONG-PROTOCOL" };
+    private static readonly string[] DefaultClinicalControlIds = { "CTRL-REQUIREMENT-TRACE", "CTRL-CLINICAL-REVIEW" };
+    private static readonly string[] DefaultPlanCheckHazardIds = { "HZ-FALSE-PASS", "HZ-STALE-SNAPSHOT" };
+    private static readonly string[] DefaultPlanCheckControlIds = { "CTRL-REQUIREMENT-TRACE", "CTRL-PROVENANCE" };
+    private static readonly string[] CommonCanonicalStructureNames =
+    {
+        "Body",
+        "External",
+        "Heart",
+        "Lung_L",
+        "Lung_R",
+        "Lungs",
+        "SpinalCord",
+        "Brainstem",
+        "Esophagus",
+        "Trachea",
+        "Larynx",
+        "OralCavity",
+        "Mandible",
+        "Parotid_L",
+        "Parotid_R",
+        "OpticNerve_L",
+        "OpticNerve_R",
+        "OpticChiasm",
+        "Eye_L",
+        "Eye_R",
+        "Lens_L",
+        "Lens_R",
+        "Cochlea_L",
+        "Cochlea_R"
+    };
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
@@ -61,7 +95,9 @@ public sealed class RadiotherapyProtocolCompiler
             {
                 new RulePackScaffoldFile("beamkit-rule-pack.json", RulePackManifestStore.ToJson(manifest)),
                 new RulePackScaffoldFile("clinical-rules.json", JsonSerializer.Serialize(clinicalRuleCatalog, JsonOptions)),
-                new RulePackScaffoldFile("plan-checks.json", PlanCheckCatalogStore.ToJson(planCheckCatalog))
+                new RulePackScaffoldFile("plan-checks.json", PlanCheckCatalogStore.ToJson(planCheckCatalog)),
+                new RulePackScaffoldFile("naming-dictionary.json", StructureNameDictionaryLoader.ToJson(CreateNamingDictionary(package))),
+                new RulePackScaffoldFile("machine-profile.json", JsonSerializer.Serialize(CreateMachineProfile(package), JsonOptions))
             });
 
         return new RadiotherapyProtocolCompilation(package, validation, scaffold);
@@ -86,6 +122,8 @@ public sealed class RadiotherapyProtocolCompiler
             description: $"Generated from RT-PX package {package.Id}. {package.Description}".Trim(),
             diseaseSite: package.DiseaseSite,
             tags: package.Tags.Concat(new[] { "rtpx", "protocol", package.Id }),
+            namingDictionary: "naming-dictionary.json",
+            machineProfile: "machine-profile.json",
             clinicalRuleQuery: new ClinicalRuleCatalogQuery
             {
                 DiseaseSite = package.DiseaseSite,
@@ -108,7 +146,7 @@ public sealed class RadiotherapyProtocolCompiler
     {
         var goals = package.Constraints
             .Where(constraint => constraint.IsActive)
-            .Select(ToClinicalGoalTemplate)
+            .Select(constraint => ToClinicalGoalTemplate(package, constraint))
             .Where(goal => goal is not null)
             .Select(goal => goal!)
             .ToArray();
@@ -126,7 +164,11 @@ public sealed class RadiotherapyProtocolCompiler
                     "Gy",
                     GoalSeverity.Advisory,
                     "Placeholder goal generated because the RT-PX package has no dose-statistics constraints that map directly to BeamKit clinical goals.",
-                    Reference(package.SourceDocument, null),
+                    Reference(package, null),
+                    rationale: "Inactive placeholder retained so generated rule catalogs remain structurally valid.",
+                    requirementId: "RTPX-PLACEHOLDER",
+                    hazardIds: DefaultClinicalHazardIds,
+                    controlIds: DefaultClinicalControlIds,
                     isActive: false)
             };
         }
@@ -151,7 +193,7 @@ public sealed class RadiotherapyProtocolCompiler
             tags: package.Tags.Concat(new[] { "rtpx", "protocol", package.Id }));
     }
 
-    private static ClinicalGoalTemplate? ToClinicalGoalTemplate(ProtocolDoseConstraint constraint)
+    private static ClinicalGoalTemplate? ToClinicalGoalTemplate(RadiotherapyProtocolPackage package, ProtocolDoseConstraint constraint)
     {
         var expression = DvhMetricExpression.Parse(constraint.Metric);
         var key = expression.ToDoseMetricKey();
@@ -169,7 +211,11 @@ public sealed class RadiotherapyProtocolCompiler
             constraint.Unit,
             ToGoalSeverity(constraint.Level),
             constraint.Description,
-            Reference(null, constraint.Source),
+            Reference(package, constraint.Source),
+            rationale: $"Compiled from RT-PX dose constraint '{constraint.Id}'.",
+            requirementId: constraint.Id,
+            hazardIds: DefaultClinicalHazardIds,
+            controlIds: DefaultClinicalControlIds,
             tags: new[] { "rtpx", "protocol" },
             isActive: constraint.IsActive);
     }
@@ -177,10 +223,10 @@ public sealed class RadiotherapyProtocolCompiler
     private static PlanCheckCatalog CreatePlanCheckCatalog(RadiotherapyProtocolPackage package)
     {
         var checks = new List<PlanCheckDefinition>();
-        checks.AddRange(package.Structures.SelectMany(ToStructureChecks));
-        checks.AddRange(package.Prescriptions.Select(ToPrescriptionCheck));
-        checks.AddRange(package.Constraints.Where(constraint => constraint.IsActive).Select(ToConstraintCheck));
-        checks.AddRange(package.PlanChecks.Select(ToExplicitPlanCheck));
+        checks.AddRange(package.Structures.SelectMany(structure => ToStructureChecks(package, structure)));
+        checks.AddRange(package.Prescriptions.Select(prescription => ToPrescriptionCheck(package, prescription)));
+        checks.AddRange(package.Constraints.Where(constraint => constraint.IsActive).Select(constraint => ToConstraintCheck(package, constraint)));
+        checks.AddRange(package.PlanChecks.Select(check => ToExplicitPlanCheck(package, check)));
 
         if (checks.Count == 0)
         {
@@ -195,7 +241,7 @@ public sealed class RadiotherapyProtocolCompiler
             $"Plan checks compiled from RT-PX package {package.Id}.");
     }
 
-    private static IEnumerable<PlanCheckDefinition> ToStructureChecks(ProtocolStructureRequirement structure)
+    private static IEnumerable<PlanCheckDefinition> ToStructureChecks(RadiotherapyProtocolPackage package, ProtocolStructureRequirement structure)
     {
         yield return new PlanCheckDefinition(
             $"structure.{NormalizeId(structure.Id)}.exists",
@@ -203,8 +249,11 @@ public sealed class RadiotherapyProtocolCompiler
             "structure-exists",
             ToPlanCheckSeverity(structure.Level),
             structure.Description,
-            Reference(null, structure.Source),
-            new Dictionary<string, string> { ["structureName"] = structure.Name });
+            Reference(package, structure.Source),
+            new Dictionary<string, string> { ["structureName"] = structure.Name },
+            requirementId: structure.Id,
+            hazardIds: DefaultPlanCheckHazardIds,
+            controlIds: DefaultPlanCheckControlIds);
 
         if (structure.MustHaveContours)
         {
@@ -214,12 +263,15 @@ public sealed class RadiotherapyProtocolCompiler
                 "structure-not-empty",
                 ToPlanCheckSeverity(structure.Level),
                 structure.Description,
-                Reference(null, structure.Source),
-                new Dictionary<string, string> { ["structureName"] = structure.Name });
+                Reference(package, structure.Source),
+                new Dictionary<string, string> { ["structureName"] = structure.Name },
+                requirementId: structure.Id,
+                hazardIds: DefaultPlanCheckHazardIds,
+                controlIds: DefaultPlanCheckControlIds);
         }
     }
 
-    private static PlanCheckDefinition ToPrescriptionCheck(ProtocolPrescription prescription)
+    private static PlanCheckDefinition ToPrescriptionCheck(RadiotherapyProtocolPackage package, ProtocolPrescription prescription)
     {
         return new PlanCheckDefinition(
             $"prescription.{NormalizeId(prescription.Id)}.fractionation",
@@ -227,16 +279,19 @@ public sealed class RadiotherapyProtocolCompiler
             "prescription-fractionation",
             ToPlanCheckSeverity(prescription.Level),
             prescription.Description,
-            Reference(null, prescription.Source),
+            Reference(package, prescription.Source),
             new Dictionary<string, string>
             {
                 ["totalDoseGy"] = Format(prescription.TotalDoseGy),
                 ["fractionCount"] = prescription.FractionCount.ToString(CultureInfo.InvariantCulture),
                 ["dosePerFractionGy"] = Format(prescription.ComputedDosePerFractionGy)
-            });
+            },
+            requirementId: prescription.Id,
+            hazardIds: DefaultPlanCheckHazardIds,
+            controlIds: DefaultPlanCheckControlIds);
     }
 
-    private static PlanCheckDefinition ToConstraintCheck(ProtocolDoseConstraint constraint)
+    private static PlanCheckDefinition ToConstraintCheck(RadiotherapyProtocolPackage package, ProtocolDoseConstraint constraint)
     {
         var expression = DvhMetricExpression.Parse(constraint.Metric);
         var parameters = new Dictionary<string, string>
@@ -263,12 +318,15 @@ public sealed class RadiotherapyProtocolCompiler
             type,
             ToPlanCheckSeverity(constraint.Level),
             constraint.Description,
-            Reference(null, constraint.Source),
+            Reference(package, constraint.Source),
             parameters,
-            constraint.IsActive);
+            requirementId: constraint.Id,
+            hazardIds: DefaultPlanCheckHazardIds,
+            controlIds: DefaultPlanCheckControlIds,
+            isActive: constraint.IsActive);
     }
 
-    private static PlanCheckDefinition ToExplicitPlanCheck(ProtocolPlanCheckRequirement check)
+    private static PlanCheckDefinition ToExplicitPlanCheck(RadiotherapyProtocolPackage package, ProtocolPlanCheckRequirement check)
     {
         return new PlanCheckDefinition(
             check.Id,
@@ -276,9 +334,12 @@ public sealed class RadiotherapyProtocolCompiler
             check.Type,
             ToPlanCheckSeverity(check.Level),
             check.Description,
-            Reference(null, check.Source),
+            Reference(package, check.Source),
             check.Parameters,
-            check.IsActive);
+            requirementId: check.Id,
+            hazardIds: DefaultPlanCheckHazardIds,
+            controlIds: DefaultPlanCheckControlIds,
+            isActive: check.IsActive);
     }
 
     private static GoalSeverity ToGoalSeverity(ProtocolRequirementLevel level)
@@ -303,15 +364,97 @@ public sealed class RadiotherapyProtocolCompiler
         };
     }
 
-    private static string Reference(ProtocolSourceDocument? sourceDocument, ProtocolSourceReference? sourceReference)
+    private static StructureNameDictionary CreateNamingDictionary(RadiotherapyProtocolPackage package)
     {
+        var canonicalNames = package.Structures
+            .Select(structure => structure.Name)
+            .Concat(CommonCanonicalStructureNames)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var aliases = package.Structures
+            .SelectMany(structure => structure.Aliases
+                .Concat(new[] { structure.Id })
+                .Where(alias => !string.IsNullOrWhiteSpace(alias))
+                .Where(alias => !string.Equals(alias, structure.Name, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(alias => new StructureNameAlias(alias, structure.Name, "RT-PX accepted structure mapping")))
+            .ToArray();
+        var requiredStructureNames = package.Structures
+            .Where(structure => structure.Level == ProtocolRequirementLevel.Required)
+            .Select(structure => structure.Name)
+            .Concat(new[] { "Body" })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return new StructureNameDictionary(
+            $"{package.Name} naming dictionary",
+            canonicalNames,
+            aliases,
+            requiredStructureNames: requiredStructureNames);
+    }
+
+    private static MachineConstraintProfile CreateMachineProfile(RadiotherapyProtocolPackage package)
+    {
+        var allowedEnergies = package.Prescriptions
+            .Select(prescription => prescription.Energy)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var allowedTechniques = package.Prescriptions
+            .Select(prescription => prescription.Technique)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var muPerDegreeConstraints = allowedTechniques.Length == 0
+            ? Array.Empty<MonitorUnitsPerDegreeConstraint>()
+            : allowedTechniques.SelectMany(technique =>
+                (allowedEnergies.Length == 0 ? new string?[] { null } : allowedEnergies)
+                    .Select(energy => new MonitorUnitsPerDegreeConstraint(
+                        0.1m,
+                        machineId: "LOCAL-LINAC",
+                        energy,
+                        techniqueId: technique,
+                        diseaseSite: package.DiseaseSite)))
+                .ToArray();
+
+        return new MachineConstraintProfile(
+            $"{package.Name} machine profile",
+            package.Version,
+            machineId: "LOCAL-LINAC",
+            beamModelId: "LOCAL-BEAM-MODEL",
+            calculationModel: "Local clinical model",
+            calculationModelVersion: "review-required",
+            minMonitorUnitsPerDegree: 0.1m,
+            minMonitorUnitsPerSegment: 0.1m,
+            minMonitorUnitsPerBeam: 1m,
+            maxOpenFieldSizeCm: 40m,
+            maxMlcFieldSizeCm: 40m,
+            maxFffFieldSizeCm: 40m,
+            maxDcaStepSizeDegrees: 5m,
+            minJawOpeningCm: 0.1m,
+            requireJawTracking: null,
+            allowedEnergies: allowedEnergies,
+            allowedTechniques: allowedTechniques,
+            allowedBeamModelIds: new[] { "LOCAL-BEAM-MODEL" },
+            monitorUnitsPerDegreeConstraints: muPerDegreeConstraints);
+    }
+
+    private static string Reference(RadiotherapyProtocolPackage package, ProtocolSourceReference? sourceReference)
+    {
+        var sourceDocument = package.SourceDocument;
         var document = sourceDocument is null
             ? null
             : string.IsNullOrWhiteSpace(sourceDocument.Version)
                 ? sourceDocument.Title
                 : $"{sourceDocument.Title} {sourceDocument.Version}";
         var source = sourceReference?.Format();
-        return string.Join(" - ", new[] { document, source }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var packageReference = string.IsNullOrWhiteSpace(package.Approval?.Reference)
+            ? $"{package.Name} {package.Version}"
+            : package.Approval.Reference;
+        return string.Join(" - ", new[] { document, source, packageReference }.Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
     private static string NormalizeId(string value)

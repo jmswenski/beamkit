@@ -1,0 +1,22 @@
+{
+  "id": "synthetic.head-neck.local-overlay",
+  "baseDictionaryId": "beamkit.synthetic.tg263-subset",
+  "name": "Synthetic head-and-neck local overlay",
+  "version": "2026.07",
+  "description": "Example institution overlay that adds local aliases, required structures, and deprecated names.",
+  "source": "Synthetic institution policy",
+  "tagsToAdd": [ "institution-overlay", "head-neck" ],
+  "aliasesToAdd": [
+    { "alias": "SC", "canonicalName": "SpinalCord", "source": "Synthetic local alias" },
+    { "alias": "Cord_03", "canonicalName": "Cord_PRV", "source": "Synthetic local alias" }
+  ],
+  "requiredStructureNamesToAdd": [ "Brainstem" ],
+  "deprecatedNamesToAdd": [
+    {
+      "name": "CordOld",
+      "canonicalName": "SpinalCord",
+      "reason": "Use SpinalCord for protocol and QA consistency.",
+      "source": "Synthetic local migration"
+    }
+  ]
+}

@@ -35,6 +35,10 @@ Plan checks operate on `BeamKit.Core.Plan` plus optional machine profiles. This 
       "title": "Target D95 coverage",
       "type": "target-coverage",
       "severity": "Failure",
+      "reference": "HN policy v1 section 3.1",
+      "requirementId": "REQ-HN-TARGET-D95",
+      "hazardIds": [ "HZ-FALSE-PASS" ],
+      "controlIds": [ "CTRL-REQUIREMENT-TRACE" ],
       "parameters": {
         "metric": "D95%",
         "minPercentPrescription": "95"
@@ -58,6 +62,8 @@ Plan checks operate on `BeamKit.Core.Plan` plus optional machine profiles. This 
 ```
 
 The full sample catalog is [samples/plan-check-baseline.json](../samples/plan-check-baseline.json). The schema is [schemas/plan-check-catalog.schema.json](../schemas/plan-check-catalog.schema.json).
+
+For clinical-pilot promotion, active checks should include a `reference`, `requirementId`, `hazardIds`, and `controlIds`. `RulePackPolicyValidationOptions.ClinicalPromotion` treats missing traceability as blocking.
 
 ## CLI
 

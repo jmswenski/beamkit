@@ -45,6 +45,8 @@ internal sealed record CliOptions
 
     public string? NamingDictionaryPath { get; init; }
 
+    public string? ComparisonNamingDictionaryPath { get; init; }
+
     public string? StaffRosterPath { get; init; }
 
     public string? MetricExpression { get; init; }
@@ -213,6 +215,13 @@ internal sealed record CliOptions
                 options = options with { Command = $"intelligence-{args[1]}" };
                 index = 2;
             }
+            else if (string.Equals(args[0], "naming", StringComparison.OrdinalIgnoreCase)
+                && args.Count > 1
+                && !args[1].StartsWith("--", StringComparison.Ordinal))
+            {
+                options = options with { Command = $"naming-{args[1]}" };
+                index = 2;
+            }
             else
             {
                 options = options with { Command = args[0] };
@@ -333,6 +342,15 @@ internal sealed record CliOptions
                     break;
                 case "--dictionary":
                 case "--naming-dictionary":
+                    options = options with { NamingDictionaryPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--compare-dictionary":
+                case "--new-dictionary":
+                    options = options with { ComparisonNamingDictionaryPath = ReadRequiredValue(args, ++index, arg) };
+                    index++;
+                    break;
+                case "--old-dictionary":
                     options = options with { NamingDictionaryPath = ReadRequiredValue(args, ++index, arg) };
                     index++;
                     break;

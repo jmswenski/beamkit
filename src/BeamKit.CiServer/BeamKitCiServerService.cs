@@ -33,6 +33,8 @@ public sealed class BeamKitCiServerService
     private readonly TimeProvider timeProvider;
     private readonly CiServerRulePackRegistry rulePacks;
     private readonly CiServerRtpxAuthoringOptions rtpxAuthoringOptions;
+    private readonly CiServerSafetyOptions safetyOptions;
+    private readonly CiServerSecurityOptions securityOptions;
 
     /// <summary>
     /// Creates a hosted CI server service.
@@ -42,13 +44,17 @@ public sealed class BeamKitCiServerService
         ICiRunStore store,
         TimeProvider? timeProvider = null,
         CiServerRulePackRegistry? rulePacks = null,
-        IOptions<CiServerRtpxAuthoringOptions>? rtpxAuthoringOptions = null)
+        IOptions<CiServerRtpxAuthoringOptions>? rtpxAuthoringOptions = null,
+        IOptions<CiServerSafetyOptions>? safetyOptions = null,
+        IOptions<CiServerSecurityOptions>? securityOptions = null)
     {
         this.client = client ?? throw new ArgumentNullException(nameof(client));
         this.store = store ?? throw new ArgumentNullException(nameof(store));
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.rulePacks = rulePacks ?? new CiServerRulePackRegistry(new CiServerRulePackRegistryOptions());
         this.rtpxAuthoringOptions = rtpxAuthoringOptions?.Value ?? new CiServerRtpxAuthoringOptions();
+        this.safetyOptions = safetyOptions?.Value ?? new CiServerSafetyOptions();
+        this.securityOptions = securityOptions?.Value ?? new CiServerSecurityOptions();
     }
 
     /// <summary>
@@ -862,7 +868,20 @@ public sealed class BeamKitCiServerService
             throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' cannot be promoted because {version.TestReport.FailedCount} regression test(s) failed.");
         }
 
-        LoadManagedRulePack(version);
+        var rulePack = LoadManagedRulePack(version);
+        if (safetyOptions.EnforceClinicalPromotionValidation)
+        {
+            var promotionValidation = new RulePackPolicyValidator(RulePackPolicyValidationOptions.ClinicalPromotion).Validate(rulePack);
+            version = store.SaveRulePackVersion(version with { ValidationReport = promotionValidation });
+            if (!promotionValidation.IsValid)
+            {
+                var details = string.Join("; ", promotionValidation.Issues
+                    .Where(issue => issue.Severity == PolicyIssueSeverity.Error)
+                    .Select(issue => $"{issue.Code}: {issue.Subject ?? version.RulePackId}"));
+                throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' cannot be promoted because clinical-promotion validation has {promotionValidation.ErrorCount} error(s): {details}");
+            }
+        }
+
         var safetyEvidence = request.SafetyEvidence ?? DeserializeSafetyEvidence(version.SafetyEvidenceJson);
         if (safetyEvidence is null)
         {
@@ -878,6 +897,18 @@ public sealed class BeamKitCiServerService
         {
             var details = string.Join("; ", safetyReview.BlockingFindings.Select(finding => $"{finding.Code}: {finding.Message}"));
             throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' cannot be promoted because safety evidence is incomplete: {details}");
+        }
+
+        if (safetyOptions.RequireKnownSafetyRegistryReferences)
+        {
+            var registry = LoadSafetyRegistry();
+            var registryFindings = ReviewSafetyRegistryReferences(rulePack, safetyEvidence, registry);
+            var blockingRegistryFindings = registryFindings.Where(finding => finding.Status == ValidationEvidenceStatus.Fail).ToArray();
+            if (blockingRegistryFindings.Length > 0)
+            {
+                var details = string.Join("; ", blockingRegistryFindings.Select(finding => $"{finding.Code}: {finding.Message}"));
+                throw new InvalidOperationException($"Rule pack version '{rulePackId}/{versionId}' cannot be promoted because safety registry references are incomplete: {details}");
+            }
         }
 
         version = store.SaveRulePackVersion(version with
@@ -2001,7 +2032,7 @@ public sealed class BeamKitCiServerService
     {
         if (!string.IsNullOrWhiteSpace(rulePackPath))
         {
-            return rulePacks.Load(rulePackPath: rulePackPath);
+            return rulePacks.Load(rulePackPath: ResolveAllowedServerLocalPath(rulePackPath, "rulePackPath"));
         }
 
         if (!string.IsNullOrWhiteSpace(rulePackId))
@@ -2041,6 +2072,125 @@ public sealed class BeamKitCiServerService
         return string.IsNullOrWhiteSpace(json)
             ? null
             : System.Text.Json.JsonSerializer.Deserialize<ValidationEvidencePackage>(json, CiServerJson.Options);
+    }
+
+    private ClinicalSafetyRegistry LoadSafetyRegistry()
+    {
+        return ClinicalSafetyRegistryStore.FromFile(ResolveSafetyRegistryPath(safetyOptions.SafetyRegistryPath));
+    }
+
+    private static IReadOnlyList<SafetyEvidenceFinding> ReviewSafetyRegistryReferences(
+        BeamKitRulePack rulePack,
+        ValidationEvidencePackage evidence,
+        ClinicalSafetyRegistry registry)
+    {
+        var findings = new List<SafetyEvidenceFinding>();
+
+        foreach (var rule in rulePack.ClinicalRuleSet.Rules.OfType<ITraceablePlanRule>())
+        {
+            AddUnknownHazardFindings(findings, registry, rule.HazardIds, $"clinical rule '{rule.Id}'");
+            AddUnknownControlFindings(findings, registry, rule.ControlIds, $"clinical rule '{rule.Id}'");
+        }
+
+        foreach (var check in rulePack.PlanCheckCatalog.Checks.Where(check => check.IsActive))
+        {
+            AddUnknownHazardFindings(findings, registry, check.HazardIds, $"plan check '{check.Id}'");
+            AddUnknownControlFindings(findings, registry, check.ControlIds, $"plan check '{check.Id}'");
+        }
+
+        if (evidence.Checklist is not null)
+        {
+            AddUnknownControlFindings(
+                findings,
+                registry,
+                evidence.Checklist.Controls.Select(control => control.Id),
+                $"safety checklist '{evidence.Checklist.Name}'");
+        }
+
+        foreach (var item in evidence.EvidenceItems)
+        {
+            AddUnknownHazardFindings(findings, registry, item.LinkedHazardIds, $"evidence item '{item.Id}'");
+            AddUnknownControlFindings(findings, registry, item.LinkedControlIds, $"evidence item '{item.Id}'");
+        }
+
+        if (findings.Count == 0)
+        {
+            findings.Add(new SafetyEvidenceFinding(
+                "safety-registry.references-valid",
+                ValidationEvidenceStatus.Pass,
+                $"All rule-pack and evidence safety references exist in registry '{registry.Id}'."));
+        }
+
+        return findings;
+    }
+
+    private static void AddUnknownHazardFindings(
+        ICollection<SafetyEvidenceFinding> findings,
+        ClinicalSafetyRegistry registry,
+        IEnumerable<string> hazardIds,
+        string subject)
+    {
+        foreach (var hazardId in hazardIds.Where(id => registry.FindHazard(id) is null))
+        {
+            findings.Add(new SafetyEvidenceFinding(
+                "safety-registry.hazard-missing",
+                ValidationEvidenceStatus.Fail,
+                $"{subject} references unknown hazard id '{hazardId}'."));
+        }
+    }
+
+    private static void AddUnknownControlFindings(
+        ICollection<SafetyEvidenceFinding> findings,
+        ClinicalSafetyRegistry registry,
+        IEnumerable<string> controlIds,
+        string subject)
+    {
+        foreach (var controlId in controlIds.Where(id => registry.FindControl(id) is null))
+        {
+            findings.Add(new SafetyEvidenceFinding(
+                "safety-registry.control-missing",
+                ValidationEvidenceStatus.Fail,
+                $"{subject} references unknown safety-control id '{controlId}'."));
+        }
+    }
+
+    private static string ResolveSafetyRegistryPath(string? configuredPath)
+    {
+        var path = CiServerText.Optional(configuredPath) ?? Path.Combine("samples", "clinical-safety", "hazards.json");
+        var directPath = Path.GetFullPath(path);
+        if (File.Exists(directPath))
+        {
+            return directPath;
+        }
+
+        foreach (var root in CandidateSearchRoots())
+        {
+            var candidate = Path.GetFullPath(Path.Combine(root, path));
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException($"BeamKit safety registry '{path}' was not found.", directPath);
+    }
+
+    private static IEnumerable<string> CandidateSearchRoots()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            var directory = new DirectoryInfo(start);
+            while (directory is not null)
+            {
+                if (seen.Add(directory.FullName))
+                {
+                    yield return directory.FullName;
+                }
+
+                directory = directory.Parent;
+            }
+        }
     }
 
     private CiServerRtpxAcceptanceRecord SaveRtpxAcceptanceRecord(
@@ -2389,7 +2539,7 @@ public sealed class BeamKitCiServerService
         return RtpxInstitutionProfileStore.ToJson(profile);
     }
 
-    private static RtpxPackageSource ResolveRtpxPackageSource(RtpxAcceptanceServerRequest request, string outputDirectory)
+    private RtpxPackageSource ResolveRtpxPackageSource(RtpxAcceptanceServerRequest request, string outputDirectory)
     {
         var hasPath = !string.IsNullOrWhiteSpace(request.PackagePath);
         var hasBase64 = !string.IsNullOrWhiteSpace(request.PackageBase64);
@@ -2400,7 +2550,7 @@ public sealed class BeamKitCiServerService
 
         if (hasPath)
         {
-            var fullPath = ResolveServerLocalFilePath(request.PackagePath!);
+            var fullPath = ResolveAllowedServerLocalPath(request.PackagePath!, "packagePath");
             if (!File.Exists(fullPath))
             {
                 throw new FileNotFoundException($"RT-PX package '{fullPath}' was not found.", fullPath);
@@ -2420,7 +2570,7 @@ public sealed class BeamKitCiServerService
         return new RtpxPackageSource(packagePath, HashBytes(packageBytes));
     }
 
-    private static RtpxInstitutionProfileSource ResolveRtpxInstitutionProfile(RtpxAcceptanceServerRequest request)
+    private RtpxInstitutionProfileSource ResolveRtpxInstitutionProfile(RtpxAcceptanceServerRequest request)
     {
         var profileJson = GetJson(request.InstitutionProfile, request.InstitutionProfileJson);
         var hasPath = !string.IsNullOrWhiteSpace(request.InstitutionProfilePath);
@@ -2432,7 +2582,7 @@ public sealed class BeamKitCiServerService
 
         if (hasPath)
         {
-            var fullPath = ResolveServerLocalFilePath(request.InstitutionProfilePath!);
+            var fullPath = ResolveAllowedServerLocalPath(request.InstitutionProfilePath!, "institutionProfilePath");
             if (!File.Exists(fullPath))
             {
                 throw new FileNotFoundException($"RT-PX institution profile '{fullPath}' was not found.", fullPath);
@@ -2445,7 +2595,7 @@ public sealed class BeamKitCiServerService
         return new RtpxInstitutionProfileSource(profile, HashText(RtpxInstitutionProfileStore.ToJson(profile)));
     }
 
-    private static RtpxEsapiSnapshotSource? ResolveOptionalRtpxEsapiSnapshot(RtpxAcceptanceServerRequest request)
+    private RtpxEsapiSnapshotSource? ResolveOptionalRtpxEsapiSnapshot(RtpxAcceptanceServerRequest request)
     {
         var snapshotJson = GetJson(request.EsapiSnapshot, request.EsapiSnapshotJson);
         var hasPath = !string.IsNullOrWhiteSpace(request.EsapiSnapshotPath);
@@ -2464,7 +2614,7 @@ public sealed class BeamKitCiServerService
         string? fullPath = null;
         if (hasPath)
         {
-            fullPath = ResolveServerLocalFilePath(request.EsapiSnapshotPath!);
+            fullPath = ResolveAllowedServerLocalPath(request.EsapiSnapshotPath!, "esapiSnapshotPath");
             if (!File.Exists(fullPath))
             {
                 throw new FileNotFoundException($"ESAPI snapshot '{fullPath}' was not found.", fullPath);
@@ -2477,17 +2627,17 @@ public sealed class BeamKitCiServerService
         return new RtpxEsapiSnapshotSource(EsapiPlanSnapshotJson.FromJson(json), fullPath, HashText(json));
     }
 
-    private static RtpxWordDocxSource ResolveRtpxWordDocxSource(RtpxWordAuthoringServerRequest request, string outputDirectory)
+    private RtpxWordDocxSource ResolveRtpxWordDocxSource(RtpxWordAuthoringServerRequest request, string outputDirectory)
     {
         return ResolveRtpxWordDocxSource(request.DocxPath, request.DocxBase64, request.FileName, outputDirectory);
     }
 
-    private static RtpxWordDocxSource ResolveRtpxWordDocxSource(RtpxWordDraftPublishServerRequest request, string outputDirectory)
+    private RtpxWordDocxSource ResolveRtpxWordDocxSource(RtpxWordDraftPublishServerRequest request, string outputDirectory)
     {
         return ResolveRtpxWordDocxSource(request.DocxPath, request.DocxBase64, request.FileName, outputDirectory);
     }
 
-    private static RtpxWordDocxSource ResolveRtpxWordDocxSource(
+    private RtpxWordDocxSource ResolveRtpxWordDocxSource(
         string? docxPath,
         string? docxBase64,
         string? fileName,
@@ -2502,7 +2652,7 @@ public sealed class BeamKitCiServerService
 
         if (hasPath)
         {
-            var fullPath = ResolveServerLocalFilePath(docxPath!);
+            var fullPath = ResolveAllowedServerLocalPath(docxPath!, "docxPath");
             if (!File.Exists(fullPath))
             {
                 throw new FileNotFoundException($"RT-PX Word document '{fullPath}' was not found.", fullPath);
@@ -2630,18 +2780,18 @@ public sealed class BeamKitCiServerService
             summary: $"Safety evidence generated from RT-PX acceptance record {acceptanceId}.");
     }
 
-    private static string ResolveRtpxWordAuthoringOutputDirectory(string? outputDirectory, string authoringId)
+    private string ResolveRtpxWordAuthoringOutputDirectory(string? outputDirectory, string authoringId)
     {
         var value = CiServerText.Optional(outputDirectory)
             ?? Path.Combine("artifacts", "beamkit-ci-server", "rtpx-word", authoringId);
-        return Path.GetFullPath(value);
+        return ResolveAllowedServerLocalPath(value, "outputDirectory", mustExist: false);
     }
 
-    private static string ResolveRtpxAcceptanceOutputDirectory(string? outputDirectory, string acceptanceId)
+    private string ResolveRtpxAcceptanceOutputDirectory(string? outputDirectory, string acceptanceId)
     {
         var value = CiServerText.Optional(outputDirectory)
             ?? Path.Combine("artifacts", "beamkit-ci-server", "rtpx-acceptance", acceptanceId);
-        return Path.GetFullPath(value);
+        return ResolveAllowedServerLocalPath(value, "outputDirectory", mustExist: false);
     }
 
     private static string ResolveRtpxAuthoringLibraryPath(string? configuredPath, string fileName)
@@ -2763,7 +2913,7 @@ public sealed class BeamKitCiServerService
         return rulePackId;
     }
 
-    private static RulePackImportSource LoadRulePackImportSource(RulePackImportServerRequest request)
+    private RulePackImportSource LoadRulePackImportSource(RulePackImportServerRequest request)
     {
         var manifestJson = GetJson(request.Manifest, request.ManifestJson);
         var bundleJson = GetJson(request.Bundle, request.BundleJson);
@@ -2781,7 +2931,7 @@ public sealed class BeamKitCiServerService
 
         if (!string.IsNullOrWhiteSpace(request.BundlePath))
         {
-            var fullPath = Path.GetFullPath(request.BundlePath);
+            var fullPath = ResolveAllowedServerLocalPath(request.BundlePath, "bundlePath");
             var bundle = VerifyBundleSource(RulePackBundleStore.FromFile(fullPath));
             return new RulePackImportSource(
                 bundle.ManifestJson,
@@ -2804,7 +2954,7 @@ public sealed class BeamKitCiServerService
 
         if (!string.IsNullOrWhiteSpace(request.ManifestPath))
         {
-            var fullPath = Path.GetFullPath(request.ManifestPath);
+            var fullPath = ResolveAllowedServerLocalPath(request.ManifestPath, "manifestPath");
             return new RulePackImportSource(
                 File.ReadAllText(fullPath),
                 Path.GetDirectoryName(fullPath) ?? Directory.GetCurrentDirectory(),
@@ -2815,7 +2965,10 @@ public sealed class BeamKitCiServerService
 
         return new RulePackImportSource(
             manifestJson ?? throw new ArgumentException("Manifest JSON is required.", nameof(request)),
-            Path.GetFullPath(CiServerText.Optional(request.BaseDirectory) ?? Directory.GetCurrentDirectory()),
+            ResolveAllowedServerLocalPath(
+                CiServerText.Optional(request.BaseDirectory) ?? Directory.GetCurrentDirectory(),
+                "baseDirectory",
+                mustExist: false),
             "InlineJson",
             CiServerText.Optional(request.Source) ?? "inline-json",
             null);
@@ -2912,18 +3065,33 @@ public sealed class BeamKitCiServerService
         };
     }
 
-    private static UploadedPlan LoadUploadedPlan(HostedCiRunUploadRequest request)
+    private UploadedPlan LoadUploadedPlan(HostedCiRunUploadRequest request)
     {
         var planJson = GetJson(request.Plan, request.PlanJson);
         var esapiSnapshotJson = GetJson(request.EsapiSnapshot, request.EsapiSnapshotJson);
         var format = ParseUploadFormat(request.Format, planJson, esapiSnapshotJson);
 
-        return format switch
+        var uploaded = format switch
         {
             CiRunInputKind.BeamKitPlanJson => LoadBeamKitPlanJson(planJson),
             CiRunInputKind.EsapiSnapshotJson => LoadEsapiSnapshotJson(esapiSnapshotJson),
             _ => throw new ArgumentException("Uploaded CI runs require BeamKit plan JSON or ESAPI snapshot JSON.", nameof(request))
         };
+        RequirePlanSnapshotPrivacy(uploaded.Plan);
+        return uploaded;
+    }
+
+    private void RequirePlanSnapshotPrivacy(Plan plan)
+    {
+        var report = new PlanSnapshotPrivacyScreener().Screen(plan, securityOptions);
+        if (report.Passed)
+        {
+            return;
+        }
+
+        var details = string.Join("; ", report.Findings.Select(finding => finding.Code));
+        throw new InvalidOperationException(
+            $"Plan snapshot privacy screening failed with {report.FindingCount} finding(s): {details}. Upload de-identified snapshots only, or set BeamKit:CiServer:Security:RequireDeidentifiedPlanSnapshots=false in a protected and approved environment.");
     }
 
     private static UploadedPlan LoadBeamKitPlanJson(string? planJson)
@@ -3339,7 +3507,7 @@ public sealed class BeamKitCiServerService
         return candidates.Any(candidate => value.Contains(candidate, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static IReadOnlyList<PlannerProfile> LoadPlannerProfiles(AssignmentServerRequest request, DateOnly assignmentDate, DateOnly dueDate)
+    private IReadOnlyList<PlannerProfile> LoadPlannerProfiles(AssignmentServerRequest request, DateOnly assignmentDate, DateOnly dueDate)
     {
         if (request.Roster is not null)
         {
@@ -3353,13 +3521,61 @@ public sealed class BeamKitCiServerService
 
         if (!string.IsNullOrWhiteSpace(request.RosterPath))
         {
-            return StaffRosterLoader.FromFile(ResolveServerLocalFilePath(request.RosterPath)).ToPlannerProfiles(assignmentDate, dueDate);
+            return StaffRosterLoader.FromFile(ResolveAllowedServerLocalPath(request.RosterPath, "rosterPath")).ToPlannerProfiles(assignmentDate, dueDate);
         }
 
         return CreateSyntheticPlannerProfiles(assignmentDate);
     }
 
-    private static string ResolveServerLocalFilePath(string path)
+    private string ResolveAllowedServerLocalPath(string path, string fieldName, bool mustExist = true)
+    {
+        var fullPath = ResolveServerLocalFilePath(path, mustExist);
+        if (!IsAllowedServerLocalPath(fullPath))
+        {
+            throw new ArgumentException(
+                $"Server-local path field '{fieldName}' must be under one of the configured BeamKit CI server allowed roots.",
+                fieldName);
+        }
+
+        return fullPath;
+    }
+
+    private bool IsAllowedServerLocalPath(string fullPath)
+    {
+        if (!securityOptions.RestrictServerLocalFilePaths)
+        {
+            return true;
+        }
+
+        return securityOptions.AllowedServerLocalFilePathRoots
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Select(ResolveServerLocalDirectoryPath)
+            .Any(root => IsPathWithinRoot(fullPath, root));
+    }
+
+    private static bool IsPathWithinRoot(string path, string root)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var fullRoot = Path.GetFullPath(root);
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return string.Equals(
+                fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                fullRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                comparison)
+            || fullPath.StartsWith(EnsureTrailingSeparator(fullRoot), comparison);
+    }
+
+    private static string EnsureTrailingSeparator(string path)
+    {
+        return path.EndsWith(Path.DirectorySeparatorChar)
+            || path.EndsWith(Path.AltDirectorySeparatorChar)
+                ? path
+                : path + Path.DirectorySeparatorChar;
+    }
+
+    private static string ResolveServerLocalDirectoryPath(string path)
     {
         var trimmed = CiServerText.Required(path, nameof(path));
         if (Path.IsPathRooted(trimmed))
@@ -3367,16 +3583,48 @@ public sealed class BeamKitCiServerService
             return Path.GetFullPath(trimmed);
         }
 
-        var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
-        while (directory is not null)
+        foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
         {
-            var candidate = Path.GetFullPath(Path.Combine(directory.FullName, trimmed));
-            if (File.Exists(candidate))
+            var directory = new DirectoryInfo(start);
+            while (directory is not null)
             {
-                return candidate;
-            }
+                var candidate = Path.GetFullPath(Path.Combine(directory.FullName, trimmed));
+                if (Directory.Exists(candidate))
+                {
+                    return candidate;
+                }
 
-            directory = directory.Parent;
+                directory = directory.Parent;
+            }
+        }
+
+        return Path.GetFullPath(trimmed);
+    }
+
+    private static string ResolveServerLocalFilePath(string path, bool mustExist = true)
+    {
+        var trimmed = CiServerText.Required(path, nameof(path));
+        if (Path.IsPathRooted(trimmed))
+        {
+            return Path.GetFullPath(trimmed);
+        }
+
+        if (mustExist)
+        {
+            foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+            {
+                var directory = new DirectoryInfo(start);
+                while (directory is not null)
+                {
+                    var candidate = Path.GetFullPath(Path.Combine(directory.FullName, trimmed));
+                    if (File.Exists(candidate) || Directory.Exists(candidate))
+                    {
+                        return candidate;
+                    }
+
+                    directory = directory.Parent;
+                }
+            }
         }
 
         return Path.GetFullPath(trimmed);

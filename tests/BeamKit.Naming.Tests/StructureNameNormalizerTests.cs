@@ -83,6 +83,20 @@ public sealed class StructureNameNormalizerTests
     }
 
     [Fact]
+    public void DeprecatedNameReportsCanonicalReplacement()
+    {
+        var normalizer = new StructureNameNormalizer(SyntheticStructureNameDictionaryFactory.CreateTg263Subset());
+
+        var result = normalizer.Normalize("OldCord");
+
+        Assert.Equal(NormalizationStatus.Deprecated, result.Status);
+        Assert.Equal(NormalizationSource.Deprecated, result.Source);
+        Assert.Equal("SpinalCord", result.CanonicalName);
+        Assert.True(result.RequiresRename);
+        Assert.Contains("Use SpinalCord", result.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LoaderReadsConfigurableDictionaryJson()
     {
         var json = """
@@ -95,7 +109,10 @@ public sealed class StructureNameNormalizerTests
               "regexMappings": [
                 { "pattern": "^external$", "canonicalName": "Body", "source": "Institution" }
               ],
-              "requiredStructureNames": [ "Body" ]
+              "requiredStructureNames": [ "Body" ],
+              "deprecatedNames": [
+                { "name": "OldBody", "canonicalName": "Body", "reason": "Use Body." }
+              ]
             }
             """;
         var dictionary = StructureNameDictionaryLoader.FromJson(json);
@@ -105,5 +122,6 @@ public sealed class StructureNameNormalizerTests
         Assert.Equal("Institution head and neck", dictionary.Name);
         Assert.Equal("Lung_R", result.CanonicalName);
         Assert.Single(dictionary.RequiredStructureNames);
+        Assert.Single(dictionary.DeprecatedNames);
     }
 }

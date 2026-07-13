@@ -47,6 +47,7 @@ public sealed class PlanQaReportSnapshotTests
 
             - Suggestions: 0
             - Ambiguous: 0
+            - Deprecated: 0
             - Unmapped: 0
             - Missing required: 0
 

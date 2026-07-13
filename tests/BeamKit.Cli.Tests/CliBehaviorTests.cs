@@ -114,6 +114,27 @@ public sealed class CliBehaviorTests
     }
 
     [Fact]
+    public void ParserReadsNamingSubcommands()
+    {
+        var review = CliOptions.Parse(new[] { "naming", "review", "--dictionary", "dictionary.json" });
+        var diff = CliOptions.Parse(new[]
+        {
+            "naming",
+            "diff",
+            "--old-dictionary",
+            "old.json",
+            "--new-dictionary",
+            "new.json"
+        });
+
+        Assert.Equal("naming-review", review.Command);
+        Assert.Equal("dictionary.json", review.NamingDictionaryPath);
+        Assert.Equal("naming-diff", diff.Command);
+        Assert.Equal("old.json", diff.NamingDictionaryPath);
+        Assert.Equal("new.json", diff.ComparisonNamingDictionaryPath);
+    }
+
+    [Fact]
     public void ParserReadsProtocolSubcommands()
     {
         var validate = CliOptions.Parse(new[] { "rtpx", "validate", "--rtpx", "rtpx.json" });
@@ -545,6 +566,32 @@ public sealed class CliBehaviorTests
             Assert.Equal(0, exitCode);
             Assert.Contains("Synthetic clinical rule catalog", output.ToString());
             Assert.Contains("goal.ptv.d95", output.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    [Fact]
+    public void ProgramRunsNamingReviewCommand()
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+
+        try
+        {
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            Console.SetOut(output);
+            Console.SetError(error);
+
+            var exitCode = Program.Main(new[] { "naming", "review", "--dictionary", SampleNamingDictionaryPath() });
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("BeamKit Naming Dictionary Review", output.ToString(), StringComparison.Ordinal);
+            Assert.Contains("Synthetic TG-263 subset", output.ToString(), StringComparison.Ordinal);
         }
         finally
         {
@@ -1554,6 +1601,19 @@ public sealed class CliBehaviorTests
             "samples",
             "rtpx",
             "lung-sbrt-v1"));
+    }
+
+    private static string SampleNamingDictionaryPath()
+    {
+        return Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "samples",
+            "naming-dictionary-head-neck.json"));
     }
 
     private const string TestPlanJson = """

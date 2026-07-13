@@ -46,6 +46,17 @@
         "severity": { "type": "string", "enum": [ "Info", "Warning", "Failure" ] },
         "description": { "type": "string", "minLength": 1 },
         "reference": { "type": "string", "minLength": 1 },
+        "requirementId": { "type": "string", "minLength": 1 },
+        "hazardIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "controlIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
         "isActive": { "type": "boolean" },
         "parameters": {
           "type": "object",

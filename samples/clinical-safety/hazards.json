@@ -1,0 +1,213 @@
+{
+  "id": "beamkit-foundation-safety",
+  "name": "BeamKit Foundation Safety Registry",
+  "version": "0.1",
+  "owner": "BeamKit maintainers",
+  "description": "PHI-free starter hazard and control registry for research, shadow validation, and clinical-pilot planning.",
+  "hazards": [
+    {
+      "id": "HZ-FALSE-PASS",
+      "title": "False pass",
+      "hazardousSituation": "A non-compliant treatment plan is reported as passing automated validation.",
+      "potentialHarm": "A reviewer may miss a protocol, policy, prescription, structure, or dose issue during plan review.",
+      "severity": "Major",
+      "probability": "Occasional",
+      "residualRisk": "High",
+      "status": "Open",
+      "owner": "Clinical physics",
+      "controlIds": [ "CTRL-REQUIREMENT-TRACE", "CTRL-REGRESSION", "CTRL-HUMAN-REVIEW" ],
+      "evidenceIds": []
+    },
+    {
+      "id": "HZ-WRONG-PROTOCOL",
+      "title": "Wrong protocol or rule pack",
+      "hazardousSituation": "A plan is evaluated against an incorrect, stale, retired, or locally unapproved protocol.",
+      "potentialHarm": "The clinical team may rely on validation findings that do not match the intended treatment protocol.",
+      "severity": "Major",
+      "probability": "Occasional",
+      "residualRisk": "High",
+      "status": "Open",
+      "owner": "Clinical governance",
+      "controlIds": [ "CTRL-APPROVAL-GATE", "CTRL-PROVENANCE", "CTRL-REVIEW-DUE-DATE" ],
+      "evidenceIds": []
+    },
+    {
+      "id": "HZ-STALE-SNAPSHOT",
+      "title": "Stale plan snapshot",
+      "hazardousSituation": "Validation uses an exported plan snapshot that no longer matches the treatment-planning-system plan.",
+      "potentialHarm": "A changed prescription, dose, structure, beam, or QA plan may not be detected before treatment readiness.",
+      "severity": "Major",
+      "probability": "Occasional",
+      "residualRisk": "High",
+      "status": "Open",
+      "owner": "Clinical informatics",
+      "controlIds": [ "CTRL-PROVENANCE", "CTRL-CHANGE-DETECTION", "CTRL-HUMAN-REVIEW" ],
+      "evidenceIds": []
+    },
+    {
+      "id": "HZ-PHI-LEAK",
+      "title": "Protected health information exposure",
+      "hazardousSituation": "PHI is committed, logged, exported, retained, or exposed through plan artifacts.",
+      "potentialHarm": "Patient privacy may be compromised and the deployment may violate institutional policy or law.",
+      "severity": "Major",
+      "probability": "Occasional",
+      "residualRisk": "High",
+      "status": "Open",
+      "owner": "Deployment owner",
+      "controlIds": [ "CTRL-PHI-FREE-REPO", "CTRL-ACCESS-CONTROL", "CTRL-AUDIT-LOG" ],
+      "evidenceIds": []
+    }
+  ],
+  "controls": [
+    {
+      "id": "CTRL-REQUIREMENT-TRACE",
+      "title": "Requirement traceability",
+      "description": "Clinical rules and plan checks must link to a stable requirement id, source reference, rationale, hazard id, and safety-control id before clinical-pilot promotion.",
+      "type": "Verification",
+      "owner": "Clinical physics",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-REGRESSION",
+      "title": "Regression testing",
+      "description": "Known-pass, known-fail, edge-case, and protocol-specific cases must pass before a rule pack is promoted.",
+      "type": "Verification",
+      "owner": "BeamKit maintainers",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-HUMAN-REVIEW",
+      "title": "Qualified human review",
+      "description": "BeamKit outputs remain advisory and must be reviewed by qualified clinical staff before any clinical decision.",
+      "type": "Process",
+      "owner": "Deployment owner",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-CLINICAL-REVIEW",
+      "title": "Clinical review signoff",
+      "description": "A qualified clinical or physics reviewer accepted the rule pack, RT-PX acceptance, or validation evidence for the stated intended use.",
+      "type": "Process",
+      "owner": "Clinical governance",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-APPROVAL-GATE",
+      "title": "Approval-gated protocol promotion",
+      "description": "RT-PX packages and rule packs must carry reviewer, approver, effective-date, rationale, and source-reference metadata before promotion.",
+      "type": "Process",
+      "owner": "Clinical governance",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-PROVENANCE",
+      "title": "Plan and policy provenance",
+      "description": "Validation reports must record plan, prescription, source snapshot, rule-pack, and protocol fingerprints.",
+      "type": "Design",
+      "owner": "Clinical informatics",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-CHANGE-DETECTION",
+      "title": "Change detection",
+      "description": "Plan write-up and QA evidence must be marked stale when key plan, prescription, dose, structure, beam, or rule-pack fields change.",
+      "type": "Design",
+      "owner": "Clinical informatics",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-REVIEW-DUE-DATE",
+      "title": "Periodic policy review",
+      "description": "Clinical content must declare a review due date and block or warn when the owner has not completed re-review.",
+      "type": "Process",
+      "owner": "Clinical governance",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-RTPX-PACKAGE-ACCEPTED",
+      "title": "RT-PX package accepted",
+      "description": "The package accepted without blocking structure, validation, or optional ESAPI evidence errors.",
+      "type": "Verification",
+      "owner": "Clinical informatics",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-RTPX-REGRESSION",
+      "title": "Generated RT-PX rule-pack regression tests",
+      "description": "The generated rule pack was tested against BeamKit synthetic regression cases before promotion.",
+      "type": "Verification",
+      "owner": "Clinical informatics",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-RTPX-CLINICAL-REVIEW",
+      "title": "RT-PX local clinical acceptance review",
+      "description": "The treating institution completed local review metadata before promoting the generated rule pack.",
+      "type": "Process",
+      "owner": "Clinical governance",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-RTPX-ESAPI",
+      "title": "Optional RT-PX ESAPI evidence evaluated",
+      "description": "The acceptance workflow compared the package against an ESAPI-exported plan snapshot when supplied.",
+      "type": "Verification",
+      "owner": "Clinical informatics",
+      "isRequired": false,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-PHI-FREE-REPO",
+      "title": "PHI-free open repository",
+      "description": "Repository samples, tests, and documentation must use synthetic or de-identified data only.",
+      "type": "Security",
+      "owner": "BeamKit maintainers",
+      "isRequired": true,
+      "isSatisfied": true,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-ACCESS-CONTROL",
+      "title": "Access control",
+      "description": "Clinical deployments must restrict APIs, dashboards, uploads, retained artifacts, and audit data to authorized users.",
+      "type": "Security",
+      "owner": "Deployment owner",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    },
+    {
+      "id": "CTRL-AUDIT-LOG",
+      "title": "Audit logging",
+      "description": "Clinical deployments must record who submitted, reviewed, accepted, promoted, or varied clinical validation artifacts.",
+      "type": "Security",
+      "owner": "Deployment owner",
+      "isRequired": true,
+      "isSatisfied": false,
+      "evidenceIds": []
+    }
+  ]
+}

@@ -7,6 +7,7 @@
 ```bash
 export BeamKit__CiServer__Security__ApiKeys__0__Label=local-admin
 export BeamKit__CiServer__Security__ApiKeys__0__Key=dev-secret
+export BeamKit__CiServer__Security__ApiKeys__0__Roles__0=Admin
 
 dotnet run --project src/BeamKit.CiServer --urls http://localhost:5088
 ```
@@ -457,6 +458,8 @@ The CI server is secure by default for API routes:
 - `/` and `/health` are public.
 - `/api/*` requires `X-BeamKit-Api-Key` unless `RequireApiKey` is explicitly set to `false`.
 - API-key labels, not raw key values, are stored in audit events.
+- API keys can be scoped with roles. Keys without explicit roles are treated as `Admin` for backward compatibility, but production deployments should use narrowly scoped keys.
+- Request-supplied server-local paths are constrained to `AllowedServerLocalFilePathRoots` when `RestrictServerLocalFilePaths` is `true`.
 - `/api/runs/from-plan-snapshot`, `/api/protocol-compliance/runs`, `/api/rtpx/acceptance`, `/api/rtpx/word/extract`, and `/api/rtpx/word/publish-draft` reject payloads larger than `MaxPlanSnapshotUploadBytes` before model binding.
 
 Configure local keys with environment variables:
@@ -464,6 +467,33 @@ Configure local keys with environment variables:
 ```bash
 export BeamKit__CiServer__Security__ApiKeys__0__Label=local-admin
 export BeamKit__CiServer__Security__ApiKeys__0__Key=dev-secret
+export BeamKit__CiServer__Security__ApiKeys__0__Roles__0=Admin
+```
+
+Recommended production role split:
+
+| Role | Intended use |
+| --- | --- |
+| `Reader` | Read runs, artifacts, baselines, audit events, rule-pack metadata, work queues, and RT-PX records. |
+| `Runner` | Submit synthetic, uploaded-plan, and protocol-compliance CI runs. |
+| `BaselineManager` | Promote a stored run artifact to a case baseline. |
+| `RulePackManager` | Import, validate, test, review, and promote managed rule packs. |
+| `ProtocolManager` | Accept RT-PX packages, run Word/RT-PX authoring flows, review RT-PX drafts, and accept protocol-compliance variances. |
+| `WorkQueueManager` | Create work items, run assignment recommendations, assign staff, and update work-item status. |
+| `Admin` | Full access to every protected API endpoint. |
+
+Example split keys:
+
+```bash
+export BeamKit__CiServer__Security__ApiKeys__0__Label=ci-runner
+export BeamKit__CiServer__Security__ApiKeys__0__Key=runner-secret
+export BeamKit__CiServer__Security__ApiKeys__0__Roles__0=Reader
+export BeamKit__CiServer__Security__ApiKeys__0__Roles__1=Runner
+
+export BeamKit__CiServer__Security__ApiKeys__1__Label=physics-rule-pack-manager
+export BeamKit__CiServer__Security__ApiKeys__1__Key=rulepack-secret
+export BeamKit__CiServer__Security__ApiKeys__1__Roles__0=Reader
+export BeamKit__CiServer__Security__ApiKeys__1__Roles__1=RulePackManager
 ```
 
 Equivalent `appsettings.json` shape:
@@ -476,10 +506,13 @@ Equivalent `appsettings.json` shape:
         "RequireApiKey": true,
         "HeaderName": "X-BeamKit-Api-Key",
         "MaxPlanSnapshotUploadBytes": 5000000,
+        "RestrictServerLocalFilePaths": true,
+        "AllowedServerLocalFilePathRoots": [ "samples", "artifacts" ],
         "ApiKeys": [
           {
             "Label": "local-admin",
-            "Key": "dev-secret"
+            "Key": "dev-secret",
+            "Roles": [ "Admin" ]
           }
         ]
       }
@@ -627,7 +660,9 @@ The `ci_rule_pack_versions` table stores managed rule-pack version history, immu
 
 This is a development server, not a production clinical deployment. It persists run history locally and accepts uploaded JSON snapshots. Keep it behind trusted network boundaries, use synthetic data by default, and assume uploaded plan snapshots may contain identifiers unless they were scrubbed before submission.
 
-Path-based request fields such as `manifestPath`, `bundlePath`, `rosterPath`, `packagePath`, `institutionProfilePath`, and `esapiSnapshotPath` are server-local file reads. Treat API-key holders who can submit those fields as trusted operators with access to files readable by the server process. For untrusted clients, prefer inline JSON or base64 upload fields and add a stricter storage sandbox before exposing path-based requests.
+The server rejects uploaded BeamKit plan JSON and ESAPI snapshot JSON that do not pass its built-in de-identification screen by default. The screen checks patient id prefixes, placeholder display names, and date-of-birth presence without echoing suspected identifiers back in error messages. It is a last-line guardrail, not a full PHI de-identification pipeline.
+
+Path-based request fields such as `rulePackPath`, `manifestPath`, `bundlePath`, `baseDirectory`, `rosterPath`, `packagePath`, `institutionProfilePath`, `esapiSnapshotPath`, `docxPath`, and `outputDirectory` are server-local reads or writes. By default, request-supplied paths must stay under `samples` or `artifacts`; configure `AllowedServerLocalFilePathRoots` for institution import dropboxes or disable path requests in favor of inline JSON/base64 uploads for untrusted clients.
 
 Production hardening still needs:
 

@@ -140,6 +140,7 @@ public sealed record BeamKitCheckReport
         PlanCheckReport.HasBlockingIssues
         || ClinicalGoalReport.Results.Any(result => result.Status is EvaluationStatus.Fail or EvaluationStatus.NotEvaluable or EvaluationStatus.Error)
         || NamingReport?.AmbiguousCount > 0
+        || NamingReport?.DeprecatedCount > 0
         || NamingReport?.UnmappedCount > 0
         || NamingReport?.MissingStructures.Count > 0
         || ReadinessState.IsReady == false
@@ -162,6 +163,7 @@ public sealed record BeamKitCheckReport
         + ClinicalGoalReport.Summary.NotEvaluableCount
         + ClinicalGoalReport.Summary.ErrorCount
         + (NamingReport?.AmbiguousCount ?? 0)
+        + (NamingReport?.DeprecatedCount ?? 0)
         + (NamingReport?.UnmappedCount ?? 0)
         + (NamingReport?.MissingStructures.Count ?? 0)
         + ReadinessState.OutstandingItems.Count

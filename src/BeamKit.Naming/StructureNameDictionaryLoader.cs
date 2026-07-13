@@ -77,11 +77,27 @@ public static class StructureNameDictionaryLoader
         {
             throw new InvalidOperationException($"Required structure '{unknownRequiredName}' is not a canonical name.");
         }
+
+        var unknownDeprecatedTarget = dictionary.DeprecatedNames.FirstOrDefault(deprecated => !canonicalNames.Contains(deprecated.CanonicalName));
+        if (unknownDeprecatedTarget is not null)
+        {
+            throw new InvalidOperationException($"Deprecated structure '{unknownDeprecatedTarget.Name}' maps to unknown canonical name '{unknownDeprecatedTarget.CanonicalName}'.");
+        }
     }
 
     private sealed record StructureNameDictionaryDto
     {
+        public string? Id { get; init; }
+
         public string? Name { get; init; }
+
+        public string? Version { get; init; }
+
+        public string? Description { get; init; }
+
+        public string? Source { get; init; }
+
+        public IReadOnlyList<string>? Tags { get; init; }
 
         public IReadOnlyList<string>? CanonicalNames { get; init; }
 
@@ -91,6 +107,8 @@ public static class StructureNameDictionaryLoader
 
         public IReadOnlyList<string>? RequiredStructureNames { get; init; }
 
+        public IReadOnlyList<DeprecatedStructureNameDto>? DeprecatedNames { get; init; }
+
         public StructureNameDictionary ToDictionary()
         {
             return new StructureNameDictionary(
@@ -98,18 +116,30 @@ public static class StructureNameDictionaryLoader
                 CanonicalNames ?? throw new InvalidOperationException("Structure-name dictionary requires canonicalNames."),
                 Aliases?.Select(alias => alias.ToAlias()),
                 RegexMappings?.Select(mapping => mapping.ToRegexMapping()),
-                RequiredStructureNames);
+                RequiredStructureNames,
+                Id,
+                Version,
+                Description,
+                Source,
+                Tags,
+                DeprecatedNames?.Select(deprecated => deprecated.ToDeprecatedName()));
         }
 
         public static StructureNameDictionaryDto FromDictionary(StructureNameDictionary dictionary)
         {
             return new StructureNameDictionaryDto
             {
+                Id = dictionary.Id,
                 Name = dictionary.Name,
+                Version = dictionary.Version,
+                Description = dictionary.Description,
+                Source = dictionary.Source,
+                Tags = dictionary.Tags,
                 CanonicalNames = dictionary.CanonicalNames,
                 Aliases = dictionary.Aliases.Select(StructureNameAliasDto.FromAlias).ToArray(),
                 RegexMappings = dictionary.RegexMappings.Select(StructureNameRegexMappingDto.FromRegexMapping).ToArray(),
-                RequiredStructureNames = dictionary.RequiredStructureNames
+                RequiredStructureNames = dictionary.RequiredStructureNames,
+                DeprecatedNames = dictionary.DeprecatedNames.Select(DeprecatedStructureNameDto.FromDeprecatedName).ToArray()
             };
         }
     }
@@ -164,6 +194,37 @@ public static class StructureNameDictionaryLoader
                 Pattern = mapping.Pattern,
                 CanonicalName = mapping.CanonicalName,
                 Source = mapping.Source
+            };
+        }
+    }
+
+    private sealed record DeprecatedStructureNameDto
+    {
+        public string? Name { get; init; }
+
+        public string? CanonicalName { get; init; }
+
+        public string? Reason { get; init; }
+
+        public string? Source { get; init; }
+
+        public DeprecatedStructureName ToDeprecatedName()
+        {
+            return new DeprecatedStructureName(
+                Name ?? throw new InvalidOperationException("Deprecated structure-name mapping requires a name."),
+                CanonicalName ?? throw new InvalidOperationException("Deprecated structure-name mapping requires a canonicalName."),
+                Reason,
+                Source);
+        }
+
+        public static DeprecatedStructureNameDto FromDeprecatedName(DeprecatedStructureName deprecated)
+        {
+            return new DeprecatedStructureNameDto
+            {
+                Name = deprecated.Name,
+                CanonicalName = deprecated.CanonicalName,
+                Reason = deprecated.Reason,
+                Source = deprecated.Source
             };
         }
     }

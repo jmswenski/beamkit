@@ -52,6 +52,11 @@ public sealed record StructureNameNormalizationReport
     public int AmbiguousCount => Results.Count(result => result.Status == NormalizationStatus.Ambiguous);
 
     /// <summary>
+    /// Number of deprecated structure names.
+    /// </summary>
+    public int DeprecatedCount => Results.Count(result => result.Status == NormalizationStatus.Deprecated);
+
+    /// <summary>
     /// Number of unmapped structure names.
     /// </summary>
     public int UnmappedCount => Results.Count(result => result.Status == NormalizationStatus.Unmapped);

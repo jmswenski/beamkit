@@ -14,6 +14,11 @@ internal static class NamingText
         return value.Trim();
     }
 
+    public static string? Optional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
     public static string NormalizeToken(string value)
     {
         var normalized = value.Normalize();

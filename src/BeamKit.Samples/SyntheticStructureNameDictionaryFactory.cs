@@ -139,6 +139,15 @@ public static class SyntheticStructureNameDictionaryFactory
             canonicalNames,
             aliases,
             regexMappings,
-            requiredStructures);
+            requiredStructures,
+            id: "beamkit.synthetic.tg263-subset",
+            version: "0.2.0",
+            description: "Synthetic TG-263-inspired starter dictionary for BeamKit tests and demos. Not full TG-263 coverage.",
+            source: "BeamKit synthetic starter",
+            tags: new[] { "synthetic", "tg-263-inspired", "head-neck" },
+            deprecatedNames: new[]
+            {
+                new DeprecatedStructureName("OldCord", "SpinalCord", "Use SpinalCord for new plans.", "Synthetic migration example")
+            });
     }
 }

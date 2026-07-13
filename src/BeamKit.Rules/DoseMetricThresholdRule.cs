@@ -5,7 +5,7 @@ namespace BeamKit.Rules;
 /// <summary>
 /// Evaluates a numeric dose metric for one structure against a threshold.
 /// </summary>
-public class DoseMetricThresholdRule : IPlanRule
+public class DoseMetricThresholdRule : ITraceablePlanRule
 {
     /// <summary>
     /// Creates a dose-metric threshold rule.
@@ -18,7 +18,12 @@ public class DoseMetricThresholdRule : IPlanRule
         GoalComparison comparison,
         decimal threshold,
         string unit,
-        EvaluationStatus failureStatus = EvaluationStatus.Fail)
+        EvaluationStatus failureStatus = EvaluationStatus.Fail,
+        string? reference = null,
+        string? rationale = null,
+        string? requirementId = null,
+        IEnumerable<string>? hazardIds = null,
+        IEnumerable<string>? controlIds = null)
     {
         Id = RuleText.Required(id, nameof(id));
         Description = RuleText.Required(description, nameof(description));
@@ -28,6 +33,11 @@ public class DoseMetricThresholdRule : IPlanRule
         Threshold = threshold;
         Unit = RuleText.Required(unit, nameof(unit));
         FailureStatus = failureStatus;
+        Reference = RuleText.Optional(reference);
+        Rationale = RuleText.Optional(rationale);
+        RequirementId = RuleText.Optional(requirementId);
+        HazardIds = RuleText.CleanList(hazardIds);
+        ControlIds = RuleText.CleanList(controlIds);
     }
 
     /// <inheritdoc />
@@ -65,6 +75,21 @@ public class DoseMetricThresholdRule : IPlanRule
     /// Status returned when the observed value does not satisfy the threshold.
     /// </summary>
     public EvaluationStatus FailureStatus { get; }
+
+    /// <inheritdoc />
+    public string? Reference { get; }
+
+    /// <inheritdoc />
+    public string? Rationale { get; }
+
+    /// <inheritdoc />
+    public string? RequirementId { get; }
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> HazardIds { get; }
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> ControlIds { get; }
 
     /// <inheritdoc />
     public EvaluationResult Evaluate(PlanEvaluationContext context)

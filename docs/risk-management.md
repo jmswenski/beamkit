@@ -2,6 +2,8 @@
 
 BeamKit uses a lightweight safety case model to track hazards, controls, and validation evidence. This is not a substitute for an institution's quality management system, but it gives contributors and deployment owners a common vocabulary.
 
+The PHI-free starter registry is machine-readable: [`samples/clinical-safety/hazards.json`](../samples/clinical-safety/hazards.json). Use it as a seed, not as a finished institutional risk file.
+
 ## Minimum Hazard Register
 
 Every clinically relevant BeamKit feature should account for these hazards:
@@ -26,6 +28,7 @@ Before clinical workflow support, the deployment owner should satisfy these cont
 - Intended use is documented.
 - Feature is read-only or its write behavior is formally validated.
 - Rule packs have owner, reviewer, approval, effective date, and changelog.
+- Clinical rules and plan checks link to requirement ids, source references, rationales, hazard ids, and safety-control ids.
 - Rule packs have passing regression tests and safety evidence before promotion.
 - Plan artifacts include source, version, timestamp, and fingerprint.
 - Outputs expose not-evaluable states instead of silently passing.

@@ -77,6 +77,12 @@ internal sealed record ClinicalGoalTemplateDto
 
     public string? Rationale { get; init; }
 
+    public string? RequirementId { get; init; }
+
+    public IReadOnlyList<string>? HazardIds { get; init; }
+
+    public IReadOnlyList<string>? ControlIds { get; init; }
+
     public IReadOnlyList<string>? Tags { get; init; }
 
     public bool IsActive { get; init; } = true;
@@ -94,7 +100,10 @@ internal sealed record ClinicalGoalTemplateDto
             Description,
             Reference,
             Rationale,
-            Tags,
-            IsActive);
+            tags: Tags,
+            isActive: IsActive,
+            requirementId: RequirementId,
+            hazardIds: HazardIds,
+            controlIds: ControlIds);
     }
 }

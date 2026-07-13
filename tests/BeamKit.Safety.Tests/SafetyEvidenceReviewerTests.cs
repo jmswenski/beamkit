@@ -94,6 +94,50 @@ public sealed class SafetyEvidenceReviewerTests
         Assert.Empty(safetyCase.BlockingHazards);
     }
 
+    [Fact]
+    public void ClinicalSafetyRegistryStoreLoadsSampleRegistry()
+    {
+        var registry = ClinicalSafetyRegistryStore.FromFile(SampleRegistryPath());
+
+        Assert.Equal("beamkit-foundation-safety", registry.Id);
+        Assert.NotNull(registry.FindHazard("HZ-FALSE-PASS"));
+        Assert.NotNull(registry.FindControl("CTRL-REQUIREMENT-TRACE"));
+        Assert.Contains(registry.BlockingHazards, hazard => hazard.Id == "HZ-PHI-LEAK");
+    }
+
+    [Fact]
+    public void ClinicalSafetyRegistryStoreRejectsDuplicateHazardIds()
+    {
+        var registry = new ClinicalSafetyRegistry(
+            "registry",
+            "Registry",
+            "1",
+            new[]
+            {
+                new ClinicalHazard(
+                    "HZ-DUPLICATE",
+                    "First",
+                    "Situation",
+                    "Harm",
+                    SafetySeverity.Major,
+                    SafetyProbability.Occasional,
+                    SafetyRiskLevel.High),
+                new ClinicalHazard(
+                    "hz-duplicate",
+                    "Second",
+                    "Situation",
+                    "Harm",
+                    SafetySeverity.Major,
+                    SafetyProbability.Occasional,
+                    SafetyRiskLevel.High)
+            },
+            Array.Empty<SafetyControl>());
+
+        var exception = Assert.Throws<InvalidOperationException>(() => ClinicalSafetyRegistryStore.ToJson(registry));
+
+        Assert.Contains("Duplicate clinical hazard id", exception.Message);
+    }
+
     private static ValidationEvidencePackage CreateEvidencePackage(
         string rulePackId,
         string versionId,
@@ -153,5 +197,19 @@ public sealed class SafetyEvidenceReviewerTests
                 }),
             owner: "Physics",
             reviewer: "Clinical QA");
+    }
+
+    private static string SampleRegistryPath()
+    {
+        return Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "samples",
+            "clinical-safety",
+            "hazards.json"));
     }
 }

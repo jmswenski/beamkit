@@ -272,7 +272,8 @@ An RT-PX v0.1 validator should check at least:
 - Active constraints reference known structures or `$target`.
 - Constraint metrics are supported.
 - Negative thresholds are rejected.
-- Missing source references are reported as warnings.
+- Missing source references are reported as warnings by draft validation.
+- Clinical-acceptance validation can require approved status, owner, description, source-document hash, approval reference, approval rationale, review due date, and source references for every active requirement.
 
 ## 17. BeamKit Compilation Semantics
 
@@ -291,6 +292,7 @@ Compilation rules:
 - Dose constraints become `dose-metric`, `plan-quality-metric`, and clinical goal templates when possible.
 - Explicit `planChecks` become BeamKit plan-check definitions.
 - Source references become rule-pack references.
+- Requirement ids are preserved on generated clinical goals and plan checks where possible.
 - RT-PX approval metadata becomes rule-pack approval metadata.
 
 The resulting rule pack can be validated, bundled, tested, promoted, and used by BeamKit CI server workflows.

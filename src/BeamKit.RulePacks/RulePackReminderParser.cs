@@ -148,7 +148,7 @@ public sealed class RulePackReminderParser
                 Description,
                 Reference,
                 parameters,
-                IsActive);
+                isActive: IsActive);
         }
     }
 }

@@ -14,4 +14,9 @@ public sealed record CiServerApiKeyOptions
     /// Shared secret value expected in the configured API-key header.
     /// </summary>
     public string? Key { get; init; }
+
+    /// <summary>
+    /// Authorization roles granted to this key. Keys without explicit roles are treated as Admin for backward compatibility.
+    /// </summary>
+    public List<string> Roles { get; init; } = new();
 }

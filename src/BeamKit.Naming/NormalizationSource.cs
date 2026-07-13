@@ -28,5 +28,10 @@ public enum NormalizationSource
     /// <summary>
     /// The input matched a regular expression mapping.
     /// </summary>
-    Regex
+    Regex,
+
+    /// <summary>
+    /// The input matched a deprecated-name mapping.
+    /// </summary>
+    Deprecated
 }

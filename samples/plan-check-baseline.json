@@ -9,14 +9,32 @@
       "title": "Dose exists",
       "type": "dose-exists",
       "severity": "Failure",
-      "reference": "Synthetic institutional plan-check baseline"
+      "reference": "Synthetic institutional plan-check baseline",
+      "requirementId": "REQ-PLAN-PLAN-DOSE-EXISTS",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "plan.beams.present",
       "title": "Treatment beams exist",
       "type": "beams-present",
       "severity": "Failure",
-      "reference": "Synthetic institutional plan-check baseline"
+      "reference": "Synthetic institutional plan-check baseline",
+      "requirementId": "REQ-PLAN-PLAN-BEAMS-PRESENT",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "structure.body.exists",
@@ -24,7 +42,18 @@
       "type": "structure-exists",
       "severity": "Failure",
       "reference": "Synthetic institutional plan-check baseline",
-      "parameters": { "structureName": "BODY" }
+      "parameters": {
+        "structureName": "BODY"
+      },
+      "requirementId": "REQ-PLAN-STRUCTURE-BODY-EXISTS",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "structure.body.not-empty",
@@ -32,7 +61,18 @@
       "type": "structure-not-empty",
       "severity": "Failure",
       "reference": "Synthetic institutional plan-check baseline",
-      "parameters": { "structureName": "BODY" }
+      "parameters": {
+        "structureName": "BODY"
+      },
+      "requirementId": "REQ-PLAN-STRUCTURE-BODY-NOT-EMPTY",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "target.exists",
@@ -40,7 +80,18 @@
       "type": "structure-exists",
       "severity": "Failure",
       "reference": "Synthetic institutional plan-check baseline",
-      "parameters": { "structureName": "$target" }
+      "parameters": {
+        "structureName": "$target"
+      },
+      "requirementId": "REQ-PLAN-TARGET-EXISTS",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "target.not-empty",
@@ -48,7 +99,18 @@
       "type": "structure-not-empty",
       "severity": "Failure",
       "reference": "Synthetic institutional plan-check baseline",
-      "parameters": { "structureName": "$target" }
+      "parameters": {
+        "structureName": "$target"
+      },
+      "requirementId": "REQ-PLAN-TARGET-NOT-EMPTY",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "dose.grid.spacing",
@@ -56,21 +118,50 @@
       "type": "dose-grid-max-spacing",
       "severity": "Failure",
       "reference": "Synthetic institutional plan-check baseline",
-      "parameters": { "maxSpacingMm": "2.5" }
+      "parameters": {
+        "maxSpacingMm": "2.5"
+      },
+      "requirementId": "REQ-PLAN-DOSE-GRID-SPACING",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "prescription.energy",
       "title": "Prescription requested energy",
       "type": "prescription-energy",
       "severity": "Failure",
-      "reference": "Synthetic institutional plan-check baseline"
+      "reference": "Synthetic institutional plan-check baseline",
+      "requirementId": "REQ-PLAN-PRESCRIPTION-ENERGY",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "prescription.technique",
       "title": "Prescription requested technique",
       "type": "prescription-technique",
       "severity": "Failure",
-      "reference": "Synthetic institutional plan-check baseline"
+      "reference": "Synthetic institutional plan-check baseline",
+      "requirementId": "REQ-PLAN-PRESCRIPTION-TECHNIQUE",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "prescription.fractionation",
@@ -82,21 +173,48 @@
         "totalDoseGy": "70",
         "fractionCount": "35",
         "dosePerFractionGy": "2"
-      }
+      },
+      "requirementId": "REQ-PLAN-PRESCRIPTION-FRACTIONATION",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "dose.calculation-model",
       "title": "Dose calculation model",
       "type": "calculation-model",
       "severity": "Failure",
-      "reference": "Synthetic institutional plan-check baseline"
+      "reference": "Synthetic institutional plan-check baseline",
+      "requirementId": "REQ-PLAN-DOSE-CALCULATION-MODEL",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "beam.model",
       "title": "Beam model",
       "type": "beam-model",
       "severity": "Failure",
-      "reference": "Synthetic institutional plan-check baseline"
+      "reference": "Synthetic institutional plan-check baseline",
+      "requirementId": "REQ-PLAN-BEAM-MODEL",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "target.d95",
@@ -104,7 +222,19 @@
       "type": "target-coverage",
       "severity": "Failure",
       "reference": "Synthetic institutional plan-check baseline",
-      "parameters": { "metric": "D95%", "minPercentPrescription": "95" }
+      "parameters": {
+        "metric": "D95%",
+        "minPercentPrescription": "95"
+      },
+      "requirementId": "REQ-PLAN-TARGET-D95",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "target.v95",
@@ -118,7 +248,16 @@
         "comparison": "GreaterThanOrEqual",
         "threshold": "95",
         "unit": "%"
-      }
+      },
+      "requirementId": "REQ-PLAN-TARGET-V95",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "target.hi",
@@ -126,7 +265,20 @@
       "type": "plan-quality-metric",
       "severity": "Failure",
       "reference": "Synthetic institutional plan-check baseline",
-      "parameters": { "metric": "HI", "comparison": "LessThanOrEqual", "threshold": "0.15" }
+      "parameters": {
+        "metric": "HI",
+        "comparison": "LessThanOrEqual",
+        "threshold": "0.15"
+      },
+      "requirementId": "REQ-PLAN-TARGET-HI",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "target.ci",
@@ -134,7 +286,20 @@
       "type": "plan-quality-metric",
       "severity": "Failure",
       "reference": "Synthetic institutional plan-check baseline",
-      "parameters": { "metric": "CI", "comparison": "GreaterThanOrEqual", "threshold": "0.7" }
+      "parameters": {
+        "metric": "CI",
+        "comparison": "GreaterThanOrEqual",
+        "threshold": "0.7"
+      },
+      "requirementId": "REQ-PLAN-TARGET-CI",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "cord.max",
@@ -148,7 +313,16 @@
         "comparison": "LessThanOrEqual",
         "threshold": "45",
         "unit": "Gy"
-      }
+      },
+      "requirementId": "REQ-PLAN-CORD-MAX",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "heart.mean",
@@ -162,7 +336,16 @@
         "comparison": "LessThanOrEqual",
         "threshold": "10",
         "unit": "Gy"
-      }
+      },
+      "requirementId": "REQ-PLAN-HEART-MEAN",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "lung.r.v20",
@@ -176,7 +359,16 @@
         "comparison": "LessThanOrEqual",
         "threshold": "30",
         "unit": "%"
-      }
+      },
+      "requirementId": "REQ-PLAN-LUNG-R-V20",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "lung.l.v20",
@@ -190,14 +382,32 @@
         "comparison": "LessThanOrEqual",
         "threshold": "30",
         "unit": "%"
-      }
+      },
+      "requirementId": "REQ-PLAN-LUNG-L-V20",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     },
     {
       "id": "deliverability.profile",
       "title": "Beam deliverability profile",
       "type": "deliverability",
       "severity": "Failure",
-      "reference": "Synthetic institutional plan-check baseline"
+      "reference": "Synthetic institutional plan-check baseline",
+      "requirementId": "REQ-PLAN-DELIVERABILITY-PROFILE",
+      "hazardIds": [
+        "HZ-FALSE-PASS",
+        "HZ-STALE-SNAPSHOT"
+      ],
+      "controlIds": [
+        "CTRL-REQUIREMENT-TRACE",
+        "CTRL-PROVENANCE"
+      ]
     }
   ]
 }

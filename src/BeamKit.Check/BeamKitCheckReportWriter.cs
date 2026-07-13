@@ -226,6 +226,7 @@ public static class BeamKitCheckReportWriter
 
         builder.AppendLine($"- Normalized suggestions: {report.NormalizedCount}");
         builder.AppendLine($"- Ambiguous: {report.AmbiguousCount}");
+        builder.AppendLine($"- Deprecated: {report.DeprecatedCount}");
         builder.AppendLine($"- Unmapped: {report.UnmappedCount}");
         builder.AppendLine($"- Missing required: {report.MissingStructures.Count}");
         if (report.MissingStructures.Count > 0)
@@ -343,7 +344,7 @@ public static class BeamKitCheckReportWriter
             return;
         }
 
-        builder.AppendLine($"<p>{report.NormalizedCount} suggestions, {report.AmbiguousCount} ambiguous, {report.UnmappedCount} unmapped, {report.MissingStructures.Count} missing required.</p>");
+        builder.AppendLine($"<p>{report.NormalizedCount} suggestions, {report.AmbiguousCount} ambiguous, {report.DeprecatedCount} deprecated, {report.UnmappedCount} unmapped, {report.MissingStructures.Count} missing required.</p>");
         if (report.MissingStructures.Count == 0)
         {
             return;

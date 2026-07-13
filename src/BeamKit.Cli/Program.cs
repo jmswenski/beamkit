@@ -88,6 +88,8 @@ internal static class Program
                 "writeup-verify" => RunWriteUpVerify(options),
                 "esapi-snapshot-validate" => RunEsapiSnapshotValidate(options),
                 "normalize-structures" => RunNormalizeStructures(options),
+                "naming-review" => RunNamingReview(options),
+                "naming-diff" => RunNamingDiff(options),
                 "qa" => RunQa(options),
                 "readiness" => RunReadiness(),
                 _ => UnknownCommand(options.Command)
@@ -602,7 +604,32 @@ internal static class Program
         var output = StructureNameReportWriter.Write(report, ToStructureNameReportFormat(options.Format));
 
         WriteOutput(output, options.OutputPath);
-        return report.AmbiguousCount > 0 || report.UnmappedCount > 0 || report.MissingStructures.Count > 0 ? 2 : 0;
+        return report.AmbiguousCount > 0 || report.DeprecatedCount > 0 || report.UnmappedCount > 0 || report.MissingStructures.Count > 0 ? 2 : 0;
+    }
+
+    private static int RunNamingReview(CliOptions options)
+    {
+        var dictionary = LoadNamingDictionary(options);
+        var report = new StructureNameDictionaryReviewer().Review(dictionary);
+        var output = StructureNameDictionaryGovernanceReportWriter.Write(report, ToStructureNameReportFormat(options.Format));
+
+        WriteOutput(output, options.OutputPath);
+        return report.IsValid ? 0 : 2;
+    }
+
+    private static int RunNamingDiff(CliOptions options)
+    {
+        var oldPath = options.NamingDictionaryPath
+            ?? throw new ArgumentException("Naming dictionary diff requires --dictionary or --old-dictionary.");
+        var newPath = options.ComparisonNamingDictionaryPath
+            ?? throw new ArgumentException("Naming dictionary diff requires --compare-dictionary or --new-dictionary.");
+        var oldDictionary = StructureNameDictionaryLoader.FromFile(oldPath);
+        var newDictionary = StructureNameDictionaryLoader.FromFile(newPath);
+        var report = new StructureNameDictionaryDiffer().Compare(oldDictionary, newDictionary);
+        var output = StructureNameDictionaryGovernanceReportWriter.Write(report, ToStructureNameReportFormat(options.Format));
+
+        WriteOutput(output, options.OutputPath);
+        return report.PolicyRelevantCount > 0 ? 2 : 0;
     }
 
     private static int RunPlanCheck(CliOptions options)
@@ -1606,6 +1633,8 @@ internal static class Program
         Console.Error.WriteLine("  beamkit writeup verify --manifest writeup.json [--plan path] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit esapi-snapshot validate --esapi-snapshot snapshot.json [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit normalize-structures [--dictionary path] [--structure name]... [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit naming review --dictionary dictionary.json [--format json|markdown|html] [--output path]");
+        Console.Error.WriteLine("  beamkit naming diff --old-dictionary old.json --new-dictionary new.json [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit qa [--plan path] [--template path | --catalog path] [--dictionary path] [--format json|markdown|html] [--output path]");
         Console.Error.WriteLine("  beamkit readiness");
         Console.Error.WriteLine();

@@ -25,6 +25,9 @@ Templates are intended for institution, disease-site, and physician policy confi
       "description": "PTV D95 coverage objective.",
       "reference": "Institution protocol",
       "rationale": "Documents target coverage expectations.",
+      "requirementId": "REQ-HN-PTV-D95",
+      "hazardIds": [ "HZ-FALSE-PASS", "HZ-WRONG-PROTOCOL" ],
+      "controlIds": [ "CTRL-REQUIREMENT-TRACE", "CTRL-HUMAN-REVIEW" ],
       "tags": [ "target", "coverage" ]
     }
   ]
@@ -32,6 +35,8 @@ Templates are intended for institution, disease-site, and physician policy confi
 ```
 
 Rules generated from templates remain vendor-neutral and evaluate only `BeamKit.Core` plan data.
+
+For clinical-pilot promotion, include `requirementId`, `hazardIds`, and `controlIds` so each generated rule can be traced back to a requirement, safety hazard, and control in the safety registry.
 
 Template goals can be marked with `"isActive": false` to retain retired rules in a file without producing executable rules.
 

@@ -65,6 +65,7 @@ public sealed record PlanQaReport
     public bool HasBlockingIssues =>
         RuleReport.Results.Any(result => result.Status is EvaluationStatus.Fail or EvaluationStatus.NotEvaluable or EvaluationStatus.Error)
         || NamingReport?.AmbiguousCount > 0
+        || NamingReport?.DeprecatedCount > 0
         || NamingReport?.UnmappedCount > 0
         || NamingReport?.MissingStructures.Count > 0
         || ReadinessState?.IsReady == false;

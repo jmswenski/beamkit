@@ -21,6 +21,17 @@ public sealed class RadiotherapyProtocolPackageTests
     }
 
     [Fact]
+    public void SampleProtocolPassesClinicalAcceptanceValidation()
+    {
+        var package = RadiotherapyProtocolPackageStore.FromPath(SampleProtocolPath());
+        var report = new RadiotherapyProtocolValidator(RadiotherapyProtocolValidationOptions.ClinicalAcceptance)
+            .Validate(package);
+
+        Assert.True(report.IsValid);
+        Assert.Empty(report.Issues);
+    }
+
+    [Fact]
     public void JsonRoundTripPreservesEnumsAndClinicalIntent()
     {
         var package = RadiotherapyProtocolPackageStore.FromPath(SampleProtocolPath());
@@ -56,6 +67,40 @@ public sealed class RadiotherapyProtocolPackageTests
 
         Assert.False(report.IsValid);
         Assert.Contains(report.Issues, issue => issue.Code == "rtpx.prescription.target-missing");
+    }
+
+    [Fact]
+    public void ClinicalAcceptanceRejectsDraftsWithoutTraceability()
+    {
+        var package = new RadiotherapyProtocolPackage(
+            "draft-protocol",
+            "Draft Protocol",
+            "1",
+            "Lung",
+            "Definitive",
+            ProtocolPackageStatus.Draft,
+            structures: new[]
+            {
+                new ProtocolStructureRequirement("body", "BODY", ProtocolStructureRole.External),
+                new ProtocolStructureRequirement("ptv", "PTV_5000", ProtocolStructureRole.Target)
+            },
+            prescriptions: new[]
+            {
+                new ProtocolPrescription("primary", "PTV_5000", 50m, 5)
+            },
+            constraints: new[]
+            {
+                new ProtocolDoseConstraint("cord.max", "BODY", "Max", GoalComparison.LessThanOrEqual, 18m, "Gy")
+            });
+
+        var report = new RadiotherapyProtocolValidator(RadiotherapyProtocolValidationOptions.ClinicalAcceptance)
+            .Validate(package);
+
+        Assert.False(report.IsValid);
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.status.not-approved" && issue.Severity == ProtocolValidationSeverity.Error);
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.source.missing" && issue.Severity == ProtocolValidationSeverity.Error);
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.structure.source-missing" && issue.Severity == ProtocolValidationSeverity.Error);
+        Assert.Contains(report.Issues, issue => issue.Code == "rtpx.constraint.source-missing" && issue.Severity == ProtocolValidationSeverity.Error);
     }
 
     [Fact]

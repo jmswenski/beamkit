@@ -1,3 +1,4 @@
+using BeamKit.Core.Domain;
 using BeamKit.Rules;
 
 namespace BeamKit.Templates;
@@ -111,7 +112,53 @@ public sealed record ClinicalRuleCatalog
             throw new InvalidOperationException($"Duplicate active clinical goal id '{duplicateGoalId}' in selected catalog rule sets.");
         }
 
-        return new PlanRuleSet($"{Name} selected rules", goals.Select(goal => ClinicalGoalRuleFactory.FromClinicalGoal(goal.ToClinicalGoal())));
+        return new PlanRuleSet($"{Name} selected rules", goals.Select(ToTraceableRule));
+    }
+
+    private static IPlanRule ToTraceableRule(ClinicalGoalTemplate goal)
+    {
+        var clinicalGoal = goal.ToClinicalGoal();
+        var failureStatus = clinicalGoal.Severity switch
+        {
+            Core.Domain.GoalSeverity.Advisory => EvaluationStatus.Warning,
+            Core.Domain.GoalSeverity.Warning => EvaluationStatus.Warning,
+            Core.Domain.GoalSeverity.Required => EvaluationStatus.Fail,
+            _ => EvaluationStatus.Fail
+        };
+
+        return new DoseMetricThresholdRule(
+            clinicalGoal.Id,
+            goal.Description
+                ?? $"{clinicalGoal.StructureName} {clinicalGoal.MetricKey} {FormatComparison(clinicalGoal.Comparison)} {FormatNumber(clinicalGoal.Threshold)} {clinicalGoal.Unit}",
+            clinicalGoal.StructureName,
+            clinicalGoal.MetricKey,
+            clinicalGoal.Comparison,
+            clinicalGoal.Threshold,
+            clinicalGoal.Unit,
+            failureStatus,
+            goal.Reference,
+            goal.Rationale,
+            goal.RequirementId,
+            goal.HazardIds,
+            goal.ControlIds);
+    }
+
+    private static string FormatComparison(GoalComparison comparison)
+    {
+        return comparison switch
+        {
+            GoalComparison.LessThan => "<",
+            GoalComparison.LessThanOrEqual => "<=",
+            GoalComparison.GreaterThan => ">",
+            GoalComparison.GreaterThanOrEqual => ">=",
+            GoalComparison.Equal => "=",
+            _ => comparison.ToString()
+        };
+    }
+
+    private static string FormatNumber(decimal value)
+    {
+        return value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static bool Matches(string? requested, string? candidate)

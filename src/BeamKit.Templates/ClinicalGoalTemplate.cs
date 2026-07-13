@@ -22,7 +22,10 @@ public sealed record ClinicalGoalTemplate
         string? reference = null,
         string? rationale = null,
         IEnumerable<string>? tags = null,
-        bool isActive = true)
+        bool isActive = true,
+        string? requirementId = null,
+        IEnumerable<string>? hazardIds = null,
+        IEnumerable<string>? controlIds = null)
     {
         Id = TemplateText.Required(id, nameof(id));
         StructureName = TemplateText.Required(structureName, nameof(structureName));
@@ -34,6 +37,9 @@ public sealed record ClinicalGoalTemplate
         Description = TemplateText.Optional(description);
         Reference = TemplateText.Optional(reference);
         Rationale = TemplateText.Optional(rationale);
+        RequirementId = TemplateText.Optional(requirementId);
+        HazardIds = TemplateText.CleanTags(hazardIds);
+        ControlIds = TemplateText.CleanTags(controlIds);
         Tags = TemplateText.CleanTags(tags);
         IsActive = isActive;
     }
@@ -87,6 +93,21 @@ public sealed record ClinicalGoalTemplate
     /// Short rationale explaining why the rule exists.
     /// </summary>
     public string? Rationale { get; init; }
+
+    /// <summary>
+    /// Stable requirement id used for requirements-to-tests traceability.
+    /// </summary>
+    public string? RequirementId { get; init; }
+
+    /// <summary>
+    /// Safety hazard ids mitigated or detected by this goal.
+    /// </summary>
+    public IReadOnlyList<string> HazardIds { get; init; }
+
+    /// <summary>
+    /// Safety control ids implemented or supported by this goal.
+    /// </summary>
+    public IReadOnlyList<string> ControlIds { get; init; }
 
     /// <summary>
     /// Searchable tags used for catalog filtering.

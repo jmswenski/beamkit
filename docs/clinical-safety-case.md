@@ -30,6 +30,22 @@ Minimum promotion evidence:
 
 This gate is intentionally stricter than a build passing. A clinically meaningful rule pack needs both executable regression evidence and human clinical review evidence.
 
+## Traceability Gate
+
+Clinical-pilot rule packs should also pass `RulePackPolicyValidationOptions.ClinicalPromotion`.
+
+That preset requires every active clinical rule and plan check to carry:
+
+- Source reference.
+- Rationale.
+- Stable requirement id.
+- Linked hazard id from the safety registry.
+- Linked safety-control id from the safety registry.
+
+RT-PX packages should pass `RadiotherapyProtocolValidationOptions.ClinicalAcceptance` before hospital acceptance or rule-pack compilation for a pilot. That preset requires approved status, source-document hash, approval rationale, review due date, and row-level source references.
+
+The starter hazard/control registry lives at [`samples/clinical-safety/hazards.json`](../samples/clinical-safety/hazards.json). Local deployments should fork it, add institution-specific hazards, and mark controls satisfied only when there is objective evidence.
+
 ## Example Evidence Package
 
 ```json

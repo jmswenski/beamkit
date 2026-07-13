@@ -44,6 +44,7 @@ public static class StructureNameReportWriter
         builder.AppendLine($"- Already canonical: {report.AlreadyCanonicalCount}");
         builder.AppendLine($"- Rename suggestions: {report.NormalizedCount}");
         builder.AppendLine($"- Ambiguous: {report.AmbiguousCount}");
+        builder.AppendLine($"- Deprecated: {report.DeprecatedCount}");
         builder.AppendLine($"- Unmapped: {report.UnmappedCount}");
         builder.AppendLine($"- Missing required structures: {report.MissingStructures.Count}");
         builder.AppendLine();
@@ -87,14 +88,14 @@ public static class StructureNameReportWriter
         builder.AppendLine("    th, td { border: 1px solid #d9e2ec; padding: 0.5rem; text-align: left; }");
         builder.AppendLine("    th { background: #f0f4f8; }");
         builder.AppendLine("    .AlreadyCanonical, .Normalized { color: #0b6b43; font-weight: 700; }");
-        builder.AppendLine("    .Ambiguous { color: #8a5a00; font-weight: 700; }");
+        builder.AppendLine("    .Ambiguous, .Deprecated { color: #8a5a00; font-weight: 700; }");
         builder.AppendLine("    .Unmapped { color: #b42318; font-weight: 700; }");
         builder.AppendLine("  </style>");
         builder.AppendLine("</head>");
         builder.AppendLine("<body>");
         builder.AppendLine("  <h1>BeamKit Structure Name Normalization</h1>");
         builder.AppendLine($"  <p><strong>Dictionary:</strong> {Encode(report.DictionaryName)}</p>");
-        builder.AppendLine($"  <p><strong>Summary:</strong> {report.AlreadyCanonicalCount} canonical, {report.NormalizedCount} suggestions, {report.AmbiguousCount} ambiguous, {report.UnmappedCount} unmapped, {report.MissingStructures.Count} missing.</p>");
+        builder.AppendLine($"  <p><strong>Summary:</strong> {report.AlreadyCanonicalCount} canonical, {report.NormalizedCount} suggestions, {report.AmbiguousCount} ambiguous, {report.DeprecatedCount} deprecated, {report.UnmappedCount} unmapped, {report.MissingStructures.Count} missing.</p>");
         builder.AppendLine("  <table>");
         builder.AppendLine("    <thead><tr><th>Status</th><th>Original</th><th>Canonical</th><th>Confidence</th><th>Source</th><th>Message</th></tr></thead>");
         builder.AppendLine("    <tbody>");

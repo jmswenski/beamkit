@@ -8,6 +8,7 @@ Current schemas:
 - [esapi-plan-snapshot.schema.json](../schemas/esapi-plan-snapshot.schema.json)
 - [clinical-goal-template.schema.json](../schemas/clinical-goal-template.schema.json)
 - [naming-dictionary.schema.json](../schemas/naming-dictionary.schema.json)
+- [naming-dictionary-overlay.schema.json](../schemas/naming-dictionary-overlay.schema.json)
 - [machine-profile.schema.json](../schemas/machine-profile.schema.json)
 - [plan-check-catalog.schema.json](../schemas/plan-check-catalog.schema.json)
 - [rtpx-0.1.schema.json](../schemas/rtpx-0.1.schema.json)

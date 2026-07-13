@@ -97,6 +97,12 @@ public static class PlanCheckCatalogLoader
 
         public IReadOnlyDictionary<string, string>? Parameters { get; init; }
 
+        public string? RequirementId { get; init; }
+
+        public IReadOnlyList<string>? HazardIds { get; init; }
+
+        public IReadOnlyList<string>? ControlIds { get; init; }
+
         public bool IsActive { get; init; } = true;
 
         public PlanCheckDefinition ToDefinition()
@@ -109,7 +115,10 @@ public static class PlanCheckCatalogLoader
                 Description,
                 Reference,
                 Parameters,
-                IsActive);
+                IsActive,
+                RequirementId,
+                HazardIds,
+                ControlIds);
         }
     }
 }

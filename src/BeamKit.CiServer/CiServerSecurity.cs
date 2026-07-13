@@ -42,7 +42,7 @@ internal static class CiServerSecurity
 
         if (!options.RequireApiKey)
         {
-            context.Items[ActorItemKey] = new CiServerAuthenticatedActor("local-dev");
+            context.Items[ActorItemKey] = new CiServerAuthenticatedActor("local-dev", new[] { CiServerApiRoles.Admin });
             return true;
         }
 
@@ -69,8 +69,33 @@ internal static class CiServerSecurity
         }
 
         context.Items[ActorItemKey] = new CiServerAuthenticatedActor(
-            string.IsNullOrWhiteSpace(matched.Label) ? "api-key" : matched.Label.Trim());
+            string.IsNullOrWhiteSpace(matched.Label) ? "api-key" : matched.Label.Trim(),
+            matched.Roles);
         return true;
+    }
+
+    public static bool TryAuthorize(HttpContext context, out IResult? failure)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        failure = null;
+        var requiredRole = RequiredRoleFor(context.Request.Method, context.Request.Path);
+        if (requiredRole is null)
+        {
+            return true;
+        }
+
+        var actor = context.Items.TryGetValue(ActorItemKey, out var value)
+            && value is CiServerAuthenticatedActor authenticatedActor
+                ? authenticatedActor
+                : null;
+        if (actor is not null && actor.HasRole(requiredRole))
+        {
+            return true;
+        }
+
+        failure = Forbidden($"BeamKit CI server API key requires the {requiredRole} role.");
+        return false;
     }
 
     public static IResult PayloadTooLarge(long maxBytes)
@@ -87,6 +112,73 @@ internal static class CiServerSecurity
             title: "BeamKit CI server authorization failed.",
             detail: detail,
             statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    private static IResult Forbidden(string detail)
+    {
+        return Results.Problem(
+            title: "BeamKit CI server authorization failed.",
+            detail: detail,
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    private static string? RequiredRoleFor(string method, PathString path)
+    {
+        if (!IsProtectedPath(path) || HttpMethods.IsOptions(method) || HttpMethods.IsHead(method))
+        {
+            return null;
+        }
+
+        if (HttpMethods.IsGet(method))
+        {
+            return CiServerApiRoles.Reader;
+        }
+
+        if (!HttpMethods.IsPost(method))
+        {
+            return CiServerApiRoles.Admin;
+        }
+
+        if (path.Equals("/api/runs", StringComparison.OrdinalIgnoreCase)
+            || path.Equals("/api/runs/from-plan-snapshot", StringComparison.OrdinalIgnoreCase))
+        {
+            return CiServerApiRoles.Runner;
+        }
+
+        if (path.StartsWithSegments("/api/runs", StringComparison.OrdinalIgnoreCase)
+            && path.Value?.EndsWith("/baseline", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return CiServerApiRoles.BaselineManager;
+        }
+
+        if (path.Equals("/api/protocol-compliance/runs", StringComparison.OrdinalIgnoreCase))
+        {
+            return CiServerApiRoles.Runner;
+        }
+
+        if (path.StartsWithSegments("/api/protocol-compliance/runs", StringComparison.OrdinalIgnoreCase)
+            && path.Value?.EndsWith("/variances", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return CiServerApiRoles.ProtocolManager;
+        }
+
+        if (path.StartsWithSegments("/api/rtpx", StringComparison.OrdinalIgnoreCase))
+        {
+            return CiServerApiRoles.ProtocolManager;
+        }
+
+        if (path.StartsWithSegments("/api/rule-packs", StringComparison.OrdinalIgnoreCase))
+        {
+            return CiServerApiRoles.RulePackManager;
+        }
+
+        if (path.StartsWithSegments("/api/assignments", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/work-items", StringComparison.OrdinalIgnoreCase))
+        {
+            return CiServerApiRoles.WorkQueueManager;
+        }
+
+        return CiServerApiRoles.Admin;
     }
 
     private static bool FixedTimeEquals(string expected, string supplied)

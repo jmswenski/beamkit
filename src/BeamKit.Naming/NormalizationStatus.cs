@@ -21,6 +21,11 @@ public enum NormalizationStatus
     Ambiguous,
 
     /// <summary>
+    /// The name maps to a canonical replacement but is explicitly deprecated.
+    /// </summary>
+    Deprecated,
+
+    /// <summary>
     /// No canonical mapping was found.
     /// </summary>
     Unmapped

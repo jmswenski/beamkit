@@ -59,6 +59,7 @@ public static class PlanQaReportWriter
             builder.AppendLine();
             builder.AppendLine($"- Suggestions: {report.NamingReport.NormalizedCount}");
             builder.AppendLine($"- Ambiguous: {report.NamingReport.AmbiguousCount}");
+            builder.AppendLine($"- Deprecated: {report.NamingReport.DeprecatedCount}");
             builder.AppendLine($"- Unmapped: {report.NamingReport.UnmappedCount}");
             builder.AppendLine($"- Missing required: {report.NamingReport.MissingStructures.Count}");
         }
@@ -92,7 +93,7 @@ public static class PlanQaReportWriter
         if (report.NamingReport is not null)
         {
             builder.AppendLine("<h2>Structure Naming</h2>");
-            builder.AppendLine($"<p>{report.NamingReport.NormalizedCount} suggestions, {report.NamingReport.AmbiguousCount} ambiguous, {report.NamingReport.UnmappedCount} unmapped, {report.NamingReport.MissingStructures.Count} missing required.</p>");
+            builder.AppendLine($"<p>{report.NamingReport.NormalizedCount} suggestions, {report.NamingReport.AmbiguousCount} ambiguous, {report.NamingReport.DeprecatedCount} deprecated, {report.NamingReport.UnmappedCount} unmapped, {report.NamingReport.MissingStructures.Count} missing required.</p>");
         }
 
         if (report.ReadinessState is not null)

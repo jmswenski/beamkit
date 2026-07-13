@@ -68,7 +68,7 @@ public sealed class AdditionalTemplateTests
             "Mean heart dose goal.",
             "Protocol",
             "Rationale",
-            new[] { "heart", "oar" });
+            tags: new[] { "heart", "oar" });
         var templateSet = new ClinicalGoalTemplateSet("Set", new[] { template }, "  Cardiac  ", "  Institution  ", "  Physician  ", "  1.0  ");
 
         var goal = templateSet.ToClinicalGoals().Single();

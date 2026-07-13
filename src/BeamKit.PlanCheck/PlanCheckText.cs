@@ -16,4 +16,16 @@ internal static class PlanCheckText
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
+
+    public static IReadOnlyList<string> CleanList(IEnumerable<string>? values)
+    {
+        return values?
+            .Select(Optional)
+            .Where(value => value is not null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase)
+            .Select(value => value!)
+            .ToArray()
+            ?? Array.Empty<string>();
+    }
 }

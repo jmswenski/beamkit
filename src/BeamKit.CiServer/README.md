@@ -13,7 +13,7 @@ This first slice supports:
 - Audit events for protected CI actions.
 - Built-in and configured rule-pack registry entries.
 - Managed rule-pack version import from manifests or immutable bundles, regression evidence, and active-version promotion.
-- Safety and validation evidence review for managed rule-pack promotion.
+- Safety and validation evidence review for managed rule-pack promotion, including clinical-promotion traceability and safety-registry reference gates.
 - Draft rule-pack review and managed-version diff reports.
 - RT-PX package acceptance into managed rule-pack versions, including institution profile fingerprints, optional ESAPI snapshot evidence, generated safety evidence, and optional promotion.
 - RT-PX Word extraction uploads for Word add-ins and protocol authoring clients.
@@ -34,6 +34,7 @@ This first slice supports:
 ```bash
 export BeamKit__CiServer__Security__ApiKeys__0__Label=local-admin
 export BeamKit__CiServer__Security__ApiKeys__0__Key=dev-secret
+export BeamKit__CiServer__Security__ApiKeys__0__Roles__0=Admin
 
 dotnet run --project src/BeamKit.CiServer --urls http://localhost:5088
 ```
@@ -336,7 +337,13 @@ curl -s "$API/api/audit-events?action=run.created&limit=25" \
 
 `/` and `/health` are public. `/api/*` requires the configured `X-BeamKit-Api-Key` header by default. API-key labels are recorded in audit events; raw key values are not.
 
+API keys can be scoped with roles. Use `Reader` for read-only clients, `Runner` for run submission, `BaselineManager` for baseline promotion, `RulePackManager` for rule-pack import/review/promotion, `ProtocolManager` for RT-PX and protocol-variance flows, `WorkQueueManager` for work queues and assignment recommendations, and `Admin` for full access. Keys without explicit roles are treated as `Admin` for backward compatibility; production deployments should configure explicit roles.
+
 Plan snapshot, protocol compliance, RT-PX acceptance, and RT-PX Word uploads are capped by `BeamKit:CiServer:Security:MaxPlanSnapshotUploadBytes`, defaulting to 5 MB and clamped between 1 KB and 100 MB.
+
+Uploaded BeamKit plan JSON and ESAPI snapshot JSON are screened for obvious patient identifiers before the server stores a plan snapshot. By default, `BeamKit:CiServer:Security:RequireDeidentifiedPlanSnapshots` is `true`; patient ids must use a configured de-identified prefix such as `SYN-`, `TEST-`, `DEID-`, or `ANON-`, display names must be approved placeholders, and date of birth must be absent. Set this to `false` only inside a protected, approved clinical environment with local PHI controls.
+
+Request-supplied server-local paths such as `rulePackPath`, `manifestPath`, `bundlePath`, `packagePath`, `institutionProfilePath`, `esapiSnapshotPath`, `docxPath`, `rosterPath`, and `outputDirectory` are constrained by `BeamKit:CiServer:Security:AllowedServerLocalFilePathRoots` when `RestrictServerLocalFilePaths` is `true`. The default roots are `samples` and `artifacts`.
 
 ## Rule-Pack Registry
 
@@ -382,7 +389,19 @@ curl -s "$API/api/rule-packs/institution-head-neck/versions/{versionId}/safety-e
   -d @rule-pack-safety-evidence.json
 ```
 
-Promotion requires passing rule-pack validation, passing regression tests, a complete safety-control checklist, passing regression evidence, passing clinical-review or commissioning evidence, and no failed evidence items.
+Promotion requires passing rule-pack validation, passing regression tests, strict clinical-promotion policy validation, known hazard/control references from the configured safety registry, a complete safety-control checklist, passing regression evidence, passing clinical-review or commissioning evidence, and no failed evidence items.
+
+The promotion hardening settings live under `BeamKit:CiServer:Safety`:
+
+```json
+{
+  "SafetyRegistryPath": "samples/clinical-safety/hazards.json",
+  "EnforceClinicalPromotionValidation": true,
+  "RequireKnownSafetyRegistryReferences": true
+}
+```
+
+With the defaults, active clinical rules and plan checks must include source references, rationales, requirement ids, hazard ids, and safety-control ids before activation. Any rule-pack or evidence hazard/control id that is not present in the configured registry blocks promotion.
 
 Managed imports can also use immutable bundle JSON or a server-local `bundlePath`. Bundles embed manifest-referenced policy files, file hashes, validation evidence, optional regression evidence, and a bundle fingerprint.
 
@@ -434,6 +453,6 @@ Configure it under `BeamKit:CiServer:Storage`:
 
 This server persists local run history, artifacts, internal BeamKit plan snapshots, and audit events, and can run checks from synthetic cases, BeamKit plan JSON, or ESAPI snapshot JSON. It is suitable for local demos, API shape validation, and future dashboard development.
 
-Path-based fields such as `manifestPath`, `bundlePath`, `rosterPath`, `packagePath`, `institutionProfilePath`, and `esapiSnapshotPath` read files from the server filesystem. Treat callers who can submit those fields as trusted operators, or disable/sandbox path-based requests before exposing the server beyond a controlled clinical engineering environment.
+Path-based fields such as `rulePackPath`, `manifestPath`, `bundlePath`, `baseDirectory`, `rosterPath`, `packagePath`, `institutionProfilePath`, `esapiSnapshotPath`, `docxPath`, and `outputDirectory` read from or write to the server filesystem. Keep `RestrictServerLocalFilePaths=true`, configure only approved import/dropbox roots, and prefer inline JSON or base64 uploads for clients that should not address server files.
 
 Before clinical or production use, BeamKit still needs production database deployment guidance, formal audit retention policy, role-based access control, identity-provider integration, bundled rule-pack dependency snapshots, network hardening, deployment documentation, PHI handling guidance, and clinical validation.

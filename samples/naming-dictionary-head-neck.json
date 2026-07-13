@@ -1,5 +1,10 @@
 {
+  "id": "beamkit.synthetic.tg263-subset",
   "name": "Synthetic TG-263 subset",
+  "version": "0.2.0",
+  "description": "Synthetic TG-263-inspired starter dictionary for BeamKit tests and demos. Not full TG-263 coverage.",
+  "source": "BeamKit synthetic starter",
+  "tags": [ "synthetic", "tg-263-inspired", "head-neck" ],
   "canonicalNames": [
     "Body",
     "PTV_7000",
@@ -42,5 +47,13 @@
     "Heart",
     "Lung_R",
     "Lung_L"
+  ],
+  "deprecatedNames": [
+    {
+      "name": "OldCord",
+      "canonicalName": "SpinalCord",
+      "reason": "Use SpinalCord for new plans.",
+      "source": "Synthetic migration example"
+    }
   ]
 }

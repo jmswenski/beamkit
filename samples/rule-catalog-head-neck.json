@@ -4,7 +4,10 @@
   "version": "2026.1",
   "description": "Synthetic catalog showing how changing clinical rules can be stored outside application code.",
   "owner": "Radiation Oncology",
-  "tags": [ "synthetic", "head-neck" ],
+  "tags": [
+    "synthetic",
+    "head-neck"
+  ],
   "templateSets": [
     {
       "name": "Synthetic head and neck baseline",
@@ -15,7 +18,10 @@
       "owner": "Radiation Oncology",
       "approvedBy": "Synthetic Physics",
       "approvedOn": "2026-07-06",
-      "tags": [ "head-neck", "baseline" ],
+      "tags": [
+        "head-neck",
+        "baseline"
+      ],
       "goals": [
         {
           "id": "goal.ptv.d95",
@@ -28,7 +34,20 @@
           "description": "PTV D95 coverage objective.",
           "reference": "Synthetic institutional head-and-neck baseline",
           "rationale": "Documents target coverage expectations in a machine-readable rule template.",
-          "tags": [ "target", "coverage", "head-neck" ]
+          "tags": [
+            "target",
+            "coverage",
+            "head-neck"
+          ],
+          "requirementId": "REQ-HN-PTV-D95",
+          "hazardIds": [
+            "HZ-FALSE-PASS",
+            "HZ-WRONG-PROTOCOL"
+          ],
+          "controlIds": [
+            "CTRL-REQUIREMENT-TRACE",
+            "CTRL-CLINICAL-REVIEW"
+          ]
         },
         {
           "id": "goal.cord.max",
@@ -41,7 +60,20 @@
           "description": "Spinal cord maximum dose limit.",
           "reference": "Synthetic institutional head-and-neck baseline",
           "rationale": "Captures a required serial-organ constraint for automated QA.",
-          "tags": [ "oar", "cord", "head-neck" ]
+          "tags": [
+            "oar",
+            "cord",
+            "head-neck"
+          ],
+          "requirementId": "REQ-HN-CORD-MAX",
+          "hazardIds": [
+            "HZ-FALSE-PASS",
+            "HZ-WRONG-PROTOCOL"
+          ],
+          "controlIds": [
+            "CTRL-REQUIREMENT-TRACE",
+            "CTRL-CLINICAL-REVIEW"
+          ]
         },
         {
           "id": "goal.heart.mean",
@@ -54,7 +86,19 @@
           "description": "Heart mean dose review goal.",
           "reference": "Synthetic institutional head-and-neck baseline",
           "rationale": "Shows how lower-priority review goals can be represented as warnings.",
-          "tags": [ "oar", "heart" ]
+          "tags": [
+            "oar",
+            "heart"
+          ],
+          "requirementId": "REQ-HN-HEART-MEAN",
+          "hazardIds": [
+            "HZ-FALSE-PASS",
+            "HZ-WRONG-PROTOCOL"
+          ],
+          "controlIds": [
+            "CTRL-REQUIREMENT-TRACE",
+            "CTRL-CLINICAL-REVIEW"
+          ]
         }
       ]
     },
@@ -68,7 +112,10 @@
       "owner": "Radiation Oncology",
       "approvedBy": "Synthetic Physics",
       "approvedOn": "2026-07-06",
-      "tags": [ "head-neck", "physician-addendum" ],
+      "tags": [
+        "head-neck",
+        "physician-addendum"
+      ],
       "goals": [
         {
           "id": "goal.parotid.mean",
@@ -81,7 +128,20 @@
           "description": "Left parotid mean dose review goal.",
           "reference": "Synthetic physician preference",
           "rationale": "Documents physician-specific planning preference without changing code.",
-          "tags": [ "head-neck", "parotid", "physician-addendum" ]
+          "tags": [
+            "head-neck",
+            "parotid",
+            "physician-addendum"
+          ],
+          "requirementId": "REQ-HN-PAROTID-MEAN",
+          "hazardIds": [
+            "HZ-FALSE-PASS",
+            "HZ-WRONG-PROTOCOL"
+          ],
+          "controlIds": [
+            "CTRL-REQUIREMENT-TRACE",
+            "CTRL-CLINICAL-REVIEW"
+          ]
         }
       ]
     }

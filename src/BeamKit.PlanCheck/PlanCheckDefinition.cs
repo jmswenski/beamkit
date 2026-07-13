@@ -16,7 +16,10 @@ public sealed record PlanCheckDefinition
         string? description = null,
         string? reference = null,
         IReadOnlyDictionary<string, string>? parameters = null,
-        bool isActive = true)
+        bool isActive = true,
+        string? requirementId = null,
+        IEnumerable<string>? hazardIds = null,
+        IEnumerable<string>? controlIds = null)
     {
         Id = PlanCheckText.Required(id, nameof(id));
         Title = PlanCheckText.Required(title, nameof(title));
@@ -25,6 +28,9 @@ public sealed record PlanCheckDefinition
         Description = PlanCheckText.Optional(description);
         Reference = PlanCheckText.Optional(reference);
         Parameters = parameters ?? new Dictionary<string, string>();
+        RequirementId = PlanCheckText.Optional(requirementId);
+        HazardIds = PlanCheckText.CleanList(hazardIds);
+        ControlIds = PlanCheckText.CleanList(controlIds);
         IsActive = isActive;
     }
 
@@ -62,6 +68,21 @@ public sealed record PlanCheckDefinition
     /// Check parameters.
     /// </summary>
     public IReadOnlyDictionary<string, string> Parameters { get; init; }
+
+    /// <summary>
+    /// Stable requirement id from a protocol, rule catalog, or requirements traceability matrix.
+    /// </summary>
+    public string? RequirementId { get; init; }
+
+    /// <summary>
+    /// Linked clinical hazard ids controlled or detected by this plan check.
+    /// </summary>
+    public IReadOnlyList<string> HazardIds { get; init; }
+
+    /// <summary>
+    /// Linked safety-control ids implemented or supported by this plan check.
+    /// </summary>
+    public IReadOnlyList<string> ControlIds { get; init; }
 
     /// <summary>
     /// Indicates whether the check should be evaluated.
