@@ -119,9 +119,12 @@ public sealed class BeamKitCiServerService
         var caseId = CiServerText.Optional(request.SyntheticCaseId) ?? "head-neck-pass";
         var clinicalCase = SyntheticClinicalCaseLibrary.Find(caseId);
         var rulePack = LoadRulePack(request.RulePackId, request.RulePackPath);
+        var namingDictionary = ResolveRunNamingDictionary(request.NamingDictionaryId, request.NamingDictionaryVersionId);
+        rulePack = ApplyRunNamingDictionary(rulePack, namingDictionary);
         return CreateRunForPlan(
             clinicalCase.Plan,
             rulePack,
+            namingDictionary,
             caseId: clinicalCase.Id,
             inputKind: CiRunInputKind.SyntheticCase,
             inputSource: $"case:{clinicalCase.Id}",
@@ -139,9 +142,14 @@ public sealed class BeamKitCiServerService
         ArgumentNullException.ThrowIfNull(request);
 
         var uploaded = LoadUploadedPlan(request);
+        var namingDictionary = ResolveRunNamingDictionary(request.NamingDictionaryId, request.NamingDictionaryVersionId);
+        var rulePack = ApplyRunNamingDictionary(
+            LoadRulePack(request.RulePackId, request.RulePackPath),
+            namingDictionary);
         var record = CreateRunForPlan(
             uploaded.Plan,
-            LoadRulePack(request.RulePackId, request.RulePackPath),
+            rulePack,
+            namingDictionary,
             caseId: uploaded.Plan.Id,
             uploaded.InputKind,
             CiServerText.Optional(request.InputSource) ?? uploaded.DefaultInputSource,
@@ -162,6 +170,7 @@ public sealed class BeamKitCiServerService
     private HostedCiRunRecord CreateRunForPlan(
         Plan plan,
         BeamKitRulePack rulePack,
+        RunNamingDictionaryBinding? namingDictionary,
         string caseId,
         CiRunInputKind inputKind,
         string? inputSource,
@@ -177,6 +186,7 @@ public sealed class BeamKitCiServerService
             branch: branch,
             commit: commit,
             buildId: buildId));
+        artifact = ApplyRunNamingDictionaryProvenance(artifact, namingDictionary);
         var record = new HostedCiRunRecord(
             CreateServerRunId(),
             timeProvider.GetUtcNow(),
@@ -2263,6 +2273,60 @@ public sealed class BeamKitCiServerService
         return dictionary;
     }
 
+    private RunNamingDictionaryBinding? ResolveRunNamingDictionary(string? dictionaryId, string? versionId)
+    {
+        var normalizedDictionaryId = CiServerText.Optional(dictionaryId);
+        var normalizedVersionId = CiServerText.Optional(versionId);
+        if (normalizedDictionaryId is null && normalizedVersionId is null)
+        {
+            return null;
+        }
+
+        if (normalizedDictionaryId is null)
+        {
+            throw new ArgumentException("A namingDictionaryId is required when namingDictionaryVersionId is supplied.", nameof(dictionaryId));
+        }
+
+        var version = normalizedVersionId is null
+            ? store.FindActiveNamingDictionaryVersion(normalizedDictionaryId)
+                ?? throw new InvalidOperationException($"Naming dictionary '{normalizedDictionaryId}' does not have an active promoted version.")
+            : FindRequiredManagedNamingDictionaryVersion(normalizedDictionaryId, normalizedVersionId);
+        if (!version.IsActive)
+        {
+            throw new InvalidOperationException($"Naming dictionary version '{version.DictionaryId}/{version.VersionId}' is not active.");
+        }
+
+        return new RunNamingDictionaryBinding(version, LoadManagedNamingDictionary(version));
+    }
+
+    private static BeamKitRulePack ApplyRunNamingDictionary(BeamKitRulePack rulePack, RunNamingDictionaryBinding? namingDictionary)
+    {
+        return namingDictionary is null
+            ? rulePack
+            : rulePack with { NamingDictionary = namingDictionary.Dictionary };
+    }
+
+    private static BeamKitCiRunRecord ApplyRunNamingDictionaryProvenance(
+        BeamKitCiRunRecord artifact,
+        RunNamingDictionaryBinding? namingDictionary)
+    {
+        if (namingDictionary is null)
+        {
+            return artifact;
+        }
+
+        return artifact with
+        {
+            Provenance = artifact.Provenance with
+            {
+                NamingDictionaryId = namingDictionary.Version.DictionaryId,
+                NamingDictionaryVersionId = namingDictionary.Version.VersionId,
+                NamingDictionaryFingerprint = namingDictionary.Version.Fingerprint,
+                NamingDictionaryName = namingDictionary.Version.Name
+            }
+        };
+    }
+
     private static string SerializeSafetyEvidence(ValidationEvidencePackage evidence)
     {
         return System.Text.Json.JsonSerializer.Serialize(evidence, CiServerJson.Options);
@@ -3433,6 +3497,10 @@ public sealed class BeamKitCiServerService
     private sealed record RulePackImportSource(string ManifestJson, string BaseDirectory, string SourceKind, string Source, RulePackBundle? Bundle);
 
     private sealed record NamingDictionaryImportSource(string DictionaryJson, string SourceKind, string Source);
+
+    private sealed record RunNamingDictionaryBinding(
+        CiServerManagedNamingDictionaryVersion Version,
+        StructureNameDictionary Dictionary);
 
     private sealed record RtpxWordDocxSource(string Path, string FileName, string Fingerprint);
 

@@ -27,7 +27,11 @@ public sealed record HostedCiRunSummary
         string planFingerprint,
         string prescriptionFingerprint,
         string rulePackFingerprint,
-        bool hasPlanSnapshot = false)
+        bool hasPlanSnapshot = false,
+        string? namingDictionaryId = null,
+        string? namingDictionaryVersionId = null,
+        string? namingDictionaryFingerprint = null,
+        string? namingDictionaryName = null)
     {
         Id = CiServerText.Required(id, nameof(id));
         CreatedAtUtc = createdAtUtc;
@@ -46,6 +50,10 @@ public sealed record HostedCiRunSummary
         PrescriptionFingerprint = CiServerText.Required(prescriptionFingerprint, nameof(prescriptionFingerprint));
         RulePackFingerprint = CiServerText.Required(rulePackFingerprint, nameof(rulePackFingerprint));
         HasPlanSnapshot = hasPlanSnapshot;
+        NamingDictionaryId = CiServerText.Optional(namingDictionaryId);
+        NamingDictionaryVersionId = CiServerText.Optional(namingDictionaryVersionId);
+        NamingDictionaryFingerprint = CiServerText.Optional(namingDictionaryFingerprint);
+        NamingDictionaryName = CiServerText.Optional(namingDictionaryName);
     }
 
     /// <summary>
@@ -134,6 +142,26 @@ public sealed record HostedCiRunSummary
     public string RulePackFingerprint { get; init; }
 
     /// <summary>
+    /// Managed naming-dictionary id used for this run, when present.
+    /// </summary>
+    public string? NamingDictionaryId { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary version id used for this run, when present.
+    /// </summary>
+    public string? NamingDictionaryVersionId { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary fingerprint used for this run, when present.
+    /// </summary>
+    public string? NamingDictionaryFingerprint { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary display name used for this run, when present.
+    /// </summary>
+    public string? NamingDictionaryName { get; init; }
+
+    /// <summary>
     /// Indicates whether the server retained a vendor-neutral plan snapshot for field-level comparisons.
     /// </summary>
     public bool HasPlanSnapshot { get; init; }
@@ -163,6 +191,10 @@ public sealed record HostedCiRunSummary
             provenance.PlanFingerprint,
             provenance.PrescriptionFingerprint,
             provenance.RulePackFingerprint,
-            record.HasPlanSnapshot);
+            record.HasPlanSnapshot,
+            provenance.NamingDictionaryId,
+            provenance.NamingDictionaryVersionId,
+            provenance.NamingDictionaryFingerprint,
+            provenance.NamingDictionaryName);
     }
 }

@@ -28,7 +28,11 @@ public sealed record CiRunBaseline
         string prescriptionFingerprint,
         string rulePackFingerprint,
         string? promotedBy = null,
-        string? note = null)
+        string? note = null,
+        string? namingDictionaryId = null,
+        string? namingDictionaryVersionId = null,
+        string? namingDictionaryFingerprint = null,
+        string? namingDictionaryName = null)
     {
         CaseId = CiServerText.Required(caseId, nameof(caseId));
         BaselineRunId = CiServerText.Required(baselineRunId, nameof(baselineRunId));
@@ -48,6 +52,10 @@ public sealed record CiRunBaseline
         RulePackFingerprint = CiServerText.Required(rulePackFingerprint, nameof(rulePackFingerprint));
         PromotedBy = CiServerText.Optional(promotedBy);
         Note = CiServerText.Optional(note);
+        NamingDictionaryId = CiServerText.Optional(namingDictionaryId);
+        NamingDictionaryVersionId = CiServerText.Optional(namingDictionaryVersionId);
+        NamingDictionaryFingerprint = CiServerText.Optional(namingDictionaryFingerprint);
+        NamingDictionaryName = CiServerText.Optional(namingDictionaryName);
     }
 
     /// <summary>
@@ -141,6 +149,26 @@ public sealed record CiRunBaseline
     public string RulePackFingerprint { get; init; }
 
     /// <summary>
+    /// Managed naming-dictionary id used for the baseline run, when present.
+    /// </summary>
+    public string? NamingDictionaryId { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary version id used for the baseline run, when present.
+    /// </summary>
+    public string? NamingDictionaryVersionId { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary fingerprint used for the baseline run, when present.
+    /// </summary>
+    public string? NamingDictionaryFingerprint { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary display name used for the baseline run, when present.
+    /// </summary>
+    public string? NamingDictionaryName { get; init; }
+
+    /// <summary>
     /// Creates a baseline from a stored CI run summary.
     /// </summary>
     public static CiRunBaseline FromRun(HostedCiRunSummary run, DateTimeOffset promotedAtUtc, string? promotedBy = null, string? note = null)
@@ -165,6 +193,10 @@ public sealed record CiRunBaseline
             run.PrescriptionFingerprint,
             run.RulePackFingerprint,
             promotedBy,
-            note);
+            note,
+            run.NamingDictionaryId,
+            run.NamingDictionaryVersionId,
+            run.NamingDictionaryFingerprint,
+            run.NamingDictionaryName);
     }
 }

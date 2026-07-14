@@ -171,6 +171,30 @@ public sealed record CiRunBaselineComparisonReport
             "Rule-pack version changed from the promoted baseline.",
             baseline.RulePackVersion,
             comparison.RulePackVersion);
+        AddIfChanged(
+            findings,
+            "naming-dictionary-id.changed",
+            CiRunBaselineFindingSeverity.Warning,
+            "NamingDictionaryId",
+            "Managed naming-dictionary id changed from the promoted baseline.",
+            baseline.NamingDictionaryId,
+            comparison.NamingDictionaryId);
+        AddIfChanged(
+            findings,
+            "naming-dictionary-version.changed",
+            CiRunBaselineFindingSeverity.Warning,
+            "NamingDictionaryVersion",
+            "Managed naming-dictionary version changed from the promoted baseline.",
+            baseline.NamingDictionaryVersionId,
+            comparison.NamingDictionaryVersionId);
+        AddIfChanged(
+            findings,
+            "naming-dictionary-fingerprint.changed",
+            CiRunBaselineFindingSeverity.Warning,
+            "NamingDictionaryFingerprint",
+            "Managed naming-dictionary fingerprint changed from the promoted baseline.",
+            baseline.NamingDictionaryFingerprint,
+            comparison.NamingDictionaryFingerprint);
 
         if (planChanges is not null)
         {

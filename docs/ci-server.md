@@ -89,9 +89,9 @@ The dashboard has an API-key field. Enter the configured key before loading run 
 | `GET` | `/api/work-items` | List persistent queue items. Supports `limit`, `status`, `caseId`, `diseaseSite`, `assignedStaffId`, and `activeOnly`. |
 | `GET` | `/api/work-items/{id}` | Get one queue item with assignment history and stored intelligence context. |
 | `GET` | `/api/audit-events` | List audit events. Supports `limit`, `action`, `runId`, and `caseId`. |
-| `POST` | `/api/runs` | Create a run from a synthetic case. |
+| `POST` | `/api/runs` | Create a run from a synthetic case. Supports `rulePackId`, `namingDictionaryId`, and `namingDictionaryVersionId`. |
 | `POST` | `/api/runs/{id}/baseline` | Promote a run as the baseline for its case id. |
-| `POST` | `/api/runs/from-plan-snapshot` | Create a run from uploaded BeamKit plan JSON or ESAPI snapshot JSON. |
+| `POST` | `/api/runs/from-plan-snapshot` | Create a run from uploaded BeamKit plan JSON or ESAPI snapshot JSON. Supports `rulePackId`, `namingDictionaryId`, and `namingDictionaryVersionId`. |
 | `POST` | `/api/rtpx/acceptance` | Accept a `.rtpx.zip` package, persist the report, import the generated rule pack, and optionally promote it. |
 | `POST` | `/api/protocol-compliance/runs` | Run a synthetic case, BeamKit plan JSON, or ESAPI snapshot JSON against an active promoted RT-PX protocol. |
 | `POST` | `/api/protocol-compliance/runs/{id}/variances` | Accept or replace a documented variance for one blocking protocol compliance finding. |
@@ -149,6 +149,15 @@ curl -s "$API/api/runs" \
   -d '{"syntheticCaseId":"head-neck-cord-fail"}'
 ```
 
+Create a run with an active promoted naming dictionary:
+
+```bash
+curl -s "$API/api/runs" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"syntheticCaseId":"head-neck-pass","namingDictionaryId":"institution-tg263"}'
+```
+
 Promote a run as the baseline for its case id:
 
 ```bash
@@ -165,7 +174,7 @@ curl -s "$API/api/runs/{laterId}/baseline-comparison" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
-The comparison checks CI metadata and provenance fingerprints, including plan, prescription, rule-pack, status, and source category. When both runs have retained plan snapshots, the response also includes a `planChanges` report with plan metadata, prescription, structure, dose, beam, and clinical-goal differences from `BeamKit.ChangeDetection`. Exact plan and prescription fingerprint drift is then informational context; field-level plan changes carry the clinical blocking or warning severity. Older rows without snapshots fall back to metadata and fingerprint comparison.
+The comparison checks CI metadata and provenance fingerprints, including plan, prescription, rule-pack, managed naming dictionary, status, and source category. When both runs have retained plan snapshots, the response also includes a `planChanges` report with plan metadata, prescription, structure, dose, beam, and clinical-goal differences from `BeamKit.ChangeDetection`. Exact plan and prescription fingerprint drift is then informational context; field-level plan changes carry the clinical blocking or warning severity. Older rows without snapshots fall back to metadata and fingerprint comparison.
 
 Baseline runs and their retained snapshots are protected from SQLite retention pruning.
 
@@ -679,6 +688,8 @@ curl -s "$API/api/naming-dictionaries/institution-tg263/versions/{oldVersionId}/
 ```
 
 Promotion is blocked when review has errors, including canonical token collisions, aliases that normalize to multiple canonical names, or deprecated names that remain active canonical names. Warnings are stored with the version so local policy committees can track non-blocking cleanup work.
+
+Once a version is active, plan-gate requests can include `namingDictionaryId` to override the rule pack's embedded dictionary for that run. The optional `namingDictionaryVersionId` must name the currently active version. Run summaries and artifact provenance store the dictionary id, version id, name, and fingerprint so later baseline comparisons can flag naming-policy drift.
 
 ## Storage
 

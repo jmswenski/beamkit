@@ -22,7 +22,11 @@ public sealed record CheckRunProvenance
         string? inputSource = null,
         string? branch = null,
         string? commit = null,
-        string? buildId = null)
+        string? buildId = null,
+        string? namingDictionaryId = null,
+        string? namingDictionaryVersionId = null,
+        string? namingDictionaryFingerprint = null,
+        string? namingDictionaryName = null)
     {
         RunId = CheckText.Required(runId, nameof(runId));
         PlanId = CheckText.Required(planId, nameof(planId));
@@ -38,6 +42,10 @@ public sealed record CheckRunProvenance
         Branch = CheckText.Optional(branch);
         Commit = CheckText.Optional(commit);
         BuildId = CheckText.Optional(buildId);
+        NamingDictionaryId = CheckText.Optional(namingDictionaryId);
+        NamingDictionaryVersionId = CheckText.Optional(namingDictionaryVersionId);
+        NamingDictionaryFingerprint = CheckText.Optional(namingDictionaryFingerprint);
+        NamingDictionaryName = CheckText.Optional(namingDictionaryName);
     }
 
     /// <summary>
@@ -109,4 +117,24 @@ public sealed record CheckRunProvenance
     /// Optional CI build id.
     /// </summary>
     public string? BuildId { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary id used for this run, when supplied by the caller.
+    /// </summary>
+    public string? NamingDictionaryId { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary version id used for this run, when supplied by the caller.
+    /// </summary>
+    public string? NamingDictionaryVersionId { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary fingerprint used for this run, when supplied by the caller.
+    /// </summary>
+    public string? NamingDictionaryFingerprint { get; init; }
+
+    /// <summary>
+    /// Managed naming-dictionary display name used for this run, when supplied by the caller.
+    /// </summary>
+    public string? NamingDictionaryName { get; init; }
 }

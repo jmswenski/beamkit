@@ -486,6 +486,110 @@ public sealed class BeamKitCiServerServiceTests
     }
 
     [Fact]
+    public void ActiveManagedNamingDictionaryDrivesCiRunProvenance()
+    {
+        var service = CreateService();
+        var imported = service.ImportNamingDictionary(new NamingDictionaryImportServerRequest
+        {
+            DictionaryId = "institution-tg263",
+            DictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.0", aliases: new[] { "Rt Lung" }),
+            Promote = true,
+            ImportedBy = "dosimetry"
+        });
+
+        var run = service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            NamingDictionaryId = "institution-tg263"
+        });
+        var summary = service.FindRun(run.Id) ?? throw new InvalidOperationException("Run summary was not stored.");
+
+        Assert.Equal(imported.Version.DictionaryId, run.Artifact.Provenance.NamingDictionaryId);
+        Assert.Equal(imported.Version.VersionId, run.Artifact.Provenance.NamingDictionaryVersionId);
+        Assert.Equal(imported.Version.Fingerprint, run.Artifact.Provenance.NamingDictionaryFingerprint);
+        Assert.Equal(imported.Version.Fingerprint, summary.NamingDictionaryFingerprint);
+        Assert.NotNull(run.Artifact.CheckReport.NamingReport);
+    }
+
+    [Fact]
+    public void UnpromotedNamingDictionaryDoesNotDriveCiRuns()
+    {
+        var service = CreateService();
+        var imported = service.ImportNamingDictionary(new NamingDictionaryImportServerRequest
+        {
+            DictionaryId = "institution-tg263",
+            DictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.0")
+        });
+
+        var defaultRun = service.CreateRun(new HostedCiRunRequest { SyntheticCaseId = "head-neck-pass" });
+        var inactiveVersion = Assert.Throws<InvalidOperationException>(() => service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            NamingDictionaryId = "institution-tg263",
+            NamingDictionaryVersionId = imported.Version.VersionId
+        }));
+
+        Assert.Null(defaultRun.Artifact.Provenance.NamingDictionaryId);
+        Assert.Contains("is not active", inactiveVersion.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MissingNamingDictionaryFailsClearly()
+    {
+        var service = CreateService();
+
+        var missing = Assert.Throws<InvalidOperationException>(() => service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            NamingDictionaryId = "missing-policy"
+        }));
+        var missingId = Assert.Throws<ArgumentException>(() => service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            NamingDictionaryVersionId = "ndv-missing"
+        }));
+
+        Assert.Contains("does not have an active promoted version", missing.Message, StringComparison.Ordinal);
+        Assert.Contains("namingDictionaryId is required", missingId.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BaselineComparisonDetectsNamingDictionaryFingerprintDrift()
+    {
+        var service = CreateService();
+        var first = service.ImportNamingDictionary(new NamingDictionaryImportServerRequest
+        {
+            DictionaryId = "institution-tg263",
+            DictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.0", aliases: new[] { "Rt Lung" }),
+            Promote = true
+        });
+        var baselineRun = service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            NamingDictionaryId = "institution-tg263"
+        });
+        service.PromoteBaseline(baselineRun.Id, new PromoteCiRunBaselineRequest { PromotedBy = "physics" });
+        var second = service.ImportNamingDictionary(new NamingDictionaryImportServerRequest
+        {
+            DictionaryId = "institution-tg263",
+            DictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.1", aliases: new[] { "Right Lung" }),
+            Promote = true
+        });
+
+        var comparisonRun = service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            NamingDictionaryId = "institution-tg263"
+        });
+        var report = service.CompareToBaseline(comparisonRun.Id);
+
+        Assert.NotEqual(first.Version.Fingerprint, second.Version.Fingerprint);
+        Assert.Equal(first.Version.Fingerprint, report.Baseline.NamingDictionaryFingerprint);
+        Assert.Equal(second.Version.Fingerprint, report.Comparison.NamingDictionaryFingerprint);
+        Assert.Contains(report.Findings, finding => finding.Code == "naming-dictionary-fingerprint.changed");
+    }
+
+    [Fact]
     public void ImportRulePackRegressionTestsRespectRulePackReadinessDefaults()
     {
         var root = CreateTemporarySampleRulePackCopy();
@@ -1307,18 +1411,24 @@ public sealed class BeamKitCiServerServiceTests
         return Path.Combine(FindRepositoryRoot(), "samples", "rule-packs", "head-neck-v1", "beamkit-rule-pack.json");
     }
 
-    private static string CreateNamingDictionaryJson(string dictionaryId, string version, bool includeLung = true)
+    private static string CreateNamingDictionaryJson(
+        string dictionaryId,
+        string version,
+        bool includeLung = true,
+        IEnumerable<string>? aliases = null)
     {
         var canonicalNames = includeLung
             ? new[] { "Body", "Lung_R" }
             : new[] { "Body" };
-        var aliases = includeLung
-            ? new[] { new StructureNameAlias("Right Lung", "Lung_R", "Institution") }
+        var aliasRecords = includeLung
+            ? (aliases ?? new[] { "Right Lung" })
+                .Select(alias => new StructureNameAlias(alias, "Lung_R", "Institution"))
+                .ToArray()
             : Array.Empty<StructureNameAlias>();
         var dictionary = new StructureNameDictionary(
             "Institution TG-263",
             canonicalNames,
-            aliases,
+            aliasRecords,
             requiredStructureNames: new[] { "Body" },
             id: dictionaryId,
             version: version,

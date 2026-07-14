@@ -82,6 +82,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     plan_fingerprint,
                     prescription_fingerprint,
                     rule_pack_fingerprint,
+                    naming_dictionary_id,
+                    naming_dictionary_version_id,
+                    naming_dictionary_fingerprint,
+                    naming_dictionary_name,
                     artifact_json,
                     plan_snapshot_json
                 )
@@ -102,6 +106,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     $plan_fingerprint,
                     $prescription_fingerprint,
                     $rule_pack_fingerprint,
+                    $naming_dictionary_id,
+                    $naming_dictionary_version_id,
+                    $naming_dictionary_fingerprint,
+                    $naming_dictionary_name,
                     $artifact_json,
                     $plan_snapshot_json
                 )
@@ -121,6 +129,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     plan_fingerprint = excluded.plan_fingerprint,
                     prescription_fingerprint = excluded.prescription_fingerprint,
                     rule_pack_fingerprint = excluded.rule_pack_fingerprint,
+                    naming_dictionary_id = excluded.naming_dictionary_id,
+                    naming_dictionary_version_id = excluded.naming_dictionary_version_id,
+                    naming_dictionary_fingerprint = excluded.naming_dictionary_fingerprint,
+                    naming_dictionary_name = excluded.naming_dictionary_name,
                     artifact_json = excluded.artifact_json,
                     plan_snapshot_json = excluded.plan_snapshot_json;
                 """;
@@ -168,6 +180,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     plan_fingerprint,
                     prescription_fingerprint,
                     rule_pack_fingerprint,
+                    naming_dictionary_id,
+                    naming_dictionary_version_id,
+                    naming_dictionary_fingerprint,
+                    naming_dictionary_name,
                     plan_snapshot_json IS NOT NULL
                 FROM ci_runs
                 WHERE id = $id;
@@ -288,6 +304,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     plan_fingerprint,
                     prescription_fingerprint,
                     rule_pack_fingerprint,
+                    naming_dictionary_id,
+                    naming_dictionary_version_id,
+                    naming_dictionary_fingerprint,
+                    naming_dictionary_name,
                     plan_snapshot_json IS NOT NULL
                 FROM ci_runs
                 """);
@@ -341,7 +361,11 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     rule_pack_version,
                     plan_fingerprint,
                     prescription_fingerprint,
-                    rule_pack_fingerprint
+                    rule_pack_fingerprint,
+                    naming_dictionary_id,
+                    naming_dictionary_version_id,
+                    naming_dictionary_fingerprint,
+                    naming_dictionary_name
                 )
                 VALUES (
                     $case_id,
@@ -361,7 +385,11 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     $rule_pack_version,
                     $plan_fingerprint,
                     $prescription_fingerprint,
-                    $rule_pack_fingerprint
+                    $rule_pack_fingerprint,
+                    $naming_dictionary_id,
+                    $naming_dictionary_version_id,
+                    $naming_dictionary_fingerprint,
+                    $naming_dictionary_name
                 )
                 ON CONFLICT(case_id) DO UPDATE SET
                     baseline_run_id = excluded.baseline_run_id,
@@ -380,7 +408,11 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     rule_pack_version = excluded.rule_pack_version,
                     plan_fingerprint = excluded.plan_fingerprint,
                     prescription_fingerprint = excluded.prescription_fingerprint,
-                    rule_pack_fingerprint = excluded.rule_pack_fingerprint;
+                    rule_pack_fingerprint = excluded.rule_pack_fingerprint,
+                    naming_dictionary_id = excluded.naming_dictionary_id,
+                    naming_dictionary_version_id = excluded.naming_dictionary_version_id,
+                    naming_dictionary_fingerprint = excluded.naming_dictionary_fingerprint,
+                    naming_dictionary_name = excluded.naming_dictionary_name;
                 """;
             AddBaselineParameters(command, baseline);
             command.ExecuteNonQuery();
@@ -1577,6 +1609,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     plan_fingerprint TEXT NOT NULL,
                     prescription_fingerprint TEXT NOT NULL,
                     rule_pack_fingerprint TEXT NOT NULL,
+                    naming_dictionary_id TEXT NULL,
+                    naming_dictionary_version_id TEXT NULL,
+                    naming_dictionary_fingerprint TEXT NULL,
+                    naming_dictionary_name TEXT NULL,
                     artifact_json TEXT NOT NULL,
                     plan_snapshot_json TEXT NULL
                 );
@@ -1604,7 +1640,11 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     rule_pack_version TEXT NOT NULL,
                     plan_fingerprint TEXT NOT NULL,
                     prescription_fingerprint TEXT NOT NULL,
-                    rule_pack_fingerprint TEXT NOT NULL
+                    rule_pack_fingerprint TEXT NOT NULL,
+                    naming_dictionary_id TEXT NULL,
+                    naming_dictionary_version_id TEXT NULL,
+                    naming_dictionary_fingerprint TEXT NULL,
+                    naming_dictionary_name TEXT NULL
                 );
 
                 CREATE INDEX IF NOT EXISTS ix_ci_run_baselines_run_id ON ci_run_baselines(baseline_run_id);
@@ -1796,6 +1836,8 @@ public sealed class SqliteCiRunStore : ICiRunStore
             command.ExecuteNonQuery();
             EnsureInputKindColumn(connection);
             EnsurePlanSnapshotColumn(connection);
+            EnsureRunNamingDictionaryColumns(connection);
+            EnsureBaselineNamingDictionaryColumns(connection);
             EnsureRulePackBundleColumn(connection);
             EnsureRulePackSafetyEvidenceColumn(connection);
             EnsureRtpxAcceptanceReviewColumns(connection);
@@ -1833,6 +1875,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$plan_fingerprint", record.Artifact.Provenance.PlanFingerprint);
         command.Parameters.AddWithValue("$prescription_fingerprint", record.Artifact.Provenance.PrescriptionFingerprint);
         command.Parameters.AddWithValue("$rule_pack_fingerprint", record.Artifact.Provenance.RulePackFingerprint);
+        command.Parameters.AddWithValue("$naming_dictionary_id", ToDbValue(record.Artifact.Provenance.NamingDictionaryId));
+        command.Parameters.AddWithValue("$naming_dictionary_version_id", ToDbValue(record.Artifact.Provenance.NamingDictionaryVersionId));
+        command.Parameters.AddWithValue("$naming_dictionary_fingerprint", ToDbValue(record.Artifact.Provenance.NamingDictionaryFingerprint));
+        command.Parameters.AddWithValue("$naming_dictionary_name", ToDbValue(record.Artifact.Provenance.NamingDictionaryName));
         command.Parameters.AddWithValue("$artifact_json", System.Text.Json.JsonSerializer.Serialize(record.Artifact, CiServerJson.Options));
         command.Parameters.AddWithValue("$plan_snapshot_json", ToDbValue(record.PlanSnapshotJson));
     }
@@ -1857,6 +1903,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$plan_fingerprint", baseline.PlanFingerprint);
         command.Parameters.AddWithValue("$prescription_fingerprint", baseline.PrescriptionFingerprint);
         command.Parameters.AddWithValue("$rule_pack_fingerprint", baseline.RulePackFingerprint);
+        command.Parameters.AddWithValue("$naming_dictionary_id", ToDbValue(baseline.NamingDictionaryId));
+        command.Parameters.AddWithValue("$naming_dictionary_version_id", ToDbValue(baseline.NamingDictionaryVersionId));
+        command.Parameters.AddWithValue("$naming_dictionary_fingerprint", ToDbValue(baseline.NamingDictionaryFingerprint));
+        command.Parameters.AddWithValue("$naming_dictionary_name", ToDbValue(baseline.NamingDictionaryName));
     }
 
     private static void AddAuditParameters(SqliteCommand command, CiServerAuditEvent auditEvent)
@@ -2042,7 +2092,11 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.GetString(13),
             reader.GetString(14),
             reader.GetString(15),
-            reader.GetBoolean(16));
+            reader.GetBoolean(20),
+            GetNullableString(reader, 16),
+            GetNullableString(reader, 17),
+            GetNullableString(reader, 18),
+            GetNullableString(reader, 19));
     }
 
     private static string? GetNullableString(SqliteDataReader reader, int ordinal)
@@ -2085,7 +2139,11 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 rule_pack_version,
                 plan_fingerprint,
                 prescription_fingerprint,
-                rule_pack_fingerprint
+                rule_pack_fingerprint,
+                naming_dictionary_id,
+                naming_dictionary_version_id,
+                naming_dictionary_fingerprint,
+                naming_dictionary_name
             FROM ci_run_baselines
             """;
     }
@@ -2110,7 +2168,11 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.GetString(16),
             reader.GetString(17),
             GetNullableString(reader, 3),
-            GetNullableString(reader, 4));
+            GetNullableString(reader, 4),
+            GetNullableString(reader, 18),
+            GetNullableString(reader, 19),
+            GetNullableString(reader, 20),
+            GetNullableString(reader, 21));
     }
 
     private static string SelectRulePackVersionColumns()
@@ -2594,6 +2656,22 @@ public sealed class SqliteCiRunStore : ICiRunStore
         using var alter = connection.CreateCommand();
         alter.CommandText = "ALTER TABLE ci_runs ADD COLUMN plan_snapshot_json TEXT NULL;";
         alter.ExecuteNonQuery();
+    }
+
+    private static void EnsureRunNamingDictionaryColumns(SqliteConnection connection)
+    {
+        EnsureColumn(connection, "ci_runs", "naming_dictionary_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_runs", "naming_dictionary_version_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_runs", "naming_dictionary_fingerprint", "TEXT NULL");
+        EnsureColumn(connection, "ci_runs", "naming_dictionary_name", "TEXT NULL");
+    }
+
+    private static void EnsureBaselineNamingDictionaryColumns(SqliteConnection connection)
+    {
+        EnsureColumn(connection, "ci_run_baselines", "naming_dictionary_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_run_baselines", "naming_dictionary_version_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_run_baselines", "naming_dictionary_fingerprint", "TEXT NULL");
+        EnsureColumn(connection, "ci_run_baselines", "naming_dictionary_name", "TEXT NULL");
     }
 
     private static void EnsureRulePackBundleColumn(SqliteConnection connection)

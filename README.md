@@ -429,7 +429,7 @@ curl -s "$API/api/runs/{laterId}/baseline-comparison" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
-When both runs have retained BeamKit plan snapshots, the baseline comparison response includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes in addition to provenance fingerprints.
+When both runs have retained BeamKit plan snapshots, the baseline comparison response includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes in addition to provenance fingerprints. Runs can also bind to an active managed naming dictionary with `namingDictionaryId`; the artifact records dictionary id, version, and fingerprint so baseline comparison can flag naming-policy drift.
 
 For production-like deployments, split CI server API keys by role instead of sharing one admin key. BeamKit supports `Reader`, `Runner`, `BaselineManager`, `RulePackManager`, `NamingDictionaryManager`, `ProtocolManager`, `WorkQueueManager`, and `Admin`; keys without explicit roles remain `Admin` for backward compatibility. Request-supplied server-local paths are also constrained to configured allowed roots, defaulting to `samples` and `artifacts`.
 
@@ -740,7 +740,7 @@ BeamKit rule packs are intended to be reviewed like software:
 - The CI server can promote a run as a baseline and compare later runs against it using both exact fingerprints and field-level plan changes when snapshots are available.
 - The CI server can protect plan-gate APIs with API keys, record audit events, enforce upload-size limits, reject uploaded snapshots with obvious patient identifiers by default, and run registered rule packs by stable id.
 - Managed rule-pack versions can be draft-reviewed, diffed, imported, validated, regression-tested, promoted active, and audited before they drive plan gates.
-- Managed naming-dictionary versions can be draft-reviewed, diffed, imported, reviewed, promoted active, and audited before they become institutional naming policy.
+- Managed naming-dictionary versions can be draft-reviewed, diffed, imported, reviewed, promoted active, bound to CI runs, and audited before they become institutional naming policy.
 
 This is the open-source foundation for treating radiation plans like reproducible clinical build artifacts: every rule change can be reviewed, tested, and traced.
 

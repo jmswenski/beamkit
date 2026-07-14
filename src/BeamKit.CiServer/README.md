@@ -142,6 +142,15 @@ curl -s "$API/api/runs" \
   -d '{"syntheticCaseId":"head-neck-cord-fail"}'
 ```
 
+Create a run with an active promoted naming dictionary:
+
+```bash
+curl -s "$API/api/runs" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"syntheticCaseId":"head-neck-pass","namingDictionaryId":"institution-tg263"}'
+```
+
 Promote and compare baselines:
 
 ```bash
@@ -154,7 +163,7 @@ curl -s "$API/api/runs/{laterId}/baseline-comparison" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
-Baseline comparison uses stored metadata and provenance fingerprints for every run. When both runs have retained BeamKit plan snapshots, the response also includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes from `BeamKit.ChangeDetection`. Older rows without snapshots fall back to metadata and fingerprint comparison.
+Baseline comparison uses stored metadata and provenance fingerprints for every run, including managed naming-dictionary id/version/fingerprint when supplied. When both runs have retained BeamKit plan snapshots, the response also includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes from `BeamKit.ChangeDetection`. Older rows without snapshots fall back to metadata and fingerprint comparison.
 
 Create a run from uploaded BeamKit plan JSON:
 
@@ -479,6 +488,8 @@ curl -s "$API/api/naming-dictionaries/institution-tg263/versions/{oldVersionId}/
 ```
 
 Promotion blocks dictionaries with reviewer errors such as alias collisions, canonical token collisions, or deprecated names that are still canonical. Warnings remain visible in the stored review report so teams can choose local governance rules without losing traceability.
+
+Once a version is active, `/api/runs` and `/api/runs/from-plan-snapshot` can include `namingDictionaryId` to override the rule pack's embedded dictionary for that run. The optional `namingDictionaryVersionId` must name the currently active version.
 
 ## Storage
 

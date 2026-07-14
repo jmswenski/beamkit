@@ -373,7 +373,7 @@ public sealed class CiServerHttpSecurityTests
         using var database = TemporaryDatabase.Create();
         await using var factory = new TestCiServerFactory(
             database.Path,
-            apiKeyRoles: new[] { CiServerApiRoles.Reader, CiServerApiRoles.NamingDictionaryManager });
+            apiKeyRoles: new[] { CiServerApiRoles.Reader, CiServerApiRoles.Runner, CiServerApiRoles.NamingDictionaryManager });
         using var client = factory.CreateClient();
         var importPayload = JsonSerializer.Serialize(new
         {
@@ -394,6 +394,15 @@ public sealed class CiServerHttpSecurityTests
             $"/api/naming-dictionaries/institution-tg263/versions/{versionId}/promote",
             """{"promotedBy":"dosimetry","note":"Approved."}""");
         var promoteResponse = await client.SendAsync(promoteRequest);
+        using var runRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            "/api/runs",
+            """{"syntheticCaseId":"head-neck-pass","namingDictionaryId":"institution-tg263"}""");
+        var runResponse = await client.SendAsync(runRequest);
+        using var run = JsonDocument.Parse(await runResponse.Content.ReadAsStringAsync());
+        var runId = run.RootElement.GetProperty("id").GetString()
+            ?? throw new InvalidOperationException("Run did not return an id.");
+        using var runSummary = await GetJson(client, $"/api/runs/{runId}");
         var secondPayload = JsonSerializer.Serialize(new
         {
             dictionaryId = "institution-tg263",
@@ -412,6 +421,9 @@ public sealed class CiServerHttpSecurityTests
         Assert.True(importResult.RootElement.GetProperty("review").GetProperty("isValid").GetBoolean());
         Assert.Equal(HttpStatusCode.OK, reviewResponse.StatusCode);
         Assert.Equal(HttpStatusCode.OK, promoteResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, runResponse.StatusCode);
+        Assert.Equal("institution-tg263", run.RootElement.GetProperty("artifact").GetProperty("provenance").GetProperty("namingDictionaryId").GetString());
+        Assert.Equal(versionId, runSummary.RootElement.GetProperty("namingDictionaryVersionId").GetString());
         Assert.Equal(HttpStatusCode.Created, secondImportResponse.StatusCode);
         Assert.True(diff.RootElement.GetProperty("policyRelevantCount").GetInt32() > 0);
         Assert.Contains(

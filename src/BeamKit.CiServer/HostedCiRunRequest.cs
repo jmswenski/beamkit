@@ -21,6 +21,16 @@ public sealed record HostedCiRunRequest
     public string? RulePackPath { get; init; }
 
     /// <summary>
+    /// Optional managed naming-dictionary id. When supplied, the active promoted version overrides the rule-pack dictionary for this run.
+    /// </summary>
+    public string? NamingDictionaryId { get; init; }
+
+    /// <summary>
+    /// Optional managed naming-dictionary version id. The version must be active before it can drive a run.
+    /// </summary>
+    public string? NamingDictionaryVersionId { get; init; }
+
+    /// <summary>
     /// Optional source-control branch.
     /// </summary>
     public string? Branch { get; init; }
