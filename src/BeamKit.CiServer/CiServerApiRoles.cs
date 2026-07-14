@@ -31,6 +31,16 @@ public static class CiServerApiRoles
     public const string NamingDictionaryManager = "NamingDictionaryManager";
 
     /// <summary>
+    /// Can import, review, and promote machine constraint profiles.
+    /// </summary>
+    public const string MachineProfileManager = "MachineProfileManager";
+
+    /// <summary>
+    /// Can create and promote clinical policy sets that bind managed rule packs, naming dictionaries, and machine profiles.
+    /// </summary>
+    public const string PolicySetManager = "PolicySetManager";
+
+    /// <summary>
     /// Can accept RT-PX packages, run protocol authoring flows, and accept protocol variances.
     /// </summary>
     public const string ProtocolManager = "ProtocolManager";

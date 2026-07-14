@@ -86,6 +86,14 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     naming_dictionary_version_id,
                     naming_dictionary_fingerprint,
                     naming_dictionary_name,
+                    machine_profile_id,
+                    machine_profile_version_id,
+                    machine_profile_fingerprint,
+                    machine_profile_name,
+                    policy_set_id,
+                    policy_set_version_id,
+                    policy_set_fingerprint,
+                    policy_set_name,
                     artifact_json,
                     plan_snapshot_json
                 )
@@ -110,6 +118,14 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     $naming_dictionary_version_id,
                     $naming_dictionary_fingerprint,
                     $naming_dictionary_name,
+                    $machine_profile_id,
+                    $machine_profile_version_id,
+                    $machine_profile_fingerprint,
+                    $machine_profile_name,
+                    $policy_set_id,
+                    $policy_set_version_id,
+                    $policy_set_fingerprint,
+                    $policy_set_name,
                     $artifact_json,
                     $plan_snapshot_json
                 )
@@ -133,6 +149,14 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     naming_dictionary_version_id = excluded.naming_dictionary_version_id,
                     naming_dictionary_fingerprint = excluded.naming_dictionary_fingerprint,
                     naming_dictionary_name = excluded.naming_dictionary_name,
+                    machine_profile_id = excluded.machine_profile_id,
+                    machine_profile_version_id = excluded.machine_profile_version_id,
+                    machine_profile_fingerprint = excluded.machine_profile_fingerprint,
+                    machine_profile_name = excluded.machine_profile_name,
+                    policy_set_id = excluded.policy_set_id,
+                    policy_set_version_id = excluded.policy_set_version_id,
+                    policy_set_fingerprint = excluded.policy_set_fingerprint,
+                    policy_set_name = excluded.policy_set_name,
                     artifact_json = excluded.artifact_json,
                     plan_snapshot_json = excluded.plan_snapshot_json;
                 """;
@@ -184,6 +208,14 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     naming_dictionary_version_id,
                     naming_dictionary_fingerprint,
                     naming_dictionary_name,
+                    machine_profile_id,
+                    machine_profile_version_id,
+                    machine_profile_fingerprint,
+                    machine_profile_name,
+                    policy_set_id,
+                    policy_set_version_id,
+                    policy_set_fingerprint,
+                    policy_set_name,
                     plan_snapshot_json IS NOT NULL
                 FROM ci_runs
                 WHERE id = $id;
@@ -308,6 +340,14 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     naming_dictionary_version_id,
                     naming_dictionary_fingerprint,
                     naming_dictionary_name,
+                    machine_profile_id,
+                    machine_profile_version_id,
+                    machine_profile_fingerprint,
+                    machine_profile_name,
+                    policy_set_id,
+                    policy_set_version_id,
+                    policy_set_fingerprint,
+                    policy_set_name,
                     plan_snapshot_json IS NOT NULL
                 FROM ci_runs
                 """);
@@ -365,7 +405,15 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     naming_dictionary_id,
                     naming_dictionary_version_id,
                     naming_dictionary_fingerprint,
-                    naming_dictionary_name
+                    naming_dictionary_name,
+                    machine_profile_id,
+                    machine_profile_version_id,
+                    machine_profile_fingerprint,
+                    machine_profile_name,
+                    policy_set_id,
+                    policy_set_version_id,
+                    policy_set_fingerprint,
+                    policy_set_name
                 )
                 VALUES (
                     $case_id,
@@ -389,7 +437,15 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     $naming_dictionary_id,
                     $naming_dictionary_version_id,
                     $naming_dictionary_fingerprint,
-                    $naming_dictionary_name
+                    $naming_dictionary_name,
+                    $machine_profile_id,
+                    $machine_profile_version_id,
+                    $machine_profile_fingerprint,
+                    $machine_profile_name,
+                    $policy_set_id,
+                    $policy_set_version_id,
+                    $policy_set_fingerprint,
+                    $policy_set_name
                 )
                 ON CONFLICT(case_id) DO UPDATE SET
                     baseline_run_id = excluded.baseline_run_id,
@@ -412,7 +468,15 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     naming_dictionary_id = excluded.naming_dictionary_id,
                     naming_dictionary_version_id = excluded.naming_dictionary_version_id,
                     naming_dictionary_fingerprint = excluded.naming_dictionary_fingerprint,
-                    naming_dictionary_name = excluded.naming_dictionary_name;
+                    naming_dictionary_name = excluded.naming_dictionary_name,
+                    machine_profile_id = excluded.machine_profile_id,
+                    machine_profile_version_id = excluded.machine_profile_version_id,
+                    machine_profile_fingerprint = excluded.machine_profile_fingerprint,
+                    machine_profile_name = excluded.machine_profile_name,
+                    policy_set_id = excluded.policy_set_id,
+                    policy_set_version_id = excluded.policy_set_version_id,
+                    policy_set_fingerprint = excluded.policy_set_fingerprint,
+                    policy_set_name = excluded.policy_set_name;
                 """;
             AddBaselineParameters(command, baseline);
             command.ExecuteNonQuery();
@@ -944,6 +1008,510 @@ public sealed class SqliteCiRunStore : ICiRunStore
 
         return FindNamingDictionaryVersion(dictionaryId, versionId)
             ?? throw new InvalidOperationException($"Naming dictionary version '{dictionaryId}/{versionId}' was not found after promotion.");
+    }
+
+    /// <summary>
+    /// Adds or replaces a managed machine-profile version.
+    /// </summary>
+    public CiServerManagedMachineProfileVersion SaveMachineProfileVersion(CiServerManagedMachineProfileVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ci_machine_profile_versions (
+                    machine_profile_id,
+                    version_id,
+                    imported_at_utc,
+                    imported_by,
+                    source_kind,
+                    source,
+                    profile_json,
+                    name,
+                    profile_version,
+                    machine_id,
+                    energy,
+                    beam_model_id,
+                    calculation_model,
+                    calculation_model_version,
+                    tags_json,
+                    fingerprint,
+                    review_report_json,
+                    is_active,
+                    activated_at_utc,
+                    activated_by,
+                    activation_note
+                )
+                VALUES (
+                    $machine_profile_id,
+                    $version_id,
+                    $imported_at_utc,
+                    $imported_by,
+                    $source_kind,
+                    $source,
+                    $profile_json,
+                    $name,
+                    $profile_version,
+                    $machine_id,
+                    $energy,
+                    $beam_model_id,
+                    $calculation_model,
+                    $calculation_model_version,
+                    $tags_json,
+                    $fingerprint,
+                    $review_report_json,
+                    $is_active,
+                    $activated_at_utc,
+                    $activated_by,
+                    $activation_note
+                )
+                ON CONFLICT(machine_profile_id, version_id) DO UPDATE SET
+                    imported_at_utc = excluded.imported_at_utc,
+                    imported_by = excluded.imported_by,
+                    source_kind = excluded.source_kind,
+                    source = excluded.source,
+                    profile_json = excluded.profile_json,
+                    name = excluded.name,
+                    profile_version = excluded.profile_version,
+                    machine_id = excluded.machine_id,
+                    energy = excluded.energy,
+                    beam_model_id = excluded.beam_model_id,
+                    calculation_model = excluded.calculation_model,
+                    calculation_model_version = excluded.calculation_model_version,
+                    tags_json = excluded.tags_json,
+                    fingerprint = excluded.fingerprint,
+                    review_report_json = excluded.review_report_json,
+                    is_active = excluded.is_active,
+                    activated_at_utc = excluded.activated_at_utc,
+                    activated_by = excluded.activated_by,
+                    activation_note = excluded.activation_note;
+                """;
+            AddMachineProfileVersionParameters(command, version);
+            command.ExecuteNonQuery();
+        }
+
+        return version;
+    }
+
+    /// <summary>
+    /// Finds a managed machine-profile version.
+    /// </summary>
+    public CiServerManagedMachineProfileVersion? FindMachineProfileVersion(string machineProfileId, string versionId)
+    {
+        if (string.IsNullOrWhiteSpace(machineProfileId) || string.IsNullOrWhiteSpace(versionId))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectMachineProfileVersionColumns()}
+                WHERE machine_profile_id = $machine_profile_id AND version_id = $version_id;
+                """;
+            command.Parameters.AddWithValue("$machine_profile_id", machineProfileId.Trim());
+            command.Parameters.AddWithValue("$version_id", versionId.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadMachineProfileVersion(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Finds the active managed version for a machine-profile id.
+    /// </summary>
+    public CiServerManagedMachineProfileVersion? FindActiveMachineProfileVersion(string machineProfileId)
+    {
+        if (string.IsNullOrWhiteSpace(machineProfileId))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectMachineProfileVersionColumns()}
+                WHERE machine_profile_id = $machine_profile_id AND is_active = 1
+                ORDER BY COALESCE(activated_at_utc, imported_at_utc) DESC, version_id ASC
+                LIMIT 1;
+                """;
+            command.Parameters.AddWithValue("$machine_profile_id", machineProfileId.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadMachineProfileVersion(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Lists managed machine-profile versions.
+    /// </summary>
+    public IReadOnlyList<CiServerManagedMachineProfileVersionSummary> ListMachineProfileVersions(string? machineProfileId = null)
+    {
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            var where = string.Empty;
+            if (!string.IsNullOrWhiteSpace(machineProfileId))
+            {
+                where = "WHERE machine_profile_id = $machine_profile_id";
+                command.Parameters.AddWithValue("$machine_profile_id", machineProfileId.Trim());
+            }
+
+            command.CommandText = $"""
+                {SelectMachineProfileVersionColumns()}
+                {where}
+                ORDER BY machine_profile_id ASC, imported_at_utc DESC, version_id ASC;
+                """;
+
+            var versions = new List<CiServerManagedMachineProfileVersionSummary>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                versions.Add(ReadMachineProfileVersion(reader).ToSummary());
+            }
+
+            return versions;
+        }
+    }
+
+    /// <summary>
+    /// Promotes one managed machine-profile version as active.
+    /// </summary>
+    public CiServerManagedMachineProfileVersion PromoteMachineProfileVersion(
+        string machineProfileId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null)
+    {
+        if (string.IsNullOrWhiteSpace(machineProfileId))
+        {
+            throw new ArgumentException("Machine profile id is required.", nameof(machineProfileId));
+        }
+
+        if (string.IsNullOrWhiteSpace(versionId))
+        {
+            throw new ArgumentException("Version id is required.", nameof(versionId));
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var transaction = connection.BeginTransaction();
+
+            using (var clear = connection.CreateCommand())
+            {
+                clear.Transaction = transaction;
+                clear.CommandText = """
+                    UPDATE ci_machine_profile_versions
+                    SET is_active = 0,
+                        activated_at_utc = NULL,
+                        activated_by = NULL,
+                        activation_note = NULL
+                    WHERE machine_profile_id = $machine_profile_id;
+                    """;
+                clear.Parameters.AddWithValue("$machine_profile_id", machineProfileId.Trim());
+                clear.ExecuteNonQuery();
+            }
+
+            using (var promote = connection.CreateCommand())
+            {
+                promote.Transaction = transaction;
+                promote.CommandText = """
+                    UPDATE ci_machine_profile_versions
+                    SET is_active = 1,
+                        activated_at_utc = $activated_at_utc,
+                        activated_by = $activated_by,
+                        activation_note = $activation_note
+                    WHERE machine_profile_id = $machine_profile_id AND version_id = $version_id;
+                    """;
+                promote.Parameters.AddWithValue("$machine_profile_id", machineProfileId.Trim());
+                promote.Parameters.AddWithValue("$version_id", versionId.Trim());
+                promote.Parameters.AddWithValue("$activated_at_utc", ToStoredTimestamp(activatedAtUtc));
+                promote.Parameters.AddWithValue("$activated_by", ToDbValue(activatedBy));
+                promote.Parameters.AddWithValue("$activation_note", ToDbValue(note));
+                var updated = promote.ExecuteNonQuery();
+                if (updated == 0)
+                {
+                    throw new InvalidOperationException($"Machine profile version '{machineProfileId}/{versionId}' was not found.");
+                }
+            }
+
+            transaction.Commit();
+        }
+
+        return FindMachineProfileVersion(machineProfileId, versionId)
+            ?? throw new InvalidOperationException($"Machine profile version '{machineProfileId}/{versionId}' was not found after promotion.");
+    }
+
+    /// <summary>
+    /// Adds or replaces a clinical policy-set version.
+    /// </summary>
+    public CiServerClinicalPolicySetVersion SaveClinicalPolicySetVersion(CiServerClinicalPolicySetVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO ci_clinical_policy_set_versions (
+                    policy_set_id,
+                    version_id,
+                    imported_at_utc,
+                    imported_by,
+                    name,
+                    policy_version,
+                    description,
+                    disease_site,
+                    technique,
+                    tags_json,
+                    rule_pack_id,
+                    rule_pack_version_id,
+                    rule_pack_fingerprint,
+                    rule_pack_name,
+                    rule_pack_version,
+                    naming_dictionary_id,
+                    naming_dictionary_version_id,
+                    naming_dictionary_fingerprint,
+                    naming_dictionary_name,
+                    machine_profile_id,
+                    machine_profile_version_id,
+                    machine_profile_fingerprint,
+                    machine_profile_name,
+                    safety_registry_fingerprint,
+                    fingerprint,
+                    is_active,
+                    activated_at_utc,
+                    activated_by,
+                    activation_note
+                )
+                VALUES (
+                    $policy_set_id,
+                    $version_id,
+                    $imported_at_utc,
+                    $imported_by,
+                    $name,
+                    $policy_version,
+                    $description,
+                    $disease_site,
+                    $technique,
+                    $tags_json,
+                    $rule_pack_id,
+                    $rule_pack_version_id,
+                    $rule_pack_fingerprint,
+                    $rule_pack_name,
+                    $rule_pack_version,
+                    $naming_dictionary_id,
+                    $naming_dictionary_version_id,
+                    $naming_dictionary_fingerprint,
+                    $naming_dictionary_name,
+                    $machine_profile_id,
+                    $machine_profile_version_id,
+                    $machine_profile_fingerprint,
+                    $machine_profile_name,
+                    $safety_registry_fingerprint,
+                    $fingerprint,
+                    $is_active,
+                    $activated_at_utc,
+                    $activated_by,
+                    $activation_note
+                )
+                ON CONFLICT(policy_set_id, version_id) DO UPDATE SET
+                    imported_at_utc = excluded.imported_at_utc,
+                    imported_by = excluded.imported_by,
+                    name = excluded.name,
+                    policy_version = excluded.policy_version,
+                    description = excluded.description,
+                    disease_site = excluded.disease_site,
+                    technique = excluded.technique,
+                    tags_json = excluded.tags_json,
+                    rule_pack_id = excluded.rule_pack_id,
+                    rule_pack_version_id = excluded.rule_pack_version_id,
+                    rule_pack_fingerprint = excluded.rule_pack_fingerprint,
+                    rule_pack_name = excluded.rule_pack_name,
+                    rule_pack_version = excluded.rule_pack_version,
+                    naming_dictionary_id = excluded.naming_dictionary_id,
+                    naming_dictionary_version_id = excluded.naming_dictionary_version_id,
+                    naming_dictionary_fingerprint = excluded.naming_dictionary_fingerprint,
+                    naming_dictionary_name = excluded.naming_dictionary_name,
+                    machine_profile_id = excluded.machine_profile_id,
+                    machine_profile_version_id = excluded.machine_profile_version_id,
+                    machine_profile_fingerprint = excluded.machine_profile_fingerprint,
+                    machine_profile_name = excluded.machine_profile_name,
+                    safety_registry_fingerprint = excluded.safety_registry_fingerprint,
+                    fingerprint = excluded.fingerprint,
+                    is_active = excluded.is_active,
+                    activated_at_utc = excluded.activated_at_utc,
+                    activated_by = excluded.activated_by,
+                    activation_note = excluded.activation_note;
+                """;
+            AddClinicalPolicySetVersionParameters(command, version);
+            command.ExecuteNonQuery();
+        }
+
+        return version;
+    }
+
+    /// <summary>
+    /// Finds a clinical policy-set version.
+    /// </summary>
+    public CiServerClinicalPolicySetVersion? FindClinicalPolicySetVersion(string policySetId, string versionId)
+    {
+        if (string.IsNullOrWhiteSpace(policySetId) || string.IsNullOrWhiteSpace(versionId))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectClinicalPolicySetVersionColumns()}
+                WHERE policy_set_id = $policy_set_id AND version_id = $version_id;
+                """;
+            command.Parameters.AddWithValue("$policy_set_id", policySetId.Trim());
+            command.Parameters.AddWithValue("$version_id", versionId.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadClinicalPolicySetVersion(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Finds the active clinical policy-set version for a policy-set id.
+    /// </summary>
+    public CiServerClinicalPolicySetVersion? FindActiveClinicalPolicySetVersion(string policySetId)
+    {
+        if (string.IsNullOrWhiteSpace(policySetId))
+        {
+            return null;
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = $"""
+                {SelectClinicalPolicySetVersionColumns()}
+                WHERE policy_set_id = $policy_set_id AND is_active = 1
+                ORDER BY COALESCE(activated_at_utc, imported_at_utc) DESC, version_id ASC
+                LIMIT 1;
+                """;
+            command.Parameters.AddWithValue("$policy_set_id", policySetId.Trim());
+            using var reader = command.ExecuteReader();
+            return reader.Read() ? ReadClinicalPolicySetVersion(reader) : null;
+        }
+    }
+
+    /// <summary>
+    /// Lists clinical policy-set versions.
+    /// </summary>
+    public IReadOnlyList<CiServerClinicalPolicySetVersionSummary> ListClinicalPolicySetVersions(string? policySetId = null)
+    {
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var command = connection.CreateCommand();
+            var where = string.Empty;
+            if (!string.IsNullOrWhiteSpace(policySetId))
+            {
+                where = "WHERE policy_set_id = $policy_set_id";
+                command.Parameters.AddWithValue("$policy_set_id", policySetId.Trim());
+            }
+
+            command.CommandText = $"""
+                {SelectClinicalPolicySetVersionColumns()}
+                {where}
+                ORDER BY policy_set_id ASC, imported_at_utc DESC, version_id ASC;
+                """;
+
+            var versions = new List<CiServerClinicalPolicySetVersionSummary>();
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                versions.Add(ReadClinicalPolicySetVersion(reader).ToSummary());
+            }
+
+            return versions;
+        }
+    }
+
+    /// <summary>
+    /// Promotes one clinical policy-set version as active.
+    /// </summary>
+    public CiServerClinicalPolicySetVersion PromoteClinicalPolicySetVersion(
+        string policySetId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null)
+    {
+        if (string.IsNullOrWhiteSpace(policySetId))
+        {
+            throw new ArgumentException("Clinical policy-set id is required.", nameof(policySetId));
+        }
+
+        if (string.IsNullOrWhiteSpace(versionId))
+        {
+            throw new ArgumentException("Version id is required.", nameof(versionId));
+        }
+
+        lock (gate)
+        {
+            using var connection = OpenConnection();
+            using var transaction = connection.BeginTransaction();
+
+            using (var clear = connection.CreateCommand())
+            {
+                clear.Transaction = transaction;
+                clear.CommandText = """
+                    UPDATE ci_clinical_policy_set_versions
+                    SET is_active = 0,
+                        activated_at_utc = NULL,
+                        activated_by = NULL,
+                        activation_note = NULL
+                    WHERE policy_set_id = $policy_set_id;
+                    """;
+                clear.Parameters.AddWithValue("$policy_set_id", policySetId.Trim());
+                clear.ExecuteNonQuery();
+            }
+
+            using (var promote = connection.CreateCommand())
+            {
+                promote.Transaction = transaction;
+                promote.CommandText = """
+                    UPDATE ci_clinical_policy_set_versions
+                    SET is_active = 1,
+                        activated_at_utc = $activated_at_utc,
+                        activated_by = $activated_by,
+                        activation_note = $activation_note
+                    WHERE policy_set_id = $policy_set_id AND version_id = $version_id;
+                    """;
+                promote.Parameters.AddWithValue("$policy_set_id", policySetId.Trim());
+                promote.Parameters.AddWithValue("$version_id", versionId.Trim());
+                promote.Parameters.AddWithValue("$activated_at_utc", ToStoredTimestamp(activatedAtUtc));
+                promote.Parameters.AddWithValue("$activated_by", ToDbValue(activatedBy));
+                promote.Parameters.AddWithValue("$activation_note", ToDbValue(note));
+                var updated = promote.ExecuteNonQuery();
+                if (updated == 0)
+                {
+                    throw new InvalidOperationException($"Clinical policy set version '{policySetId}/{versionId}' was not found.");
+                }
+            }
+
+            transaction.Commit();
+        }
+
+        return FindClinicalPolicySetVersion(policySetId, versionId)
+            ?? throw new InvalidOperationException($"Clinical policy set version '{policySetId}/{versionId}' was not found after promotion.");
     }
 
     /// <summary>
@@ -1613,6 +2181,14 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     naming_dictionary_version_id TEXT NULL,
                     naming_dictionary_fingerprint TEXT NULL,
                     naming_dictionary_name TEXT NULL,
+                    machine_profile_id TEXT NULL,
+                    machine_profile_version_id TEXT NULL,
+                    machine_profile_fingerprint TEXT NULL,
+                    machine_profile_name TEXT NULL,
+                    policy_set_id TEXT NULL,
+                    policy_set_version_id TEXT NULL,
+                    policy_set_fingerprint TEXT NULL,
+                    policy_set_name TEXT NULL,
                     artifact_json TEXT NOT NULL,
                     plan_snapshot_json TEXT NULL
                 );
@@ -1644,7 +2220,15 @@ public sealed class SqliteCiRunStore : ICiRunStore
                     naming_dictionary_id TEXT NULL,
                     naming_dictionary_version_id TEXT NULL,
                     naming_dictionary_fingerprint TEXT NULL,
-                    naming_dictionary_name TEXT NULL
+                    naming_dictionary_name TEXT NULL,
+                    machine_profile_id TEXT NULL,
+                    machine_profile_version_id TEXT NULL,
+                    machine_profile_fingerprint TEXT NULL,
+                    machine_profile_name TEXT NULL,
+                    policy_set_id TEXT NULL,
+                    policy_set_version_id TEXT NULL,
+                    policy_set_fingerprint TEXT NULL,
+                    policy_set_name TEXT NULL
                 );
 
                 CREATE INDEX IF NOT EXISTS ix_ci_run_baselines_run_id ON ci_run_baselines(baseline_run_id);
@@ -1707,6 +2291,74 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 CREATE INDEX IF NOT EXISTS ix_ci_naming_dictionary_versions_fingerprint ON ci_naming_dictionary_versions(fingerprint);
                 CREATE INDEX IF NOT EXISTS ix_ci_naming_dictionary_versions_active ON ci_naming_dictionary_versions(dictionary_id, is_active);
                 CREATE INDEX IF NOT EXISTS ix_ci_naming_dictionary_versions_imported_at ON ci_naming_dictionary_versions(imported_at_utc);
+
+                CREATE TABLE IF NOT EXISTS ci_machine_profile_versions (
+                    machine_profile_id TEXT NOT NULL,
+                    version_id TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL,
+                    imported_by TEXT NULL,
+                    source_kind TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    profile_json TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    profile_version TEXT NOT NULL,
+                    machine_id TEXT NULL,
+                    energy TEXT NULL,
+                    beam_model_id TEXT NULL,
+                    calculation_model TEXT NULL,
+                    calculation_model_version TEXT NULL,
+                    tags_json TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    review_report_json TEXT NOT NULL,
+                    is_active INTEGER NOT NULL,
+                    activated_at_utc TEXT NULL,
+                    activated_by TEXT NULL,
+                    activation_note TEXT NULL,
+                    PRIMARY KEY (machine_profile_id, version_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_ci_machine_profile_versions_profile_id ON ci_machine_profile_versions(machine_profile_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_machine_profile_versions_fingerprint ON ci_machine_profile_versions(fingerprint);
+                CREATE INDEX IF NOT EXISTS ix_ci_machine_profile_versions_active ON ci_machine_profile_versions(machine_profile_id, is_active);
+                CREATE INDEX IF NOT EXISTS ix_ci_machine_profile_versions_imported_at ON ci_machine_profile_versions(imported_at_utc);
+
+                CREATE TABLE IF NOT EXISTS ci_clinical_policy_set_versions (
+                    policy_set_id TEXT NOT NULL,
+                    version_id TEXT NOT NULL,
+                    imported_at_utc TEXT NOT NULL,
+                    imported_by TEXT NULL,
+                    name TEXT NOT NULL,
+                    policy_version TEXT NOT NULL,
+                    description TEXT NULL,
+                    disease_site TEXT NULL,
+                    technique TEXT NULL,
+                    tags_json TEXT NOT NULL,
+                    rule_pack_id TEXT NOT NULL,
+                    rule_pack_version_id TEXT NOT NULL,
+                    rule_pack_fingerprint TEXT NOT NULL,
+                    rule_pack_name TEXT NOT NULL,
+                    rule_pack_version TEXT NOT NULL,
+                    naming_dictionary_id TEXT NULL,
+                    naming_dictionary_version_id TEXT NULL,
+                    naming_dictionary_fingerprint TEXT NULL,
+                    naming_dictionary_name TEXT NULL,
+                    machine_profile_id TEXT NULL,
+                    machine_profile_version_id TEXT NULL,
+                    machine_profile_fingerprint TEXT NULL,
+                    machine_profile_name TEXT NULL,
+                    safety_registry_fingerprint TEXT NULL,
+                    fingerprint TEXT NOT NULL,
+                    is_active INTEGER NOT NULL,
+                    activated_at_utc TEXT NULL,
+                    activated_by TEXT NULL,
+                    activation_note TEXT NULL,
+                    PRIMARY KEY (policy_set_id, version_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS ix_ci_clinical_policy_set_versions_policy_set_id ON ci_clinical_policy_set_versions(policy_set_id);
+                CREATE INDEX IF NOT EXISTS ix_ci_clinical_policy_set_versions_fingerprint ON ci_clinical_policy_set_versions(fingerprint);
+                CREATE INDEX IF NOT EXISTS ix_ci_clinical_policy_set_versions_active ON ci_clinical_policy_set_versions(policy_set_id, is_active);
+                CREATE INDEX IF NOT EXISTS ix_ci_clinical_policy_set_versions_imported_at ON ci_clinical_policy_set_versions(imported_at_utc);
 
                 CREATE TABLE IF NOT EXISTS ci_rtpx_acceptances (
                     id TEXT PRIMARY KEY,
@@ -1838,6 +2490,10 @@ public sealed class SqliteCiRunStore : ICiRunStore
             EnsurePlanSnapshotColumn(connection);
             EnsureRunNamingDictionaryColumns(connection);
             EnsureBaselineNamingDictionaryColumns(connection);
+            EnsureRunMachineProfileColumns(connection);
+            EnsureBaselineMachineProfileColumns(connection);
+            EnsureRunPolicySetColumns(connection);
+            EnsureBaselinePolicySetColumns(connection);
             EnsureRulePackBundleColumn(connection);
             EnsureRulePackSafetyEvidenceColumn(connection);
             EnsureRtpxAcceptanceReviewColumns(connection);
@@ -1879,6 +2535,14 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$naming_dictionary_version_id", ToDbValue(record.Artifact.Provenance.NamingDictionaryVersionId));
         command.Parameters.AddWithValue("$naming_dictionary_fingerprint", ToDbValue(record.Artifact.Provenance.NamingDictionaryFingerprint));
         command.Parameters.AddWithValue("$naming_dictionary_name", ToDbValue(record.Artifact.Provenance.NamingDictionaryName));
+        command.Parameters.AddWithValue("$machine_profile_id", ToDbValue(record.Artifact.Provenance.MachineProfileId));
+        command.Parameters.AddWithValue("$machine_profile_version_id", ToDbValue(record.Artifact.Provenance.MachineProfileVersionId));
+        command.Parameters.AddWithValue("$machine_profile_fingerprint", ToDbValue(record.Artifact.Provenance.MachineProfileFingerprint));
+        command.Parameters.AddWithValue("$machine_profile_name", ToDbValue(record.Artifact.Provenance.MachineProfileName));
+        command.Parameters.AddWithValue("$policy_set_id", ToDbValue(record.Artifact.Provenance.PolicySetId));
+        command.Parameters.AddWithValue("$policy_set_version_id", ToDbValue(record.Artifact.Provenance.PolicySetVersionId));
+        command.Parameters.AddWithValue("$policy_set_fingerprint", ToDbValue(record.Artifact.Provenance.PolicySetFingerprint));
+        command.Parameters.AddWithValue("$policy_set_name", ToDbValue(record.Artifact.Provenance.PolicySetName));
         command.Parameters.AddWithValue("$artifact_json", System.Text.Json.JsonSerializer.Serialize(record.Artifact, CiServerJson.Options));
         command.Parameters.AddWithValue("$plan_snapshot_json", ToDbValue(record.PlanSnapshotJson));
     }
@@ -1907,6 +2571,14 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$naming_dictionary_version_id", ToDbValue(baseline.NamingDictionaryVersionId));
         command.Parameters.AddWithValue("$naming_dictionary_fingerprint", ToDbValue(baseline.NamingDictionaryFingerprint));
         command.Parameters.AddWithValue("$naming_dictionary_name", ToDbValue(baseline.NamingDictionaryName));
+        command.Parameters.AddWithValue("$machine_profile_id", ToDbValue(baseline.MachineProfileId));
+        command.Parameters.AddWithValue("$machine_profile_version_id", ToDbValue(baseline.MachineProfileVersionId));
+        command.Parameters.AddWithValue("$machine_profile_fingerprint", ToDbValue(baseline.MachineProfileFingerprint));
+        command.Parameters.AddWithValue("$machine_profile_name", ToDbValue(baseline.MachineProfileName));
+        command.Parameters.AddWithValue("$policy_set_id", ToDbValue(baseline.PolicySetId));
+        command.Parameters.AddWithValue("$policy_set_version_id", ToDbValue(baseline.PolicySetVersionId));
+        command.Parameters.AddWithValue("$policy_set_fingerprint", ToDbValue(baseline.PolicySetFingerprint));
+        command.Parameters.AddWithValue("$policy_set_name", ToDbValue(baseline.PolicySetName));
     }
 
     private static void AddAuditParameters(SqliteCommand command, CiServerAuditEvent auditEvent)
@@ -1967,6 +2639,64 @@ public sealed class SqliteCiRunStore : ICiRunStore
         command.Parameters.AddWithValue("$tags_json", JsonSerializer.Serialize(version.Tags, CiServerJson.Options));
         command.Parameters.AddWithValue("$fingerprint", version.Fingerprint);
         command.Parameters.AddWithValue("$review_report_json", JsonSerializer.Serialize(version.ReviewReport, CiServerJson.Options));
+        command.Parameters.AddWithValue("$is_active", version.IsActive ? 1 : 0);
+        command.Parameters.AddWithValue("$activated_at_utc", version.ActivatedAtUtc is null ? DBNull.Value : ToStoredTimestamp(version.ActivatedAtUtc.Value));
+        command.Parameters.AddWithValue("$activated_by", ToDbValue(version.ActivatedBy));
+        command.Parameters.AddWithValue("$activation_note", ToDbValue(version.ActivationNote));
+    }
+
+    private static void AddMachineProfileVersionParameters(SqliteCommand command, CiServerManagedMachineProfileVersion version)
+    {
+        command.Parameters.AddWithValue("$machine_profile_id", version.MachineProfileId);
+        command.Parameters.AddWithValue("$version_id", version.VersionId);
+        command.Parameters.AddWithValue("$imported_at_utc", ToStoredTimestamp(version.ImportedAtUtc));
+        command.Parameters.AddWithValue("$imported_by", ToDbValue(version.ImportedBy));
+        command.Parameters.AddWithValue("$source_kind", version.SourceKind);
+        command.Parameters.AddWithValue("$source", version.Source);
+        command.Parameters.AddWithValue("$profile_json", version.ProfileJson);
+        command.Parameters.AddWithValue("$name", version.Name);
+        command.Parameters.AddWithValue("$profile_version", version.ProfileVersion);
+        command.Parameters.AddWithValue("$machine_id", ToDbValue(version.MachineId));
+        command.Parameters.AddWithValue("$energy", ToDbValue(version.Energy));
+        command.Parameters.AddWithValue("$beam_model_id", ToDbValue(version.BeamModelId));
+        command.Parameters.AddWithValue("$calculation_model", ToDbValue(version.CalculationModel));
+        command.Parameters.AddWithValue("$calculation_model_version", ToDbValue(version.CalculationModelVersion));
+        command.Parameters.AddWithValue("$tags_json", JsonSerializer.Serialize(version.Tags, CiServerJson.Options));
+        command.Parameters.AddWithValue("$fingerprint", version.Fingerprint);
+        command.Parameters.AddWithValue("$review_report_json", JsonSerializer.Serialize(version.ReviewReport, CiServerJson.Options));
+        command.Parameters.AddWithValue("$is_active", version.IsActive ? 1 : 0);
+        command.Parameters.AddWithValue("$activated_at_utc", version.ActivatedAtUtc is null ? DBNull.Value : ToStoredTimestamp(version.ActivatedAtUtc.Value));
+        command.Parameters.AddWithValue("$activated_by", ToDbValue(version.ActivatedBy));
+        command.Parameters.AddWithValue("$activation_note", ToDbValue(version.ActivationNote));
+    }
+
+    private static void AddClinicalPolicySetVersionParameters(SqliteCommand command, CiServerClinicalPolicySetVersion version)
+    {
+        command.Parameters.AddWithValue("$policy_set_id", version.PolicySetId);
+        command.Parameters.AddWithValue("$version_id", version.VersionId);
+        command.Parameters.AddWithValue("$imported_at_utc", ToStoredTimestamp(version.ImportedAtUtc));
+        command.Parameters.AddWithValue("$imported_by", ToDbValue(version.ImportedBy));
+        command.Parameters.AddWithValue("$name", version.Name);
+        command.Parameters.AddWithValue("$policy_version", version.PolicyVersion);
+        command.Parameters.AddWithValue("$description", ToDbValue(version.Description));
+        command.Parameters.AddWithValue("$disease_site", ToDbValue(version.DiseaseSite));
+        command.Parameters.AddWithValue("$technique", ToDbValue(version.Technique));
+        command.Parameters.AddWithValue("$tags_json", JsonSerializer.Serialize(version.Tags, CiServerJson.Options));
+        command.Parameters.AddWithValue("$rule_pack_id", version.RulePackId);
+        command.Parameters.AddWithValue("$rule_pack_version_id", version.RulePackVersionId);
+        command.Parameters.AddWithValue("$rule_pack_fingerprint", version.RulePackFingerprint);
+        command.Parameters.AddWithValue("$rule_pack_name", version.RulePackName);
+        command.Parameters.AddWithValue("$rule_pack_version", version.RulePackVersion);
+        command.Parameters.AddWithValue("$naming_dictionary_id", ToDbValue(version.NamingDictionaryId));
+        command.Parameters.AddWithValue("$naming_dictionary_version_id", ToDbValue(version.NamingDictionaryVersionId));
+        command.Parameters.AddWithValue("$naming_dictionary_fingerprint", ToDbValue(version.NamingDictionaryFingerprint));
+        command.Parameters.AddWithValue("$naming_dictionary_name", ToDbValue(version.NamingDictionaryName));
+        command.Parameters.AddWithValue("$machine_profile_id", ToDbValue(version.MachineProfileId));
+        command.Parameters.AddWithValue("$machine_profile_version_id", ToDbValue(version.MachineProfileVersionId));
+        command.Parameters.AddWithValue("$machine_profile_fingerprint", ToDbValue(version.MachineProfileFingerprint));
+        command.Parameters.AddWithValue("$machine_profile_name", ToDbValue(version.MachineProfileName));
+        command.Parameters.AddWithValue("$safety_registry_fingerprint", ToDbValue(version.SafetyRegistryFingerprint));
+        command.Parameters.AddWithValue("$fingerprint", version.Fingerprint);
         command.Parameters.AddWithValue("$is_active", version.IsActive ? 1 : 0);
         command.Parameters.AddWithValue("$activated_at_utc", version.ActivatedAtUtc is null ? DBNull.Value : ToStoredTimestamp(version.ActivatedAtUtc.Value));
         command.Parameters.AddWithValue("$activated_by", ToDbValue(version.ActivatedBy));
@@ -2092,11 +2822,19 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.GetString(13),
             reader.GetString(14),
             reader.GetString(15),
-            reader.GetBoolean(20),
+            reader.GetBoolean(28),
             GetNullableString(reader, 16),
             GetNullableString(reader, 17),
             GetNullableString(reader, 18),
-            GetNullableString(reader, 19));
+            GetNullableString(reader, 19),
+            GetNullableString(reader, 20),
+            GetNullableString(reader, 21),
+            GetNullableString(reader, 22),
+            GetNullableString(reader, 23),
+            GetNullableString(reader, 24),
+            GetNullableString(reader, 25),
+            GetNullableString(reader, 26),
+            GetNullableString(reader, 27));
     }
 
     private static string? GetNullableString(SqliteDataReader reader, int ordinal)
@@ -2143,7 +2881,15 @@ public sealed class SqliteCiRunStore : ICiRunStore
                 naming_dictionary_id,
                 naming_dictionary_version_id,
                 naming_dictionary_fingerprint,
-                naming_dictionary_name
+                naming_dictionary_name,
+                machine_profile_id,
+                machine_profile_version_id,
+                machine_profile_fingerprint,
+                machine_profile_name,
+                policy_set_id,
+                policy_set_version_id,
+                policy_set_fingerprint,
+                policy_set_name
             FROM ci_run_baselines
             """;
     }
@@ -2172,7 +2918,15 @@ public sealed class SqliteCiRunStore : ICiRunStore
             GetNullableString(reader, 18),
             GetNullableString(reader, 19),
             GetNullableString(reader, 20),
-            GetNullableString(reader, 21));
+            GetNullableString(reader, 21),
+            GetNullableString(reader, 22),
+            GetNullableString(reader, 23),
+            GetNullableString(reader, 24),
+            GetNullableString(reader, 25),
+            GetNullableString(reader, 26),
+            GetNullableString(reader, 27),
+            GetNullableString(reader, 28),
+            GetNullableString(reader, 29));
     }
 
     private static string SelectRulePackVersionColumns()
@@ -2292,6 +3046,138 @@ public sealed class SqliteCiRunStore : ICiRunStore
             reader.IsDBNull(15) ? null : DateTimeOffset.Parse(reader.GetString(15), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
             GetNullableString(reader, 16),
             GetNullableString(reader, 17));
+    }
+
+    private static string SelectMachineProfileVersionColumns()
+    {
+        return """
+            SELECT
+                machine_profile_id,
+                version_id,
+                imported_at_utc,
+                imported_by,
+                source_kind,
+                source,
+                profile_json,
+                name,
+                profile_version,
+                machine_id,
+                energy,
+                beam_model_id,
+                calculation_model,
+                calculation_model_version,
+                tags_json,
+                fingerprint,
+                review_report_json,
+                is_active,
+                activated_at_utc,
+                activated_by,
+                activation_note
+            FROM ci_machine_profile_versions
+            """;
+    }
+
+    private static CiServerManagedMachineProfileVersion ReadMachineProfileVersion(SqliteDataReader reader)
+    {
+        var tags = JsonSerializer.Deserialize<string[]>(reader.GetString(14), CiServerJson.Options)
+            ?? Array.Empty<string>();
+
+        return new CiServerManagedMachineProfileVersion(
+            reader.GetString(0),
+            reader.GetString(1),
+            DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            GetNullableString(reader, 3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetString(6),
+            reader.GetString(7),
+            reader.GetString(8),
+            GetNullableString(reader, 9),
+            GetNullableString(reader, 10),
+            GetNullableString(reader, 11),
+            GetNullableString(reader, 12),
+            GetNullableString(reader, 13),
+            tags,
+            reader.GetString(15),
+            ReadMachineProfileReviewReport(reader.GetString(16)),
+            reader.GetInt32(17) != 0,
+            GetNullableTimestamp(reader, 18),
+            GetNullableString(reader, 19),
+            GetNullableString(reader, 20));
+    }
+
+    private static string SelectClinicalPolicySetVersionColumns()
+    {
+        return """
+            SELECT
+                policy_set_id,
+                version_id,
+                imported_at_utc,
+                imported_by,
+                name,
+                policy_version,
+                description,
+                disease_site,
+                technique,
+                tags_json,
+                rule_pack_id,
+                rule_pack_version_id,
+                rule_pack_fingerprint,
+                rule_pack_name,
+                rule_pack_version,
+                naming_dictionary_id,
+                naming_dictionary_version_id,
+                naming_dictionary_fingerprint,
+                naming_dictionary_name,
+                machine_profile_id,
+                machine_profile_version_id,
+                machine_profile_fingerprint,
+                machine_profile_name,
+                safety_registry_fingerprint,
+                fingerprint,
+                is_active,
+                activated_at_utc,
+                activated_by,
+                activation_note
+            FROM ci_clinical_policy_set_versions
+            """;
+    }
+
+    private static CiServerClinicalPolicySetVersion ReadClinicalPolicySetVersion(SqliteDataReader reader)
+    {
+        var tags = JsonSerializer.Deserialize<string[]>(reader.GetString(9), CiServerJson.Options)
+            ?? Array.Empty<string>();
+
+        return new CiServerClinicalPolicySetVersion(
+            reader.GetString(0),
+            reader.GetString(1),
+            DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            GetNullableString(reader, 3),
+            reader.GetString(4),
+            reader.GetString(5),
+            GetNullableString(reader, 6),
+            GetNullableString(reader, 7),
+            GetNullableString(reader, 8),
+            tags,
+            reader.GetString(10),
+            reader.GetString(11),
+            reader.GetString(12),
+            reader.GetString(13),
+            reader.GetString(14),
+            GetNullableString(reader, 15),
+            GetNullableString(reader, 16),
+            GetNullableString(reader, 17),
+            GetNullableString(reader, 18),
+            GetNullableString(reader, 19),
+            GetNullableString(reader, 20),
+            GetNullableString(reader, 21),
+            GetNullableString(reader, 22),
+            GetNullableString(reader, 23),
+            reader.GetString(24),
+            reader.GetInt32(25) != 0,
+            GetNullableTimestamp(reader, 26),
+            GetNullableString(reader, 27),
+            GetNullableString(reader, 28));
     }
 
     private static string SelectRtpxAcceptanceColumns()
@@ -2490,6 +3376,32 @@ public sealed class SqliteCiRunStore : ICiRunStore
             element.TryGetProperty("subject", out var subject) ? subject.GetString() : null);
     }
 
+    private static CiServerMachineProfileReviewReport ReadMachineProfileReviewReport(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        var findings = root.TryGetProperty("findings", out var findingsElement) && findingsElement.ValueKind == JsonValueKind.Array
+            ? findingsElement.EnumerateArray().Select(ReadMachineProfileReviewFinding).ToArray()
+            : Array.Empty<CiServerMachineProfileReviewFinding>();
+        return new CiServerMachineProfileReviewReport(
+            root.GetProperty("profileName").GetString() ?? "Machine profile",
+            root.GetProperty("profileVersion").GetString() ?? "unknown",
+            root.GetProperty("fingerprint").GetString() ?? "sha256:unknown",
+            findings);
+    }
+
+    private static CiServerMachineProfileReviewFinding ReadMachineProfileReviewFinding(JsonElement element)
+    {
+        var severity = Enum.Parse<CiServerMachineProfileReviewSeverity>(
+            element.GetProperty("severity").GetString() ?? CiServerMachineProfileReviewSeverity.Error.ToString(),
+            ignoreCase: true);
+        return new CiServerMachineProfileReviewFinding(
+            element.GetProperty("code").GetString() ?? "machine-profile.review.issue",
+            severity,
+            element.GetProperty("message").GetString() ?? "Machine-profile review issue.",
+            element.TryGetProperty("subject", out var subject) ? subject.GetString() : null);
+    }
+
     private static RulePackTestReport? ReadRulePackTestReport(string json)
     {
         using var document = JsonDocument.Parse(json);
@@ -2672,6 +3584,38 @@ public sealed class SqliteCiRunStore : ICiRunStore
         EnsureColumn(connection, "ci_run_baselines", "naming_dictionary_version_id", "TEXT NULL");
         EnsureColumn(connection, "ci_run_baselines", "naming_dictionary_fingerprint", "TEXT NULL");
         EnsureColumn(connection, "ci_run_baselines", "naming_dictionary_name", "TEXT NULL");
+    }
+
+    private static void EnsureRunMachineProfileColumns(SqliteConnection connection)
+    {
+        EnsureColumn(connection, "ci_runs", "machine_profile_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_runs", "machine_profile_version_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_runs", "machine_profile_fingerprint", "TEXT NULL");
+        EnsureColumn(connection, "ci_runs", "machine_profile_name", "TEXT NULL");
+    }
+
+    private static void EnsureBaselineMachineProfileColumns(SqliteConnection connection)
+    {
+        EnsureColumn(connection, "ci_run_baselines", "machine_profile_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_run_baselines", "machine_profile_version_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_run_baselines", "machine_profile_fingerprint", "TEXT NULL");
+        EnsureColumn(connection, "ci_run_baselines", "machine_profile_name", "TEXT NULL");
+    }
+
+    private static void EnsureRunPolicySetColumns(SqliteConnection connection)
+    {
+        EnsureColumn(connection, "ci_runs", "policy_set_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_runs", "policy_set_version_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_runs", "policy_set_fingerprint", "TEXT NULL");
+        EnsureColumn(connection, "ci_runs", "policy_set_name", "TEXT NULL");
+    }
+
+    private static void EnsureBaselinePolicySetColumns(SqliteConnection connection)
+    {
+        EnsureColumn(connection, "ci_run_baselines", "policy_set_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_run_baselines", "policy_set_version_id", "TEXT NULL");
+        EnsureColumn(connection, "ci_run_baselines", "policy_set_fingerprint", "TEXT NULL");
+        EnsureColumn(connection, "ci_run_baselines", "policy_set_name", "TEXT NULL");
     }
 
     private static void EnsureRulePackBundleColumn(SqliteConnection connection)

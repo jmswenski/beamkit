@@ -433,6 +433,96 @@ public sealed class CiServerHttpSecurityTests
     }
 
     [Fact]
+    public async Task ManagedMachineProfileAndPolicySetFlowUsesApiKey()
+    {
+        using var database = TemporaryDatabase.Create();
+        await using var factory = new TestCiServerFactory(
+            database.Path,
+            apiKeyRoles: new[]
+            {
+                CiServerApiRoles.Reader,
+                CiServerApiRoles.Runner,
+                CiServerApiRoles.RulePackManager,
+                CiServerApiRoles.NamingDictionaryManager,
+                CiServerApiRoles.MachineProfileManager,
+                CiServerApiRoles.PolicySetManager
+            });
+        using var client = factory.CreateClient();
+        using var rulePackImportRequest = CreateJsonRequest(HttpMethod.Post, "/api/rule-packs/import", JsonSerializer.Serialize(new
+        {
+            rulePackId = "institution-head-neck",
+            manifestPath = SampleRulePackPath()
+        }));
+
+        var rulePackImportResponse = await client.SendAsync(rulePackImportRequest);
+        using var rulePackImport = JsonDocument.Parse(await rulePackImportResponse.Content.ReadAsStringAsync());
+        var rulePackVersion = rulePackImport.RootElement.GetProperty("version");
+        var rulePackId = rulePackVersion.GetProperty("rulePackId").GetString()
+            ?? throw new InvalidOperationException("Rule-pack id was not returned.");
+        var rulePackVersionId = rulePackVersion.GetProperty("versionId").GetString()
+            ?? throw new InvalidOperationException("Rule-pack version id was not returned.");
+        var rulePackFingerprint = rulePackVersion.GetProperty("fingerprint").GetString()
+            ?? throw new InvalidOperationException("Rule-pack fingerprint was not returned.");
+        using var rulePackPromoteRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            $"/api/rule-packs/institution-head-neck/versions/{rulePackVersionId}/promote",
+            JsonSerializer.Serialize(new
+            {
+                promotedBy = "physics",
+                safetyEvidence = CreateSafetyEvidence(rulePackVersionId, rulePackFingerprint)
+            }));
+        var rulePackPromoteResponse = await client.SendAsync(rulePackPromoteRequest);
+        using var namingImportRequest = CreateJsonRequest(HttpMethod.Post, "/api/naming-dictionaries/import", JsonSerializer.Serialize(new
+        {
+            dictionaryId = "institution-tg263",
+            dictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.0"),
+            promote = true
+        }));
+        using var machineImportRequest = CreateJsonRequest(HttpMethod.Post, "/api/machine-profiles/import", JsonSerializer.Serialize(new
+        {
+            machineProfileId = "institution-linac",
+            profileJson = CreateMachineProfileJson(),
+            promote = true
+        }));
+
+        var namingImportResponse = await client.SendAsync(namingImportRequest);
+        var machineImportResponse = await client.SendAsync(machineImportRequest);
+        using var policyImportRequest = CreateJsonRequest(HttpMethod.Post, "/api/policy-sets/import", JsonSerializer.Serialize(new
+        {
+            policySetId = "head-neck-vmat",
+            name = "Head and Neck VMAT",
+            policyVersion = "2026.1",
+            rulePackId,
+            namingDictionaryId = "institution-tg263",
+            machineProfileId = "institution-linac",
+            promote = true
+        }));
+        var policyImportResponse = await client.SendAsync(policyImportRequest);
+        using var policyImport = JsonDocument.Parse(await policyImportResponse.Content.ReadAsStringAsync());
+        using var runRequest = CreateJsonRequest(
+            HttpMethod.Post,
+            "/api/runs",
+            """{"syntheticCaseId":"head-neck-pass","policySetId":"head-neck-vmat"}""");
+        var runResponse = await client.SendAsync(runRequest);
+        using var run = JsonDocument.Parse(await runResponse.Content.ReadAsStringAsync());
+        using var policySets = await GetJson(client, "/api/policy-sets?policySetId=head-neck-vmat");
+
+        Assert.Equal(HttpStatusCode.Created, rulePackImportResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, rulePackPromoteResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, namingImportResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, machineImportResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, policyImportResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, runResponse.StatusCode);
+        Assert.Equal("head-neck-vmat", policyImport.RootElement.GetProperty("version").GetProperty("policySetId").GetString());
+        Assert.Equal("head-neck-vmat", run.RootElement.GetProperty("artifact").GetProperty("provenance").GetProperty("policySetId").GetString());
+        Assert.Equal("institution-linac", run.RootElement.GetProperty("artifact").GetProperty("provenance").GetProperty("machineProfileId").GetString());
+        Assert.Contains(
+            policySets.RootElement.EnumerateArray(),
+            version => version.GetProperty("policySetId").GetString() == "head-neck-vmat"
+                && version.GetProperty("isActive").GetBoolean());
+    }
+
+    [Fact]
     public async Task RtpxAcceptanceEndpointAcceptsPackageUploadAndListsRecord()
     {
         using var database = TemporaryDatabase.Create();
@@ -842,6 +932,43 @@ public sealed class CiServerHttpSecurityTests
                 }
             },
             requiredStructureNames = new[] { "Body" }
+        });
+    }
+
+    private static string CreateMachineProfileJson()
+    {
+        return JsonSerializer.Serialize(new
+        {
+            name = "Synthetic linear accelerator constraints",
+            version = "2026.1",
+            machineId = "SYN-LINAC",
+            energy = "6X",
+            beamModelId = "SYN-AAA-6X",
+            calculationModel = "SyntheticAAA",
+            calculationModelVersion = "16.1",
+            minMonitorUnitsPerDegree = 0.1m,
+            minMonitorUnitsPerSegment = 0.1m,
+            minMonitorUnitsPerBeam = 40m,
+            maxOpenFieldSizeCm = 40m,
+            maxMlcFieldSizeCm = 22m,
+            maxFffFieldSizeCm = 15m,
+            maxDcaStepSizeDegrees = 5m,
+            minJawOpeningCm = 0.5m,
+            requireJawTracking = true,
+            allowedEnergies = new[] { "6X" },
+            allowedTechniques = new[] { "VMAT" },
+            allowedBeamModelIds = new[] { "SYN-AAA-6X" },
+            monitorUnitsPerDegreeConstraints = new[]
+            {
+                new
+                {
+                    minMonitorUnitsPerDegree = 0.1m,
+                    machineId = "SYN-LINAC",
+                    energy = "6X",
+                    techniqueId = "VMAT",
+                    diseaseSite = "Head and Neck"
+                }
+            }
         });
     }
 

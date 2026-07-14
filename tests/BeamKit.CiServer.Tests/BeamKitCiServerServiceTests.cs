@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
+using BeamKit.Deliverability;
 using BeamKit.Esapi;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
@@ -587,6 +588,137 @@ public sealed class BeamKitCiServerServiceTests
         Assert.Equal(first.Version.Fingerprint, report.Baseline.NamingDictionaryFingerprint);
         Assert.Equal(second.Version.Fingerprint, report.Comparison.NamingDictionaryFingerprint);
         Assert.Contains(report.Findings, finding => finding.Code == "naming-dictionary-fingerprint.changed");
+    }
+
+    [Fact]
+    public void ActiveManagedMachineProfileDrivesCiRunProvenance()
+    {
+        var service = CreateService();
+        var imported = service.ImportMachineProfile(new MachineProfileImportServerRequest
+        {
+            MachineProfileId = "institution-linac",
+            ProfileJson = JsonSerializer.Serialize(MachineConstraintProfile.CreateSynthetic(), new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            Promote = true,
+            ImportedBy = "physics"
+        });
+
+        var run = service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            MachineProfileId = "institution-linac"
+        });
+        var summary = service.FindRun(run.Id) ?? throw new InvalidOperationException("Run summary was not stored.");
+
+        Assert.Equal(imported.Version.MachineProfileId, run.Artifact.Provenance.MachineProfileId);
+        Assert.Equal(imported.Version.VersionId, run.Artifact.Provenance.MachineProfileVersionId);
+        Assert.Equal(imported.Version.Fingerprint, run.Artifact.Provenance.MachineProfileFingerprint);
+        Assert.Equal(imported.Version.Fingerprint, summary.MachineProfileFingerprint);
+    }
+
+    [Fact]
+    public void ClinicalPolicySetDrivesCiRunProvenance()
+    {
+        var service = CreateService();
+        var rulePack = ImportAndPromoteHeadNeckRulePack(service);
+        var naming = service.ImportNamingDictionary(new NamingDictionaryImportServerRequest
+        {
+            DictionaryId = "institution-tg263",
+            DictionaryJson = CreateNamingDictionaryJson("institution-tg263", "1.0", aliases: new[] { "Rt Lung" }),
+            Promote = true
+        });
+        var machine = service.ImportMachineProfile(new MachineProfileImportServerRequest
+        {
+            MachineProfileId = "institution-linac",
+            ProfileJson = JsonSerializer.Serialize(MachineConstraintProfile.CreateSynthetic(), new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            Promote = true
+        });
+        var policySet = service.ImportClinicalPolicySet(new ClinicalPolicySetImportServerRequest
+        {
+            PolicySetId = "head-neck-vmat",
+            Name = "Head and Neck VMAT",
+            PolicyVersion = "2026.1",
+            RulePackId = rulePack.RulePackId,
+            NamingDictionaryId = naming.Version.DictionaryId,
+            MachineProfileId = machine.Version.MachineProfileId,
+            Promote = true
+        });
+
+        var run = service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            PolicySetId = "head-neck-vmat"
+        });
+        var summary = service.FindRun(run.Id) ?? throw new InvalidOperationException("Run summary was not stored.");
+
+        Assert.Equal(policySet.Version.PolicySetId, run.Artifact.Provenance.PolicySetId);
+        Assert.Equal(policySet.Version.VersionId, run.Artifact.Provenance.PolicySetVersionId);
+        Assert.Equal(policySet.Version.Fingerprint, run.Artifact.Provenance.PolicySetFingerprint);
+        Assert.False(string.IsNullOrWhiteSpace(run.Artifact.Provenance.RulePackFingerprint));
+        Assert.Equal(naming.Version.Fingerprint, run.Artifact.Provenance.NamingDictionaryFingerprint);
+        Assert.Equal(machine.Version.Fingerprint, run.Artifact.Provenance.MachineProfileFingerprint);
+        Assert.Equal(policySet.Version.Fingerprint, summary.PolicySetFingerprint);
+        Assert.Equal(machine.Version.Fingerprint, summary.MachineProfileFingerprint);
+    }
+
+    [Fact]
+    public void ClinicalPolicySetRejectsConflictingRunOverrides()
+    {
+        var service = CreateService();
+        var rulePack = ImportAndPromoteHeadNeckRulePack(service);
+        var policySet = service.ImportClinicalPolicySet(new ClinicalPolicySetImportServerRequest
+        {
+            PolicySetId = "head-neck-vmat",
+            RulePackId = rulePack.RulePackId,
+            Promote = true
+        });
+
+        var exception = Assert.Throws<ArgumentException>(() => service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            PolicySetId = policySet.Version.PolicySetId,
+            RulePackId = "other-rule-pack"
+        }));
+
+        Assert.Contains("conflicts", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BaselineComparisonDetectsClinicalPolicySetDrift()
+    {
+        var service = CreateService();
+        var rulePack = ImportAndPromoteHeadNeckRulePack(service);
+        var firstPolicy = service.ImportClinicalPolicySet(new ClinicalPolicySetImportServerRequest
+        {
+            PolicySetId = "head-neck-vmat",
+            PolicyVersion = "2026.1",
+            RulePackId = rulePack.RulePackId,
+            Promote = true
+        });
+        var baselineRun = service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            PolicySetId = "head-neck-vmat"
+        });
+        service.PromoteBaseline(baselineRun.Id, new PromoteCiRunBaselineRequest { PromotedBy = "physics" });
+        var secondPolicy = service.ImportClinicalPolicySet(new ClinicalPolicySetImportServerRequest
+        {
+            PolicySetId = "head-neck-vmat",
+            PolicyVersion = "2026.2",
+            RulePackId = rulePack.RulePackId,
+            Promote = true
+        });
+
+        var comparisonRun = service.CreateRun(new HostedCiRunRequest
+        {
+            SyntheticCaseId = "head-neck-pass",
+            PolicySetId = "head-neck-vmat"
+        });
+        var report = service.CompareToBaseline(comparisonRun.Id);
+
+        Assert.NotEqual(firstPolicy.Version.Fingerprint, secondPolicy.Version.Fingerprint);
+        Assert.Equal(firstPolicy.Version.Fingerprint, report.Baseline.PolicySetFingerprint);
+        Assert.Equal(secondPolicy.Version.Fingerprint, report.Comparison.PolicySetFingerprint);
+        Assert.Contains(report.Findings, finding => finding.Code == "policy-set-fingerprint.changed");
     }
 
     [Fact]
@@ -1316,6 +1448,23 @@ public sealed class BeamKitCiServerServiceTests
                 Path.GetTempPath()
             }
         };
+    }
+
+    private static CiServerManagedRulePackVersionSummary ImportAndPromoteHeadNeckRulePack(BeamKitCiServerService service)
+    {
+        var imported = service.ImportRulePack(new RulePackImportServerRequest
+        {
+            RulePackId = "institution-head-neck",
+            ManifestPath = SampleRulePackPath()
+        });
+        return service.PromoteManagedRulePackVersion(
+            imported.Version.RulePackId,
+            imported.Version.VersionId,
+            new RulePackPromotionServerRequest
+            {
+                PromotedBy = "physics",
+                SafetyEvidence = CreateRulePackSafetyEvidence(imported.Version)
+            }).ToSummary();
     }
 
     private static ValidationEvidencePackage CreateRulePackSafetyEvidence(CiServerManagedRulePackVersionSummary version)

@@ -32,7 +32,15 @@ public sealed record CiRunBaseline
         string? namingDictionaryId = null,
         string? namingDictionaryVersionId = null,
         string? namingDictionaryFingerprint = null,
-        string? namingDictionaryName = null)
+        string? namingDictionaryName = null,
+        string? machineProfileId = null,
+        string? machineProfileVersionId = null,
+        string? machineProfileFingerprint = null,
+        string? machineProfileName = null,
+        string? policySetId = null,
+        string? policySetVersionId = null,
+        string? policySetFingerprint = null,
+        string? policySetName = null)
     {
         CaseId = CiServerText.Required(caseId, nameof(caseId));
         BaselineRunId = CiServerText.Required(baselineRunId, nameof(baselineRunId));
@@ -56,6 +64,14 @@ public sealed record CiRunBaseline
         NamingDictionaryVersionId = CiServerText.Optional(namingDictionaryVersionId);
         NamingDictionaryFingerprint = CiServerText.Optional(namingDictionaryFingerprint);
         NamingDictionaryName = CiServerText.Optional(namingDictionaryName);
+        MachineProfileId = CiServerText.Optional(machineProfileId);
+        MachineProfileVersionId = CiServerText.Optional(machineProfileVersionId);
+        MachineProfileFingerprint = CiServerText.Optional(machineProfileFingerprint);
+        MachineProfileName = CiServerText.Optional(machineProfileName);
+        PolicySetId = CiServerText.Optional(policySetId);
+        PolicySetVersionId = CiServerText.Optional(policySetVersionId);
+        PolicySetFingerprint = CiServerText.Optional(policySetFingerprint);
+        PolicySetName = CiServerText.Optional(policySetName);
     }
 
     /// <summary>
@@ -169,6 +185,46 @@ public sealed record CiRunBaseline
     public string? NamingDictionaryName { get; init; }
 
     /// <summary>
+    /// Managed machine-profile id used for the baseline run, when present.
+    /// </summary>
+    public string? MachineProfileId { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile version id used for the baseline run, when present.
+    /// </summary>
+    public string? MachineProfileVersionId { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile fingerprint used for the baseline run, when present.
+    /// </summary>
+    public string? MachineProfileFingerprint { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile display name used for the baseline run, when present.
+    /// </summary>
+    public string? MachineProfileName { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set id used for the baseline run, when present.
+    /// </summary>
+    public string? PolicySetId { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set version id used for the baseline run, when present.
+    /// </summary>
+    public string? PolicySetVersionId { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set fingerprint used for the baseline run, when present.
+    /// </summary>
+    public string? PolicySetFingerprint { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set display name used for the baseline run, when present.
+    /// </summary>
+    public string? PolicySetName { get; init; }
+
+    /// <summary>
     /// Creates a baseline from a stored CI run summary.
     /// </summary>
     public static CiRunBaseline FromRun(HostedCiRunSummary run, DateTimeOffset promotedAtUtc, string? promotedBy = null, string? note = null)
@@ -197,6 +253,14 @@ public sealed record CiRunBaseline
             run.NamingDictionaryId,
             run.NamingDictionaryVersionId,
             run.NamingDictionaryFingerprint,
-            run.NamingDictionaryName);
+            run.NamingDictionaryName,
+            run.MachineProfileId,
+            run.MachineProfileVersionId,
+            run.MachineProfileFingerprint,
+            run.MachineProfileName,
+            run.PolicySetId,
+            run.PolicySetVersionId,
+            run.PolicySetFingerprint,
+            run.PolicySetName);
     }
 }

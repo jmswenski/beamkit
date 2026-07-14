@@ -65,9 +65,11 @@ What is usable today:
 - Rule-pack regression testing against PHI-free synthetic cases.
 - Immutable rule-pack bundle artifacts with embedded catalog files, validation evidence, regression evidence, fingerprints, and tamper verification.
 - Managed naming-dictionary versions with review, diff, promotion, fingerprints, and audit trail.
+- Managed machine-profile versions with review, promotion, fingerprints, and audit trail for beam model, dose-calculation, jaw, and MU/degree policy.
+- Clinical policy sets that pin exact managed rule-pack, naming-dictionary, machine-profile, and safety-registry fingerprints into one promoted CI run policy.
 - Explainable predictive case/plan intelligence for complexity, QA risk, planning effort, physics review effort, target metrics, and next-action recommendations.
 - CI/CD-style run records with plan, prescription, and rule-pack provenance.
-- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, RT-PX package acceptance and approval-gated promotion, active protocol compliance packets with variance tracking, registered and managed immutable rule-pack versions, managed naming dictionaries, draft review, managed-version diffs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
+- Self-hosted `BeamKit.CiServer` with API-key protected JSON APIs, SQLite run history, audit events, provenance artifacts, internal plan-snapshot retention, upload-size limits, synthetic and uploaded plan/snapshot gates, RT-PX package acceptance and approval-gated promotion, active protocol compliance packets with variance tracking, registered and managed immutable rule-pack versions, managed naming dictionaries, managed machine profiles, promoted clinical policy sets, draft review, managed-version diffs, field-level baseline comparison, rule-pack validation/testing, assignment recommendations, artifact downloads, and a local dashboard.
 - Derived PTV ring-structure recipes.
 - Configurable plan-check catalogs for dosimetry/physics reminders and automated plan review.
 - Plan-quality metrics including CI, GI, HI, R50, D95, D98, D2, V95, and V100.
@@ -429,9 +431,9 @@ curl -s "$API/api/runs/{laterId}/baseline-comparison" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
-When both runs have retained BeamKit plan snapshots, the baseline comparison response includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes in addition to provenance fingerprints. Runs can also bind to an active managed naming dictionary with `namingDictionaryId`; the artifact records dictionary id, version, and fingerprint so baseline comparison can flag naming-policy drift.
+When both runs have retained BeamKit plan snapshots, the baseline comparison response includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes in addition to provenance fingerprints. Runs can bind to active managed naming dictionaries with `namingDictionaryId`, active managed machine profiles with `machineProfileId`, or one promoted clinical policy set with `policySetId`; artifacts record ids, versions, names, and fingerprints so baseline comparison can flag policy drift.
 
-For production-like deployments, split CI server API keys by role instead of sharing one admin key. BeamKit supports `Reader`, `Runner`, `BaselineManager`, `RulePackManager`, `NamingDictionaryManager`, `ProtocolManager`, `WorkQueueManager`, and `Admin`; keys without explicit roles remain `Admin` for backward compatibility. Request-supplied server-local paths are also constrained to configured allowed roots, defaulting to `samples` and `artifacts`.
+For production-like deployments, split CI server API keys by role instead of sharing one admin key. BeamKit supports `Reader`, `Runner`, `BaselineManager`, `RulePackManager`, `NamingDictionaryManager`, `MachineProfileManager`, `PolicySetManager`, `ProtocolManager`, `WorkQueueManager`, and `Admin`; keys without explicit roles remain `Admin` for backward compatibility. Request-supplied server-local paths are also constrained to configured allowed roots, defaulting to `samples` and `artifacts`.
 
 Submit a locally extracted ESAPI snapshot or BeamKit plan JSON to the server:
 
@@ -741,6 +743,8 @@ BeamKit rule packs are intended to be reviewed like software:
 - The CI server can protect plan-gate APIs with API keys, record audit events, enforce upload-size limits, reject uploaded snapshots with obvious patient identifiers by default, and run registered rule packs by stable id.
 - Managed rule-pack versions can be draft-reviewed, diffed, imported, validated, regression-tested, promoted active, and audited before they drive plan gates.
 - Managed naming-dictionary versions can be draft-reviewed, diffed, imported, reviewed, promoted active, bound to CI runs, and audited before they become institutional naming policy.
+- Managed machine-profile versions can be imported, reviewed, promoted active, bound to CI runs, and audited before they become institutional delivery policy.
+- Clinical policy sets can bind promoted rule packs, naming dictionaries, machine profiles, and safety-registry fingerprints into one approved run policy.
 
 This is the open-source foundation for treating radiation plans like reproducible clinical build artifacts: every rule change can be reviewed, tested, and traced.
 
@@ -883,9 +887,8 @@ Near-term:
 - More report snapshots and schema validation tests.
 - More configurable plan-check types based on real dosimetry and physics reminder lists.
 - More disease-site-specific synthetic clinical cases, especially failing, warning, breast, and palliative examples.
-- Managed rule-pack dependency bundling so imported policy versions no longer rely on external catalog file paths.
 - More DICOM RTPLAN/RTDOSE metadata coverage for physics QA checks.
-- Expand machine profiles for institutional beam models, algorithms, energies, and delivery-technique policies.
+- Expand managed machine-profile review rules for institutional beam models, algorithms, energies, and delivery-technique policies.
 - Expand write-up manifest schemas, packet templates, and adapter-backed export verification.
 - Add file-backed planner rosters and assignment inputs for CLI and SDK workflows.
 - Add CI-server role-based access control, identity-provider integration, production database deployment guidance, PHI handling guidance, and artifact-retention policy documentation.

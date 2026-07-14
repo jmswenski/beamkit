@@ -13,6 +13,8 @@ public sealed class CiRunStore : ICiRunStore
     private readonly ConcurrentDictionary<string, CiServerAuditEvent> auditEvents = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerManagedRulePackVersion> rulePackVersions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerManagedNamingDictionaryVersion> namingDictionaryVersions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CiServerManagedMachineProfileVersion> machineProfileVersions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, CiServerClinicalPolicySetVersion> clinicalPolicySetVersions = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CiServerRtpxAcceptanceRecord> rtpxAcceptances = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, ProtocolComplianceRunRecord> protocolComplianceRuns = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CaseWorkItem> workItems = new(StringComparer.OrdinalIgnoreCase);
@@ -298,6 +300,184 @@ public sealed class CiRunStore : ICiRunStore
     }
 
     /// <summary>
+    /// Adds or replaces a managed machine-profile version.
+    /// </summary>
+    public CiServerManagedMachineProfileVersion SaveMachineProfileVersion(CiServerManagedMachineProfileVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        machineProfileVersions[CreateMachineProfileVersionKey(version.MachineProfileId, version.VersionId)] = version;
+        return version;
+    }
+
+    /// <summary>
+    /// Finds a managed machine-profile version.
+    /// </summary>
+    public CiServerManagedMachineProfileVersion? FindMachineProfileVersion(string machineProfileId, string versionId)
+    {
+        return string.IsNullOrWhiteSpace(machineProfileId) || string.IsNullOrWhiteSpace(versionId)
+            ? null
+            : machineProfileVersions.GetValueOrDefault(CreateMachineProfileVersionKey(machineProfileId, versionId));
+    }
+
+    /// <summary>
+    /// Finds the active managed version for a machine-profile id.
+    /// </summary>
+    public CiServerManagedMachineProfileVersion? FindActiveMachineProfileVersion(string machineProfileId)
+    {
+        if (string.IsNullOrWhiteSpace(machineProfileId))
+        {
+            return null;
+        }
+
+        return machineProfileVersions.Values
+            .Where(version => version.IsActive)
+            .Where(version => string.Equals(version.MachineProfileId, machineProfileId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(version => version.ActivatedAtUtc ?? version.ImportedAtUtc)
+            .ThenBy(version => version.VersionId, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Lists managed machine-profile versions.
+    /// </summary>
+    public IReadOnlyList<CiServerManagedMachineProfileVersionSummary> ListMachineProfileVersions(string? machineProfileId = null)
+    {
+        return machineProfileVersions.Values
+            .Where(version => string.IsNullOrWhiteSpace(machineProfileId)
+                || string.Equals(version.MachineProfileId, machineProfileId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(version => version.MachineProfileId, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(version => version.ImportedAtUtc)
+            .ThenBy(version => version.VersionId, StringComparer.OrdinalIgnoreCase)
+            .Select(version => version.ToSummary())
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Promotes one managed machine-profile version as active.
+    /// </summary>
+    public CiServerManagedMachineProfileVersion PromoteMachineProfileVersion(
+        string machineProfileId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null)
+    {
+        var version = FindMachineProfileVersion(machineProfileId, versionId)
+            ?? throw new InvalidOperationException($"Machine profile version '{machineProfileId}/{versionId}' was not found.");
+
+        foreach (var existing in machineProfileVersions.Values.Where(existing => string.Equals(existing.MachineProfileId, machineProfileId, StringComparison.OrdinalIgnoreCase)))
+        {
+            machineProfileVersions[CreateMachineProfileVersionKey(existing.MachineProfileId, existing.VersionId)] = existing with
+            {
+                IsActive = false,
+                ActivatedAtUtc = null,
+                ActivatedBy = null,
+                ActivationNote = null
+            };
+        }
+
+        var promoted = version with
+        {
+            IsActive = true,
+            ActivatedAtUtc = activatedAtUtc,
+            ActivatedBy = CiServerText.Optional(activatedBy),
+            ActivationNote = CiServerText.Optional(note)
+        };
+        machineProfileVersions[CreateMachineProfileVersionKey(machineProfileId, versionId)] = promoted;
+        return promoted;
+    }
+
+    /// <summary>
+    /// Adds or replaces a clinical policy-set version.
+    /// </summary>
+    public CiServerClinicalPolicySetVersion SaveClinicalPolicySetVersion(CiServerClinicalPolicySetVersion version)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+
+        clinicalPolicySetVersions[CreateClinicalPolicySetVersionKey(version.PolicySetId, version.VersionId)] = version;
+        return version;
+    }
+
+    /// <summary>
+    /// Finds a clinical policy-set version.
+    /// </summary>
+    public CiServerClinicalPolicySetVersion? FindClinicalPolicySetVersion(string policySetId, string versionId)
+    {
+        return string.IsNullOrWhiteSpace(policySetId) || string.IsNullOrWhiteSpace(versionId)
+            ? null
+            : clinicalPolicySetVersions.GetValueOrDefault(CreateClinicalPolicySetVersionKey(policySetId, versionId));
+    }
+
+    /// <summary>
+    /// Finds the active clinical policy-set version for a policy-set id.
+    /// </summary>
+    public CiServerClinicalPolicySetVersion? FindActiveClinicalPolicySetVersion(string policySetId)
+    {
+        if (string.IsNullOrWhiteSpace(policySetId))
+        {
+            return null;
+        }
+
+        return clinicalPolicySetVersions.Values
+            .Where(version => version.IsActive)
+            .Where(version => string.Equals(version.PolicySetId, policySetId, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(version => version.ActivatedAtUtc ?? version.ImportedAtUtc)
+            .ThenBy(version => version.VersionId, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Lists clinical policy-set versions.
+    /// </summary>
+    public IReadOnlyList<CiServerClinicalPolicySetVersionSummary> ListClinicalPolicySetVersions(string? policySetId = null)
+    {
+        return clinicalPolicySetVersions.Values
+            .Where(version => string.IsNullOrWhiteSpace(policySetId)
+                || string.Equals(version.PolicySetId, policySetId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(version => version.PolicySetId, StringComparer.OrdinalIgnoreCase)
+            .ThenByDescending(version => version.ImportedAtUtc)
+            .ThenBy(version => version.VersionId, StringComparer.OrdinalIgnoreCase)
+            .Select(version => version.ToSummary())
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Promotes one clinical policy-set version as active.
+    /// </summary>
+    public CiServerClinicalPolicySetVersion PromoteClinicalPolicySetVersion(
+        string policySetId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null)
+    {
+        var version = FindClinicalPolicySetVersion(policySetId, versionId)
+            ?? throw new InvalidOperationException($"Clinical policy set version '{policySetId}/{versionId}' was not found.");
+
+        foreach (var existing in clinicalPolicySetVersions.Values.Where(existing => string.Equals(existing.PolicySetId, policySetId, StringComparison.OrdinalIgnoreCase)))
+        {
+            clinicalPolicySetVersions[CreateClinicalPolicySetVersionKey(existing.PolicySetId, existing.VersionId)] = existing with
+            {
+                IsActive = false,
+                ActivatedAtUtc = null,
+                ActivatedBy = null,
+                ActivationNote = null
+            };
+        }
+
+        var promoted = version with
+        {
+            IsActive = true,
+            ActivatedAtUtc = activatedAtUtc,
+            ActivatedBy = CiServerText.Optional(activatedBy),
+            ActivationNote = CiServerText.Optional(note)
+        };
+        clinicalPolicySetVersions[CreateClinicalPolicySetVersionKey(policySetId, versionId)] = promoted;
+        return promoted;
+    }
+
+    /// <summary>
     /// Adds or replaces an RT-PX package acceptance record.
     /// </summary>
     public CiServerRtpxAcceptanceRecord SaveRtpxAcceptance(CiServerRtpxAcceptanceRecord record)
@@ -453,5 +633,15 @@ public sealed class CiRunStore : ICiRunStore
     private static string CreateNamingDictionaryVersionKey(string dictionaryId, string versionId)
     {
         return $"{dictionaryId.Trim()}::{versionId.Trim()}";
+    }
+
+    private static string CreateMachineProfileVersionKey(string machineProfileId, string versionId)
+    {
+        return $"{machineProfileId.Trim()}::{versionId.Trim()}";
+    }
+
+    private static string CreateClinicalPolicySetVersionKey(string policySetId, string versionId)
+    {
+        return $"{policySetId.Trim()}::{versionId.Trim()}";
     }
 }

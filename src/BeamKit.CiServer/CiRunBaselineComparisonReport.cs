@@ -195,6 +195,54 @@ public sealed record CiRunBaselineComparisonReport
             "Managed naming-dictionary fingerprint changed from the promoted baseline.",
             baseline.NamingDictionaryFingerprint,
             comparison.NamingDictionaryFingerprint);
+        AddIfChanged(
+            findings,
+            "machine-profile-id.changed",
+            CiRunBaselineFindingSeverity.Warning,
+            "MachineProfileId",
+            "Managed machine-profile id changed from the promoted baseline.",
+            baseline.MachineProfileId,
+            comparison.MachineProfileId);
+        AddIfChanged(
+            findings,
+            "machine-profile-version.changed",
+            CiRunBaselineFindingSeverity.Warning,
+            "MachineProfileVersion",
+            "Managed machine-profile version changed from the promoted baseline.",
+            baseline.MachineProfileVersionId,
+            comparison.MachineProfileVersionId);
+        AddIfChanged(
+            findings,
+            "machine-profile-fingerprint.changed",
+            CiRunBaselineFindingSeverity.Warning,
+            "MachineProfileFingerprint",
+            "Managed machine-profile fingerprint changed from the promoted baseline.",
+            baseline.MachineProfileFingerprint,
+            comparison.MachineProfileFingerprint);
+        AddIfChanged(
+            findings,
+            "policy-set-id.changed",
+            CiRunBaselineFindingSeverity.Warning,
+            "PolicySetId",
+            "Clinical policy-set id changed from the promoted baseline.",
+            baseline.PolicySetId,
+            comparison.PolicySetId);
+        AddIfChanged(
+            findings,
+            "policy-set-version.changed",
+            CiRunBaselineFindingSeverity.Warning,
+            "PolicySetVersion",
+            "Clinical policy-set version changed from the promoted baseline.",
+            baseline.PolicySetVersionId,
+            comparison.PolicySetVersionId);
+        AddIfChanged(
+            findings,
+            "policy-set-fingerprint.changed",
+            CiRunBaselineFindingSeverity.Warning,
+            "PolicySetFingerprint",
+            "Clinical policy-set fingerprint changed from the promoted baseline.",
+            baseline.PolicySetFingerprint,
+            comparison.PolicySetFingerprint);
 
         if (planChanges is not null)
         {

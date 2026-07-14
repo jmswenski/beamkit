@@ -362,6 +362,62 @@ app.MapPost("/api/naming-dictionaries/{id}/versions/{versionId}/promote", (strin
 {
     return Results.Ok(service.PromoteManagedNamingDictionaryVersion(id, versionId, request, CiServerAuditContext.FromHttpContext(context)));
 });
+app.MapGet("/api/machine-profiles", (BeamKitCiServerService service, string? machineProfileId) =>
+{
+    return Results.Ok(service.ListManagedMachineProfileVersions(machineProfileId));
+});
+app.MapGet("/api/machine-profiles/versions", (BeamKitCiServerService service, string? machineProfileId) =>
+{
+    return Results.Ok(service.ListManagedMachineProfileVersions(machineProfileId));
+});
+app.MapPost("/api/machine-profiles/import", (MachineProfileImportServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    var result = service.ImportMachineProfile(request, CiServerAuditContext.FromHttpContext(context));
+    return Results.Created($"/api/machine-profiles/{result.Version.MachineProfileId}/versions/{result.Version.VersionId}", result);
+});
+app.MapGet("/api/machine-profiles/{id}/versions", (string id, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ListManagedMachineProfileVersions(id));
+});
+app.MapGet("/api/machine-profiles/{id}/versions/{versionId}", (string id, string versionId, BeamKitCiServerService service) =>
+{
+    var version = service.FindManagedMachineProfileVersion(id, versionId);
+    return version is null ? Results.NotFound() : Results.Ok(version);
+});
+app.MapPost("/api/machine-profiles/{id}/versions/{versionId}/review", (string id, string versionId, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ReviewManagedMachineProfileVersion(id, versionId, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapPost("/api/machine-profiles/{id}/versions/{versionId}/promote", (string id, string versionId, MachineProfilePromotionServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.PromoteManagedMachineProfileVersion(id, versionId, request, CiServerAuditContext.FromHttpContext(context)));
+});
+app.MapGet("/api/policy-sets", (BeamKitCiServerService service, string? policySetId) =>
+{
+    return Results.Ok(service.ListClinicalPolicySetVersions(policySetId));
+});
+app.MapGet("/api/policy-sets/versions", (BeamKitCiServerService service, string? policySetId) =>
+{
+    return Results.Ok(service.ListClinicalPolicySetVersions(policySetId));
+});
+app.MapPost("/api/policy-sets/import", (ClinicalPolicySetImportServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    var result = service.ImportClinicalPolicySet(request, CiServerAuditContext.FromHttpContext(context));
+    return Results.Created($"/api/policy-sets/{result.Version.PolicySetId}/versions/{result.Version.VersionId}", result);
+});
+app.MapGet("/api/policy-sets/{id}/versions", (string id, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.ListClinicalPolicySetVersions(id));
+});
+app.MapGet("/api/policy-sets/{id}/versions/{versionId}", (string id, string versionId, BeamKitCiServerService service) =>
+{
+    var version = service.FindClinicalPolicySetVersion(id, versionId);
+    return version is null ? Results.NotFound() : Results.Ok(version);
+});
+app.MapPost("/api/policy-sets/{id}/versions/{versionId}/promote", (string id, string versionId, ClinicalPolicySetPromotionServerRequest request, HttpContext context, BeamKitCiServerService service) =>
+{
+    return Results.Ok(service.PromoteClinicalPolicySetVersion(id, versionId, request, CiServerAuditContext.FromHttpContext(context)));
+});
 app.MapPost("/api/assignments/recommend", (AssignmentServerRequest request, HttpContext context, BeamKitCiServerService service) =>
 {
     return Results.Ok(service.RecommendAssignment(request, CiServerAuditContext.FromHttpContext(context)));

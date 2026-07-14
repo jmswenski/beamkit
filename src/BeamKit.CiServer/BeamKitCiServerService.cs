@@ -6,6 +6,7 @@ using BeamKit.ChangeDetection;
 using BeamKit.Check;
 using BeamKit.Core.Domain;
 using BeamKit.Core.Serialization;
+using BeamKit.Deliverability;
 using BeamKit.Esapi;
 using BeamKit.Intelligence;
 using BeamKit.Naming;
@@ -118,13 +119,20 @@ public sealed class BeamKitCiServerService
 
         var caseId = CiServerText.Optional(request.SyntheticCaseId) ?? "head-neck-pass";
         var clinicalCase = SyntheticClinicalCaseLibrary.Find(caseId);
-        var rulePack = LoadRulePack(request.RulePackId, request.RulePackPath);
-        var namingDictionary = ResolveRunNamingDictionary(request.NamingDictionaryId, request.NamingDictionaryVersionId);
-        rulePack = ApplyRunNamingDictionary(rulePack, namingDictionary);
+        var bindings = ResolveRunPolicyBindings(
+            request.PolicySetId,
+            request.PolicySetVersionId,
+            request.RulePackId,
+            request.RulePackPath,
+            request.NamingDictionaryId,
+            request.NamingDictionaryVersionId,
+            request.MachineProfileId,
+            request.MachineProfileVersionId);
+        var rulePack = ApplyRunPolicyBindings(LoadRunRulePack(request.RulePackId, request.RulePackPath, bindings.PolicySet), bindings);
         return CreateRunForPlan(
             clinicalCase.Plan,
             rulePack,
-            namingDictionary,
+            bindings,
             caseId: clinicalCase.Id,
             inputKind: CiRunInputKind.SyntheticCase,
             inputSource: $"case:{clinicalCase.Id}",
@@ -142,14 +150,20 @@ public sealed class BeamKitCiServerService
         ArgumentNullException.ThrowIfNull(request);
 
         var uploaded = LoadUploadedPlan(request);
-        var namingDictionary = ResolveRunNamingDictionary(request.NamingDictionaryId, request.NamingDictionaryVersionId);
-        var rulePack = ApplyRunNamingDictionary(
-            LoadRulePack(request.RulePackId, request.RulePackPath),
-            namingDictionary);
+        var bindings = ResolveRunPolicyBindings(
+            request.PolicySetId,
+            request.PolicySetVersionId,
+            request.RulePackId,
+            request.RulePackPath,
+            request.NamingDictionaryId,
+            request.NamingDictionaryVersionId,
+            request.MachineProfileId,
+            request.MachineProfileVersionId);
+        var rulePack = ApplyRunPolicyBindings(LoadRunRulePack(request.RulePackId, request.RulePackPath, bindings.PolicySet), bindings);
         var record = CreateRunForPlan(
             uploaded.Plan,
             rulePack,
-            namingDictionary,
+            bindings,
             caseId: uploaded.Plan.Id,
             uploaded.InputKind,
             CiServerText.Optional(request.InputSource) ?? uploaded.DefaultInputSource,
@@ -170,7 +184,7 @@ public sealed class BeamKitCiServerService
     private HostedCiRunRecord CreateRunForPlan(
         Plan plan,
         BeamKitRulePack rulePack,
-        RunNamingDictionaryBinding? namingDictionary,
+        RunPolicyBindings bindings,
         string caseId,
         CiRunInputKind inputKind,
         string? inputSource,
@@ -186,7 +200,7 @@ public sealed class BeamKitCiServerService
             branch: branch,
             commit: commit,
             buildId: buildId));
-        artifact = ApplyRunNamingDictionaryProvenance(artifact, namingDictionary);
+        artifact = ApplyRunPolicyProvenance(artifact, bindings);
         var record = new HostedCiRunRecord(
             CreateServerRunId(),
             timeProvider.GetUtcNow(),
@@ -1124,6 +1138,267 @@ public sealed class BeamKitCiServerService
             "naming-dictionary.version.promoted",
             auditContext,
             caseId: promoted.DictionaryId,
+            status: "Active",
+            details: $"{promoted.VersionId}:{promoted.Fingerprint}");
+        return promoted;
+    }
+
+    /// <summary>
+    /// Imports a managed machine-profile version into CI-server storage.
+    /// </summary>
+    public CiServerMachineProfileImportResult ImportMachineProfile(
+        MachineProfileImportServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var source = LoadMachineProfileImportSource(request);
+        var profile = MachineConstraintProfile.FromJson(source.ProfileJson);
+        var profileJson = ToMachineProfileJson(profile);
+        var fingerprint = HashText(profileJson);
+        var profileId = NormalizeManagedMachineProfileId(CiServerText.Optional(request.MachineProfileId) ?? Slug(profile.Name));
+        var review = new CiServerMachineProfileReviewer().Review(profile, fingerprint);
+        var importedBy = CiServerText.Optional(request.ImportedBy) ?? auditContext?.Actor;
+        var version = new CiServerManagedMachineProfileVersion(
+            profileId,
+            CreateMachineProfileVersionId(fingerprint),
+            timeProvider.GetUtcNow(),
+            importedBy,
+            source.SourceKind,
+            source.Source,
+            profileJson,
+            profile.Name,
+            profile.Version,
+            profile.MachineId,
+            profile.Energy,
+            profile.BeamModelId,
+            profile.CalculationModel,
+            profile.CalculationModelVersion,
+            request.Tags,
+            fingerprint,
+            review);
+        var saved = store.SaveMachineProfileVersion(version);
+        Audit(
+            "machine-profile.imported",
+            auditContext,
+            caseId: saved.MachineProfileId,
+            status: review.IsValid ? "Valid" : "Invalid",
+            details: $"{saved.VersionId}:{saved.Fingerprint}");
+
+        var activated = false;
+        if (request.Promote)
+        {
+            saved = PromoteManagedMachineProfileVersion(
+                saved.MachineProfileId,
+                saved.VersionId,
+                new MachineProfilePromotionServerRequest
+                {
+                    PromotedBy = importedBy,
+                    Note = request.Note
+                },
+                auditContext);
+            activated = true;
+        }
+
+        return new CiServerMachineProfileImportResult(saved.ToSummary(), review, activated);
+    }
+
+    /// <summary>
+    /// Lists managed machine-profile versions.
+    /// </summary>
+    public IReadOnlyList<CiServerManagedMachineProfileVersionSummary> ListManagedMachineProfileVersions(string? machineProfileId = null)
+    {
+        return store.ListMachineProfileVersions(machineProfileId);
+    }
+
+    /// <summary>
+    /// Finds one managed machine-profile version.
+    /// </summary>
+    public CiServerManagedMachineProfileVersionDetail? FindManagedMachineProfileVersion(string machineProfileId, string versionId)
+    {
+        var version = store.FindMachineProfileVersion(machineProfileId, versionId);
+        return version is null ? null : new CiServerManagedMachineProfileVersionDetail(version);
+    }
+
+    /// <summary>
+    /// Reviews a managed machine-profile version and stores the latest report.
+    /// </summary>
+    public CiServerMachineProfileReviewReport ReviewManagedMachineProfileVersion(
+        string machineProfileId,
+        string versionId,
+        CiServerAuditContext? auditContext = null)
+    {
+        var version = FindRequiredManagedMachineProfileVersion(machineProfileId, versionId);
+        var profile = LoadManagedMachineProfile(version);
+        var report = new CiServerMachineProfileReviewer().Review(profile, version.Fingerprint);
+        var saved = store.SaveMachineProfileVersion(version with { ReviewReport = report });
+        Audit(
+            "machine-profile.version.reviewed",
+            auditContext,
+            caseId: saved.MachineProfileId,
+            status: report.IsValid ? "Valid" : "Invalid",
+            details: $"{saved.VersionId}:{report.ErrorCount}/{report.WarningCount}");
+        return report;
+    }
+
+    /// <summary>
+    /// Promotes a managed machine-profile version as active.
+    /// </summary>
+    public CiServerManagedMachineProfileVersion PromoteManagedMachineProfileVersion(
+        string machineProfileId,
+        string versionId,
+        MachineProfilePromotionServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var version = FindRequiredManagedMachineProfileVersion(machineProfileId, versionId);
+        var profile = LoadManagedMachineProfile(version);
+        var review = new CiServerMachineProfileReviewer().Review(profile, version.Fingerprint);
+        version = store.SaveMachineProfileVersion(version with { ReviewReport = review });
+        if (!review.IsValid)
+        {
+            var details = string.Join("; ", review.Findings
+                .Where(finding => finding.Severity == CiServerMachineProfileReviewSeverity.Error)
+                .Select(finding => $"{finding.Code}: {finding.Subject ?? version.MachineProfileId}"));
+            throw new InvalidOperationException($"Machine profile version '{machineProfileId}/{versionId}' cannot be promoted because review has {review.ErrorCount} error(s): {details}");
+        }
+
+        var promotedBy = CiServerText.Optional(request.PromotedBy) ?? auditContext?.Actor;
+        var promoted = store.PromoteMachineProfileVersion(
+            version.MachineProfileId,
+            version.VersionId,
+            timeProvider.GetUtcNow(),
+            promotedBy,
+            request.Note);
+        Audit(
+            "machine-profile.version.promoted",
+            auditContext,
+            caseId: promoted.MachineProfileId,
+            status: "Active",
+            details: $"{promoted.VersionId}:{promoted.Fingerprint}");
+        return promoted;
+    }
+
+    /// <summary>
+    /// Creates a clinical policy-set version by pinning managed policy artifacts.
+    /// </summary>
+    public CiServerClinicalPolicySetImportResult ImportClinicalPolicySet(
+        ClinicalPolicySetImportServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var rulePackVersion = ResolvePolicySetRulePackVersion(request.RulePackId, request.RulePackVersionId);
+        var namingDictionaryVersion = ResolveOptionalPolicySetNamingDictionaryVersion(request.NamingDictionaryId, request.NamingDictionaryVersionId);
+        var machineProfileVersion = ResolveOptionalPolicySetMachineProfileVersion(request.MachineProfileId, request.MachineProfileVersionId);
+        var policyName = CiServerText.Optional(request.Name) ?? $"{rulePackVersion.Name} clinical policy";
+        var policySetId = NormalizeClinicalPolicySetId(CiServerText.Optional(request.PolicySetId) ?? Slug(policyName));
+        var policyVersion = CiServerText.Optional(request.PolicyVersion) ?? rulePackVersion.Version;
+        var safetyRegistryFingerprint = TryComputeSafetyRegistryFingerprint();
+        var fingerprint = CreateClinicalPolicySetFingerprint(
+            policySetId,
+            policyVersion,
+            request.DiseaseSite,
+            request.Technique,
+            rulePackVersion,
+            namingDictionaryVersion,
+            machineProfileVersion,
+            safetyRegistryFingerprint);
+        var importedBy = CiServerText.Optional(request.ImportedBy) ?? auditContext?.Actor;
+        var version = new CiServerClinicalPolicySetVersion(
+            policySetId,
+            CreateClinicalPolicySetVersionId(fingerprint),
+            timeProvider.GetUtcNow(),
+            importedBy,
+            policyName,
+            policyVersion,
+            request.Description,
+            request.DiseaseSite ?? rulePackVersion.DiseaseSite,
+            request.Technique,
+            request.Tags ?? rulePackVersion.Tags,
+            rulePackVersion.RulePackId,
+            rulePackVersion.VersionId,
+            rulePackVersion.Fingerprint,
+            rulePackVersion.Name,
+            rulePackVersion.Version,
+            namingDictionaryVersion?.DictionaryId,
+            namingDictionaryVersion?.VersionId,
+            namingDictionaryVersion?.Fingerprint,
+            namingDictionaryVersion?.Name,
+            machineProfileVersion?.MachineProfileId,
+            machineProfileVersion?.VersionId,
+            machineProfileVersion?.Fingerprint,
+            machineProfileVersion?.Name,
+            safetyRegistryFingerprint,
+            fingerprint);
+        var saved = store.SaveClinicalPolicySetVersion(version);
+        Audit(
+            "clinical-policy-set.imported",
+            auditContext,
+            caseId: saved.PolicySetId,
+            status: "Created",
+            details: $"{saved.VersionId}:{saved.Fingerprint}");
+
+        var activated = false;
+        if (request.Promote)
+        {
+            saved = PromoteClinicalPolicySetVersion(
+                saved.PolicySetId,
+                saved.VersionId,
+                new ClinicalPolicySetPromotionServerRequest
+                {
+                    PromotedBy = importedBy,
+                    Note = request.Note
+                },
+                auditContext);
+            activated = true;
+        }
+
+        return new CiServerClinicalPolicySetImportResult(saved.ToSummary(), activated);
+    }
+
+    /// <summary>
+    /// Lists clinical policy-set versions.
+    /// </summary>
+    public IReadOnlyList<CiServerClinicalPolicySetVersionSummary> ListClinicalPolicySetVersions(string? policySetId = null)
+    {
+        return store.ListClinicalPolicySetVersions(policySetId);
+    }
+
+    /// <summary>
+    /// Finds one clinical policy-set version.
+    /// </summary>
+    public CiServerClinicalPolicySetVersionDetail? FindClinicalPolicySetVersion(string policySetId, string versionId)
+    {
+        var version = store.FindClinicalPolicySetVersion(policySetId, versionId);
+        return version is null ? null : new CiServerClinicalPolicySetVersionDetail(version);
+    }
+
+    /// <summary>
+    /// Promotes a clinical policy-set version as active.
+    /// </summary>
+    public CiServerClinicalPolicySetVersion PromoteClinicalPolicySetVersion(
+        string policySetId,
+        string versionId,
+        ClinicalPolicySetPromotionServerRequest request,
+        CiServerAuditContext? auditContext = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var version = FindRequiredClinicalPolicySetVersion(policySetId, versionId);
+        ValidateClinicalPolicySetComponents(version);
+        var promotedBy = CiServerText.Optional(request.PromotedBy) ?? auditContext?.Actor;
+        var promoted = store.PromoteClinicalPolicySetVersion(
+            version.PolicySetId,
+            version.VersionId,
+            timeProvider.GetUtcNow(),
+            promotedBy,
+            request.Note);
+        Audit(
+            "clinical-policy-set.version.promoted",
+            auditContext,
+            caseId: promoted.PolicySetId,
             status: "Active",
             details: $"{promoted.VersionId}:{promoted.Fingerprint}");
         return promoted;
@@ -2273,7 +2548,90 @@ public sealed class BeamKitCiServerService
         return dictionary;
     }
 
-    private RunNamingDictionaryBinding? ResolveRunNamingDictionary(string? dictionaryId, string? versionId)
+    private static MachineConstraintProfile LoadManagedMachineProfile(CiServerManagedMachineProfileVersion version)
+    {
+        var profile = MachineConstraintProfile.FromJson(version.ProfileJson);
+        var currentFingerprint = HashText(ToMachineProfileJson(profile));
+        if (!string.Equals(currentFingerprint, version.Fingerprint, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Managed machine profile version '{version.MachineProfileId}/{version.VersionId}' no longer matches its imported fingerprint. Expected {version.Fingerprint}; loaded {currentFingerprint}.");
+        }
+
+        return profile;
+    }
+
+    private BeamKitRulePack LoadRunRulePack(string? rulePackId, string? rulePackPath, RunPolicySetBinding? policySet)
+    {
+        if (policySet is null)
+        {
+            return LoadRulePack(rulePackId, rulePackPath);
+        }
+
+        return LoadManagedRulePack(FindRequiredManagedRulePackVersion(policySet.Version.RulePackId, policySet.Version.RulePackVersionId));
+    }
+
+    private RunPolicyBindings ResolveRunPolicyBindings(
+        string? policySetId,
+        string? policySetVersionId,
+        string? rulePackId,
+        string? rulePackPath,
+        string? namingDictionaryId,
+        string? namingDictionaryVersionId,
+        string? machineProfileId,
+        string? machineProfileVersionId)
+    {
+        var policySet = ResolveRunPolicySet(policySetId, policySetVersionId);
+        if (policySet is not null)
+        {
+            ValidateRunPolicySetOverrides(
+                policySet.Version,
+                rulePackId,
+                rulePackPath,
+                namingDictionaryId,
+                namingDictionaryVersionId,
+                machineProfileId,
+                machineProfileVersionId);
+        }
+
+        var resolvedNamingDictionaryId = policySet?.Version.NamingDictionaryId ?? namingDictionaryId;
+        var resolvedNamingDictionaryVersionId = policySet?.Version.NamingDictionaryVersionId ?? namingDictionaryVersionId;
+        var resolvedMachineProfileId = policySet?.Version.MachineProfileId ?? machineProfileId;
+        var resolvedMachineProfileVersionId = policySet?.Version.MachineProfileVersionId ?? machineProfileVersionId;
+        return new RunPolicyBindings(
+            policySet,
+            ResolveRunNamingDictionary(resolvedNamingDictionaryId, resolvedNamingDictionaryVersionId, requireActive: policySet is null),
+            ResolveRunMachineProfile(resolvedMachineProfileId, resolvedMachineProfileVersionId, requireActive: policySet is null));
+    }
+
+    private RunPolicySetBinding? ResolveRunPolicySet(string? policySetId, string? versionId)
+    {
+        var normalizedPolicySetId = CiServerText.Optional(policySetId);
+        var normalizedVersionId = CiServerText.Optional(versionId);
+        if (normalizedPolicySetId is null && normalizedVersionId is null)
+        {
+            return null;
+        }
+
+        if (normalizedPolicySetId is null)
+        {
+            throw new ArgumentException("A policySetId is required when policySetVersionId is supplied.", nameof(policySetId));
+        }
+
+        var version = normalizedVersionId is null
+            ? store.FindActiveClinicalPolicySetVersion(normalizedPolicySetId)
+                ?? throw new InvalidOperationException($"Clinical policy set '{normalizedPolicySetId}' does not have an active promoted version.")
+            : FindRequiredClinicalPolicySetVersion(normalizedPolicySetId, normalizedVersionId);
+        if (!version.IsActive)
+        {
+            throw new InvalidOperationException($"Clinical policy set version '{version.PolicySetId}/{version.VersionId}' is not active.");
+        }
+
+        ValidateClinicalPolicySetComponents(version);
+        return new RunPolicySetBinding(version);
+    }
+
+    private RunNamingDictionaryBinding? ResolveRunNamingDictionary(string? dictionaryId, string? versionId, bool requireActive)
     {
         var normalizedDictionaryId = CiServerText.Optional(dictionaryId);
         var normalizedVersionId = CiServerText.Optional(versionId);
@@ -2291,7 +2649,7 @@ public sealed class BeamKitCiServerService
             ? store.FindActiveNamingDictionaryVersion(normalizedDictionaryId)
                 ?? throw new InvalidOperationException($"Naming dictionary '{normalizedDictionaryId}' does not have an active promoted version.")
             : FindRequiredManagedNamingDictionaryVersion(normalizedDictionaryId, normalizedVersionId);
-        if (!version.IsActive)
+        if (requireActive && !version.IsActive)
         {
             throw new InvalidOperationException($"Naming dictionary version '{version.DictionaryId}/{version.VersionId}' is not active.");
         }
@@ -2299,18 +2657,46 @@ public sealed class BeamKitCiServerService
         return new RunNamingDictionaryBinding(version, LoadManagedNamingDictionary(version));
     }
 
-    private static BeamKitRulePack ApplyRunNamingDictionary(BeamKitRulePack rulePack, RunNamingDictionaryBinding? namingDictionary)
+    private RunMachineProfileBinding? ResolveRunMachineProfile(string? machineProfileId, string? versionId, bool requireActive)
     {
-        return namingDictionary is null
-            ? rulePack
-            : rulePack with { NamingDictionary = namingDictionary.Dictionary };
+        var normalizedProfileId = CiServerText.Optional(machineProfileId);
+        var normalizedVersionId = CiServerText.Optional(versionId);
+        if (normalizedProfileId is null && normalizedVersionId is null)
+        {
+            return null;
+        }
+
+        if (normalizedProfileId is null)
+        {
+            throw new ArgumentException("A machineProfileId is required when machineProfileVersionId is supplied.", nameof(machineProfileId));
+        }
+
+        var version = normalizedVersionId is null
+            ? store.FindActiveMachineProfileVersion(normalizedProfileId)
+                ?? throw new InvalidOperationException($"Machine profile '{normalizedProfileId}' does not have an active promoted version.")
+            : FindRequiredManagedMachineProfileVersion(normalizedProfileId, normalizedVersionId);
+        if (requireActive && !version.IsActive)
+        {
+            throw new InvalidOperationException($"Machine profile version '{version.MachineProfileId}/{version.VersionId}' is not active.");
+        }
+
+        return new RunMachineProfileBinding(version, LoadManagedMachineProfile(version));
     }
 
-    private static BeamKitCiRunRecord ApplyRunNamingDictionaryProvenance(
-        BeamKitCiRunRecord artifact,
-        RunNamingDictionaryBinding? namingDictionary)
+    private static BeamKitRulePack ApplyRunPolicyBindings(BeamKitRulePack rulePack, RunPolicyBindings bindings)
     {
-        if (namingDictionary is null)
+        return rulePack with
+        {
+            NamingDictionary = bindings.NamingDictionary?.Dictionary ?? rulePack.NamingDictionary,
+            MachineProfile = bindings.MachineProfile?.Profile ?? rulePack.MachineProfile
+        };
+    }
+
+    private static BeamKitCiRunRecord ApplyRunPolicyProvenance(
+        BeamKitCiRunRecord artifact,
+        RunPolicyBindings bindings)
+    {
+        if (bindings.PolicySet is null && bindings.NamingDictionary is null && bindings.MachineProfile is null)
         {
             return artifact;
         }
@@ -2319,10 +2705,18 @@ public sealed class BeamKitCiServerService
         {
             Provenance = artifact.Provenance with
             {
-                NamingDictionaryId = namingDictionary.Version.DictionaryId,
-                NamingDictionaryVersionId = namingDictionary.Version.VersionId,
-                NamingDictionaryFingerprint = namingDictionary.Version.Fingerprint,
-                NamingDictionaryName = namingDictionary.Version.Name
+                NamingDictionaryId = bindings.NamingDictionary?.Version.DictionaryId,
+                NamingDictionaryVersionId = bindings.NamingDictionary?.Version.VersionId,
+                NamingDictionaryFingerprint = bindings.NamingDictionary?.Version.Fingerprint,
+                NamingDictionaryName = bindings.NamingDictionary?.Version.Name,
+                MachineProfileId = bindings.MachineProfile?.Version.MachineProfileId,
+                MachineProfileVersionId = bindings.MachineProfile?.Version.VersionId,
+                MachineProfileFingerprint = bindings.MachineProfile?.Version.Fingerprint,
+                MachineProfileName = bindings.MachineProfile?.Version.Name,
+                PolicySetId = bindings.PolicySet?.Version.PolicySetId,
+                PolicySetVersionId = bindings.PolicySet?.Version.VersionId,
+                PolicySetFingerprint = bindings.PolicySet?.Version.Fingerprint,
+                PolicySetName = bindings.PolicySet?.Version.Name
             }
         };
     }
@@ -3122,6 +3516,47 @@ public sealed class BeamKitCiServerService
         return HashBytes(Encoding.UTF8.GetBytes(text));
     }
 
+    private static string ToMachineProfileJson(MachineConstraintProfile profile)
+    {
+        return JsonSerializer.Serialize(profile, CiServerJson.Options);
+    }
+
+    private string? TryComputeSafetyRegistryFingerprint()
+    {
+        var path = ResolveSafetyRegistryPath(safetyOptions.SafetyRegistryPath);
+        return File.Exists(path) ? HashFile(path) : null;
+    }
+
+    private static string CreateClinicalPolicySetFingerprint(
+        string policySetId,
+        string policyVersion,
+        string? diseaseSite,
+        string? technique,
+        CiServerManagedRulePackVersion rulePack,
+        CiServerManagedNamingDictionaryVersion? namingDictionary,
+        CiServerManagedMachineProfileVersion? machineProfile,
+        string? safetyRegistryFingerprint)
+    {
+        var components = new SortedDictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["policySet.id"] = policySetId,
+            ["policySet.version"] = policyVersion,
+            ["policySet.diseaseSite"] = CiServerText.Optional(diseaseSite),
+            ["policySet.technique"] = CiServerText.Optional(technique),
+            ["rulePack.id"] = rulePack.RulePackId,
+            ["rulePack.versionId"] = rulePack.VersionId,
+            ["rulePack.fingerprint"] = rulePack.Fingerprint,
+            ["namingDictionary.id"] = namingDictionary?.DictionaryId,
+            ["namingDictionary.versionId"] = namingDictionary?.VersionId,
+            ["namingDictionary.fingerprint"] = namingDictionary?.Fingerprint,
+            ["machineProfile.id"] = machineProfile?.MachineProfileId,
+            ["machineProfile.versionId"] = machineProfile?.VersionId,
+            ["machineProfile.fingerprint"] = machineProfile?.Fingerprint,
+            ["safetyRegistry.fingerprint"] = CiServerText.Optional(safetyRegistryFingerprint)
+        };
+        return HashText(JsonSerializer.Serialize(components, CiServerJson.Options));
+    }
+
     private static string HashBytes(byte[] bytes)
     {
         return "sha256:" + Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
@@ -3142,6 +3577,130 @@ public sealed class BeamKitCiServerService
     {
         return store.FindNamingDictionaryVersion(dictionaryId, versionId)
             ?? throw new InvalidOperationException($"Naming dictionary version '{dictionaryId}/{versionId}' was not found.");
+    }
+
+    private CiServerManagedMachineProfileVersion FindRequiredManagedMachineProfileVersion(string machineProfileId, string versionId)
+    {
+        return store.FindMachineProfileVersion(machineProfileId, versionId)
+            ?? throw new InvalidOperationException($"Machine profile version '{machineProfileId}/{versionId}' was not found.");
+    }
+
+    private CiServerClinicalPolicySetVersion FindRequiredClinicalPolicySetVersion(string policySetId, string versionId)
+    {
+        return store.FindClinicalPolicySetVersion(policySetId, versionId)
+            ?? throw new InvalidOperationException($"Clinical policy set version '{policySetId}/{versionId}' was not found.");
+    }
+
+    private CiServerManagedRulePackVersion ResolvePolicySetRulePackVersion(string? rulePackId, string? versionId)
+    {
+        var normalizedRulePackId = CiServerText.Required(rulePackId, nameof(rulePackId));
+        var normalizedVersionId = CiServerText.Optional(versionId);
+        return normalizedVersionId is null
+            ? store.FindActiveRulePackVersion(normalizedRulePackId)
+                ?? throw new InvalidOperationException($"Rule pack '{normalizedRulePackId}' does not have an active promoted version.")
+            : FindRequiredManagedRulePackVersion(normalizedRulePackId, normalizedVersionId);
+    }
+
+    private CiServerManagedNamingDictionaryVersion? ResolveOptionalPolicySetNamingDictionaryVersion(string? dictionaryId, string? versionId)
+    {
+        var normalizedDictionaryId = CiServerText.Optional(dictionaryId);
+        var normalizedVersionId = CiServerText.Optional(versionId);
+        if (normalizedDictionaryId is null && normalizedVersionId is null)
+        {
+            return null;
+        }
+
+        if (normalizedDictionaryId is null)
+        {
+            throw new ArgumentException("A namingDictionaryId is required when namingDictionaryVersionId is supplied.", nameof(dictionaryId));
+        }
+
+        return normalizedVersionId is null
+            ? store.FindActiveNamingDictionaryVersion(normalizedDictionaryId)
+                ?? throw new InvalidOperationException($"Naming dictionary '{normalizedDictionaryId}' does not have an active promoted version.")
+            : FindRequiredManagedNamingDictionaryVersion(normalizedDictionaryId, normalizedVersionId);
+    }
+
+    private CiServerManagedMachineProfileVersion? ResolveOptionalPolicySetMachineProfileVersion(string? machineProfileId, string? versionId)
+    {
+        var normalizedProfileId = CiServerText.Optional(machineProfileId);
+        var normalizedVersionId = CiServerText.Optional(versionId);
+        if (normalizedProfileId is null && normalizedVersionId is null)
+        {
+            return null;
+        }
+
+        if (normalizedProfileId is null)
+        {
+            throw new ArgumentException("A machineProfileId is required when machineProfileVersionId is supplied.", nameof(machineProfileId));
+        }
+
+        return normalizedVersionId is null
+            ? store.FindActiveMachineProfileVersion(normalizedProfileId)
+                ?? throw new InvalidOperationException($"Machine profile '{normalizedProfileId}' does not have an active promoted version.")
+            : FindRequiredManagedMachineProfileVersion(normalizedProfileId, normalizedVersionId);
+    }
+
+    private static void ValidateRunPolicySetOverrides(
+        CiServerClinicalPolicySetVersion policySet,
+        string? rulePackId,
+        string? rulePackPath,
+        string? namingDictionaryId,
+        string? namingDictionaryVersionId,
+        string? machineProfileId,
+        string? machineProfileVersionId)
+    {
+        if (!string.IsNullOrWhiteSpace(rulePackPath))
+        {
+            throw new ArgumentException("rulePackPath cannot be supplied when policySetId is supplied.", nameof(rulePackPath));
+        }
+
+        RequireMatchingOverride(rulePackId, policySet.RulePackId, "rulePackId", "policy set rule pack");
+        RequireMatchingOverride(namingDictionaryId, policySet.NamingDictionaryId, "namingDictionaryId", "policy set naming dictionary");
+        RequireMatchingOverride(namingDictionaryVersionId, policySet.NamingDictionaryVersionId, "namingDictionaryVersionId", "policy set naming dictionary version");
+        RequireMatchingOverride(machineProfileId, policySet.MachineProfileId, "machineProfileId", "policy set machine profile");
+        RequireMatchingOverride(machineProfileVersionId, policySet.MachineProfileVersionId, "machineProfileVersionId", "policy set machine profile version");
+    }
+
+    private static void RequireMatchingOverride(string? supplied, string? expected, string fieldName, string expectedName)
+    {
+        var normalized = CiServerText.Optional(supplied);
+        if (normalized is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(expected) || !string.Equals(normalized, expected, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException($"{fieldName} conflicts with the selected {expectedName}.", fieldName);
+        }
+    }
+
+    private void ValidateClinicalPolicySetComponents(CiServerClinicalPolicySetVersion version)
+    {
+        var rulePackVersion = FindRequiredManagedRulePackVersion(version.RulePackId, version.RulePackVersionId);
+        if (!string.Equals(rulePackVersion.Fingerprint, version.RulePackFingerprint, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Clinical policy set '{version.PolicySetId}/{version.VersionId}' references rule pack '{version.RulePackId}/{version.RulePackVersionId}' with fingerprint {version.RulePackFingerprint}, but storage contains {rulePackVersion.Fingerprint}.");
+        }
+
+        if (version.NamingDictionaryId is not null && version.NamingDictionaryVersionId is not null)
+        {
+            var namingVersion = FindRequiredManagedNamingDictionaryVersion(version.NamingDictionaryId, version.NamingDictionaryVersionId);
+            if (!string.Equals(namingVersion.Fingerprint, version.NamingDictionaryFingerprint, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Clinical policy set '{version.PolicySetId}/{version.VersionId}' references naming dictionary '{version.NamingDictionaryId}/{version.NamingDictionaryVersionId}' with fingerprint {version.NamingDictionaryFingerprint}, but storage contains {namingVersion.Fingerprint}.");
+            }
+        }
+
+        if (version.MachineProfileId is not null && version.MachineProfileVersionId is not null)
+        {
+            var machineVersion = FindRequiredManagedMachineProfileVersion(version.MachineProfileId, version.MachineProfileVersionId);
+            if (!string.Equals(machineVersion.Fingerprint, version.MachineProfileFingerprint, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"Clinical policy set '{version.PolicySetId}/{version.VersionId}' references machine profile '{version.MachineProfileId}/{version.MachineProfileVersionId}' with fingerprint {version.MachineProfileFingerprint}, but storage contains {machineVersion.Fingerprint}.");
+            }
+        }
     }
 
     private static CiServerRulePackSummary CreateManagedRulePackSummary(CiServerManagedRulePackVersionSummary version)
@@ -3193,6 +3752,28 @@ public sealed class BeamKitCiServerService
         }
 
         return dictionaryId;
+    }
+
+    private static string NormalizeManagedMachineProfileId(string? value)
+    {
+        var profileId = CiServerText.Required(value, nameof(value));
+        if (profileId.Any(character => !char.IsLetterOrDigit(character) && character is not '-' and not '_' and not '.'))
+        {
+            throw new ArgumentException("Machine profile id may only contain letters, numbers, dashes, underscores, and periods.", nameof(value));
+        }
+
+        return profileId;
+    }
+
+    private static string NormalizeClinicalPolicySetId(string? value)
+    {
+        var policySetId = CiServerText.Required(value, nameof(value));
+        if (policySetId.Any(character => !char.IsLetterOrDigit(character) && character is not '-' and not '_' and not '.'))
+        {
+            throw new ArgumentException("Clinical policy-set id may only contain letters, numbers, dashes, underscores, and periods.", nameof(value));
+        }
+
+        return policySetId;
     }
 
     private RulePackImportSource LoadRulePackImportSource(RulePackImportServerRequest request)
@@ -3284,6 +3865,34 @@ public sealed class BeamKitCiServerService
             CiServerText.Optional(request.Source) ?? "inline-json");
     }
 
+    private MachineProfileImportSource LoadMachineProfileImportSource(MachineProfileImportServerRequest request)
+    {
+        var profileJson = GetJson(request.Profile, request.ProfileJson);
+        var sourceCount = new[]
+        {
+            !string.IsNullOrWhiteSpace(request.ProfilePath),
+            !string.IsNullOrWhiteSpace(profileJson)
+        }.Count(value => value);
+        if (sourceCount != 1)
+        {
+            throw new ArgumentException("Machine-profile import requires exactly one of 'profilePath' or 'profile'/'profileJson'.", nameof(request));
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ProfilePath))
+        {
+            var fullPath = ResolveAllowedServerLocalPath(request.ProfilePath, "profilePath");
+            return new MachineProfileImportSource(
+                File.ReadAllText(fullPath),
+                "File",
+                fullPath);
+        }
+
+        return new MachineProfileImportSource(
+            profileJson ?? throw new ArgumentException("Machine-profile JSON is required.", nameof(request)),
+            "InlineJson",
+            CiServerText.Optional(request.Source) ?? "inline-json");
+    }
+
     private static RulePackBundle VerifyBundleSource(RulePackBundle bundle)
     {
         var report = new RulePackBundleVerifier().Verify(bundle);
@@ -3310,6 +3919,22 @@ public sealed class BeamKitCiServerService
             ? fingerprint["sha256:".Length..Math.Min(fingerprint.Length, "sha256:".Length + 12)]
             : fingerprint[..Math.Min(fingerprint.Length, 12)];
         return $"ndv-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{fingerprintSuffix}-{Guid.NewGuid():N}"[..59];
+    }
+
+    private string CreateMachineProfileVersionId(string fingerprint)
+    {
+        var fingerprintSuffix = fingerprint.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
+            ? fingerprint["sha256:".Length..Math.Min(fingerprint.Length, "sha256:".Length + 12)]
+            : fingerprint[..Math.Min(fingerprint.Length, 12)];
+        return $"mpv-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{fingerprintSuffix}-{Guid.NewGuid():N}"[..59];
+    }
+
+    private string CreateClinicalPolicySetVersionId(string fingerprint)
+    {
+        var fingerprintSuffix = fingerprint.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)
+            ? fingerprint["sha256:".Length..Math.Min(fingerprint.Length, "sha256:".Length + 12)]
+            : fingerprint[..Math.Min(fingerprint.Length, 12)];
+        return $"cpv-{timeProvider.GetUtcNow():yyyyMMddHHmmss}-{fingerprintSuffix}-{Guid.NewGuid():N}"[..59];
     }
 
     private void Audit(
@@ -3498,9 +4123,22 @@ public sealed class BeamKitCiServerService
 
     private sealed record NamingDictionaryImportSource(string DictionaryJson, string SourceKind, string Source);
 
+    private sealed record MachineProfileImportSource(string ProfileJson, string SourceKind, string Source);
+
+    private sealed record RunPolicyBindings(
+        RunPolicySetBinding? PolicySet,
+        RunNamingDictionaryBinding? NamingDictionary,
+        RunMachineProfileBinding? MachineProfile);
+
+    private sealed record RunPolicySetBinding(CiServerClinicalPolicySetVersion Version);
+
     private sealed record RunNamingDictionaryBinding(
         CiServerManagedNamingDictionaryVersion Version,
         StructureNameDictionary Dictionary);
+
+    private sealed record RunMachineProfileBinding(
+        CiServerManagedMachineProfileVersion Version,
+        MachineConstraintProfile Profile);
 
     private sealed record RtpxWordDocxSource(string Path, string FileName, string Fingerprint);
 

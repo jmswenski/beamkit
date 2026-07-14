@@ -1,4 +1,5 @@
 using BeamKit.Check;
+using BeamKit.Deliverability;
 using BeamKit.Naming;
 using BeamKit.PlanCheck;
 using BeamKit.Reporting;
@@ -191,6 +192,64 @@ public sealed class CiRunStoreTests
     }
 
     [Fact]
+    public void SaveMachineProfileVersionStoresQueryableVersionHistory()
+    {
+        var store = new CiRunStore();
+        store.SaveMachineProfileVersion(CreateMachineProfileVersion("institution-linac", "v1", DateTimeOffset.UtcNow.AddMinutes(-1)));
+        store.SaveMachineProfileVersion(CreateMachineProfileVersion("institution-linac", "v2", DateTimeOffset.UtcNow));
+
+        var versions = store.ListMachineProfileVersions("INSTITUTION-LINAC");
+
+        Assert.Equal(new[] { "v2", "v1" }, versions.Select(version => version.VersionId));
+        var found = store.FindMachineProfileVersion("institution-linac", "V1") ?? throw new InvalidOperationException("Version was not stored.");
+        Assert.Equal("sha256:v1", found.Fingerprint);
+    }
+
+    [Fact]
+    public void PromoteMachineProfileVersionMakesOnlyOneVersionActive()
+    {
+        var store = new CiRunStore();
+        store.SaveMachineProfileVersion(CreateMachineProfileVersion("institution-linac", "v1", DateTimeOffset.UtcNow.AddMinutes(-1)));
+        store.SaveMachineProfileVersion(CreateMachineProfileVersion("institution-linac", "v2", DateTimeOffset.UtcNow));
+
+        var promoted = store.PromoteMachineProfileVersion("institution-linac", "v2", DateTimeOffset.UtcNow, "physics", "Approved.");
+
+        Assert.True(promoted.IsActive);
+        Assert.Equal("physics", promoted.ActivatedBy);
+        Assert.Equal("v2", store.FindActiveMachineProfileVersion("INSTITUTION-LINAC")?.VersionId);
+        Assert.False(store.FindMachineProfileVersion("institution-linac", "v1")!.IsActive);
+    }
+
+    [Fact]
+    public void SaveClinicalPolicySetVersionStoresQueryableVersionHistory()
+    {
+        var store = new CiRunStore();
+        store.SaveClinicalPolicySetVersion(CreatePolicySetVersion("head-neck-policy", "v1", DateTimeOffset.UtcNow.AddMinutes(-1)));
+        store.SaveClinicalPolicySetVersion(CreatePolicySetVersion("head-neck-policy", "v2", DateTimeOffset.UtcNow));
+
+        var versions = store.ListClinicalPolicySetVersions("HEAD-NECK-POLICY");
+
+        Assert.Equal(new[] { "v2", "v1" }, versions.Select(version => version.VersionId));
+        var found = store.FindClinicalPolicySetVersion("head-neck-policy", "V1") ?? throw new InvalidOperationException("Version was not stored.");
+        Assert.Equal("sha256:policy-v1", found.Fingerprint);
+    }
+
+    [Fact]
+    public void PromoteClinicalPolicySetVersionMakesOnlyOneVersionActive()
+    {
+        var store = new CiRunStore();
+        store.SaveClinicalPolicySetVersion(CreatePolicySetVersion("head-neck-policy", "v1", DateTimeOffset.UtcNow.AddMinutes(-1)));
+        store.SaveClinicalPolicySetVersion(CreatePolicySetVersion("head-neck-policy", "v2", DateTimeOffset.UtcNow));
+
+        var promoted = store.PromoteClinicalPolicySetVersion("head-neck-policy", "v2", DateTimeOffset.UtcNow, "physics", "Approved.");
+
+        Assert.True(promoted.IsActive);
+        Assert.Equal("physics", promoted.ActivatedBy);
+        Assert.Equal("v2", store.FindActiveClinicalPolicySetVersion("HEAD-NECK-POLICY")?.VersionId);
+        Assert.False(store.FindClinicalPolicySetVersion("head-neck-policy", "v1")!.IsActive);
+    }
+
+    [Fact]
     public void SaveRtpxAcceptanceStoresQueryableAcceptanceHistory()
     {
         var store = new CiRunStore();
@@ -322,6 +381,60 @@ public sealed class CiRunStoreTests
             dictionary.Tags,
             $"sha256:{versionId}",
             new StructureNameDictionaryReviewer().Review(dictionary));
+    }
+
+    private static CiServerManagedMachineProfileVersion CreateMachineProfileVersion(string machineProfileId, string versionId, DateTimeOffset importedAtUtc)
+    {
+        var profile = MachineConstraintProfile.CreateSynthetic() with { Version = versionId };
+        var review = new CiServerMachineProfileReviewer().Review(profile, $"sha256:{versionId}");
+        return new CiServerManagedMachineProfileVersion(
+            machineProfileId,
+            versionId,
+            importedAtUtc,
+            "physics",
+            "InlineJson",
+            "test",
+            System.Text.Json.JsonSerializer.Serialize(profile, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
+            profile.Name,
+            profile.Version,
+            profile.MachineId,
+            profile.Energy,
+            profile.BeamModelId,
+            profile.CalculationModel,
+            profile.CalculationModelVersion,
+            new[] { "linac" },
+            $"sha256:{versionId}",
+            review);
+    }
+
+    private static CiServerClinicalPolicySetVersion CreatePolicySetVersion(string policySetId, string versionId, DateTimeOffset importedAtUtc)
+    {
+        return new CiServerClinicalPolicySetVersion(
+            policySetId,
+            versionId,
+            importedAtUtc,
+            "physics",
+            "Head and Neck Clinical Policy",
+            versionId,
+            "Test policy.",
+            "Head and Neck",
+            "VMAT",
+            new[] { "head-neck" },
+            "institution-head-neck",
+            "rpv-1",
+            "sha256:rule-pack",
+            "Head and Neck Rule Pack",
+            "1.0",
+            "institution-tg263",
+            "ndv-1",
+            "sha256:naming",
+            "Institution TG-263",
+            "institution-linac",
+            "mpv-1",
+            "sha256:machine",
+            "Synthetic linear accelerator constraints",
+            "sha256:safety",
+            $"sha256:policy-{versionId}");
     }
 
     private static CiServerRtpxAcceptanceRecord CreateRtpxAcceptance(string id, DateTimeOffset createdAtUtc, bool accepted)

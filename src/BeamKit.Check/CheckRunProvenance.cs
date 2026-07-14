@@ -26,7 +26,15 @@ public sealed record CheckRunProvenance
         string? namingDictionaryId = null,
         string? namingDictionaryVersionId = null,
         string? namingDictionaryFingerprint = null,
-        string? namingDictionaryName = null)
+        string? namingDictionaryName = null,
+        string? machineProfileId = null,
+        string? machineProfileVersionId = null,
+        string? machineProfileFingerprint = null,
+        string? machineProfileName = null,
+        string? policySetId = null,
+        string? policySetVersionId = null,
+        string? policySetFingerprint = null,
+        string? policySetName = null)
     {
         RunId = CheckText.Required(runId, nameof(runId));
         PlanId = CheckText.Required(planId, nameof(planId));
@@ -46,6 +54,14 @@ public sealed record CheckRunProvenance
         NamingDictionaryVersionId = CheckText.Optional(namingDictionaryVersionId);
         NamingDictionaryFingerprint = CheckText.Optional(namingDictionaryFingerprint);
         NamingDictionaryName = CheckText.Optional(namingDictionaryName);
+        MachineProfileId = CheckText.Optional(machineProfileId);
+        MachineProfileVersionId = CheckText.Optional(machineProfileVersionId);
+        MachineProfileFingerprint = CheckText.Optional(machineProfileFingerprint);
+        MachineProfileName = CheckText.Optional(machineProfileName);
+        PolicySetId = CheckText.Optional(policySetId);
+        PolicySetVersionId = CheckText.Optional(policySetVersionId);
+        PolicySetFingerprint = CheckText.Optional(policySetFingerprint);
+        PolicySetName = CheckText.Optional(policySetName);
     }
 
     /// <summary>
@@ -137,4 +153,44 @@ public sealed record CheckRunProvenance
     /// Managed naming-dictionary display name used for this run, when supplied by the caller.
     /// </summary>
     public string? NamingDictionaryName { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile id used for this run, when supplied by the caller.
+    /// </summary>
+    public string? MachineProfileId { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile version id used for this run, when supplied by the caller.
+    /// </summary>
+    public string? MachineProfileVersionId { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile fingerprint used for this run, when supplied by the caller.
+    /// </summary>
+    public string? MachineProfileFingerprint { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile display name used for this run, when supplied by the caller.
+    /// </summary>
+    public string? MachineProfileName { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set id used for this run, when supplied by the caller.
+    /// </summary>
+    public string? PolicySetId { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set version id used for this run, when supplied by the caller.
+    /// </summary>
+    public string? PolicySetVersionId { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set fingerprint used for this run, when supplied by the caller.
+    /// </summary>
+    public string? PolicySetFingerprint { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set display name used for this run, when supplied by the caller.
+    /// </summary>
+    public string? PolicySetName { get; init; }
 }

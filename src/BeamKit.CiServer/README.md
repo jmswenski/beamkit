@@ -16,6 +16,8 @@ This first slice supports:
 - Safety and validation evidence review for managed rule-pack promotion, including clinical-promotion traceability and safety-registry reference gates.
 - Draft rule-pack review and managed-version diff reports.
 - Managed structure-name dictionary import, review, diff, promotion, version history, and audit trail.
+- Managed machine-profile import, review, promotion, version history, and audit trail for beam model, calculation model, jaw, and MU/degree policy.
+- Clinical policy sets that bind exact managed rule-pack, naming-dictionary, machine-profile, and safety-registry fingerprints into one promoted run policy.
 - RT-PX package acceptance into managed rule-pack versions, including institution profile fingerprints, optional ESAPI snapshot evidence, generated safety evidence, and optional promotion.
 - RT-PX Word extraction uploads for Word add-ins and protocol authoring clients.
 - RT-PX authoring template/snippet libraries and Word draft publishing into a durable review queue with protocol diff acknowledgement, approval, rejection, and promotion gates.
@@ -82,6 +84,14 @@ GET /api/naming-dictionaries/versions
 GET /api/naming-dictionaries/{id}/versions
 GET /api/naming-dictionaries/{id}/versions/{versionId}
 GET /api/naming-dictionaries/{id}/versions/{oldVersionId}/diff/{newVersionId}
+GET /api/machine-profiles
+GET /api/machine-profiles/versions
+GET /api/machine-profiles/{id}/versions
+GET /api/machine-profiles/{id}/versions/{versionId}
+GET /api/policy-sets
+GET /api/policy-sets/versions
+GET /api/policy-sets/{id}/versions
+GET /api/policy-sets/{id}/versions/{versionId}
 GET /api/work-items
 GET /api/work-items/{id}
 GET /api/audit-events
@@ -109,6 +119,11 @@ POST /api/naming-dictionaries/import
 POST /api/naming-dictionaries/{id}/review-draft
 POST /api/naming-dictionaries/{id}/versions/{versionId}/review
 POST /api/naming-dictionaries/{id}/versions/{versionId}/promote
+POST /api/machine-profiles/import
+POST /api/machine-profiles/{id}/versions/{versionId}/review
+POST /api/machine-profiles/{id}/versions/{versionId}/promote
+POST /api/policy-sets/import
+POST /api/policy-sets/{id}/versions/{versionId}/promote
 POST /api/assignments/recommend
 POST /api/assignments/recommend-team
 POST /api/work-items
@@ -131,6 +146,15 @@ curl -s "$API/api/runs" \
   -H 'content-type: application/json' \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
   -d '{"syntheticCaseId":"head-neck-pass","branch":"main","commit":"abc123","buildId":"local-demo"}'
+```
+
+Create a run with one promoted clinical policy set:
+
+```bash
+curl -s "$API/api/runs" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"syntheticCaseId":"head-neck-pass","policySetId":"head-neck-vmat"}'
 ```
 
 Create a failing run:
@@ -163,7 +187,7 @@ curl -s "$API/api/runs/{laterId}/baseline-comparison" \
   -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY"
 ```
 
-Baseline comparison uses stored metadata and provenance fingerprints for every run, including managed naming-dictionary id/version/fingerprint when supplied. When both runs have retained BeamKit plan snapshots, the response also includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes from `BeamKit.ChangeDetection`. Older rows without snapshots fall back to metadata and fingerprint comparison.
+Baseline comparison uses stored metadata and provenance fingerprints for every run, including managed naming-dictionary, machine-profile, and clinical policy-set id/version/fingerprint when supplied. When both runs have retained BeamKit plan snapshots, the response also includes field-level plan metadata, prescription, structure, dose, beam, and clinical-goal changes from `BeamKit.ChangeDetection`. Older rows without snapshots fall back to metadata and fingerprint comparison.
 
 Create a run from uploaded BeamKit plan JSON:
 
@@ -356,13 +380,13 @@ curl -s "$API/api/audit-events?action=run.created&limit=25" \
 
 `/` and `/health` are public. `/api/*` requires the configured `X-BeamKit-Api-Key` header by default. API-key labels are recorded in audit events; raw key values are not.
 
-API keys can be scoped with roles. Use `Reader` for read-only clients, `Runner` for run submission, `BaselineManager` for baseline promotion, `RulePackManager` for rule-pack import/review/promotion, `NamingDictionaryManager` for structure-name dictionary import/review/promotion, `ProtocolManager` for RT-PX and protocol-variance flows, `WorkQueueManager` for work queues and assignment recommendations, and `Admin` for full access. Keys without explicit roles are treated as `Admin` for backward compatibility; production deployments should configure explicit roles.
+API keys can be scoped with roles. Use `Reader` for read-only clients, `Runner` for run submission, `BaselineManager` for baseline promotion, `RulePackManager` for rule-pack import/review/promotion, `NamingDictionaryManager` for structure-name dictionary import/review/promotion, `MachineProfileManager` for machine-profile import/review/promotion, `PolicySetManager` for clinical policy-set creation/promotion, `ProtocolManager` for RT-PX and protocol-variance flows, `WorkQueueManager` for work queues and assignment recommendations, and `Admin` for full access. Keys without explicit roles are treated as `Admin` for backward compatibility; production deployments should configure explicit roles.
 
 Plan snapshot, protocol compliance, RT-PX acceptance, and RT-PX Word uploads are capped by `BeamKit:CiServer:Security:MaxPlanSnapshotUploadBytes`, defaulting to 5 MB and clamped between 1 KB and 100 MB.
 
 Uploaded BeamKit plan JSON and ESAPI snapshot JSON are screened for obvious patient identifiers before the server stores a plan snapshot. By default, `BeamKit:CiServer:Security:RequireDeidentifiedPlanSnapshots` is `true`; patient ids must use a configured de-identified prefix such as `SYN-`, `TEST-`, `DEID-`, or `ANON-`, display names must be approved placeholders, and date of birth must be absent. Set this to `false` only inside a protected, approved clinical environment with local PHI controls.
 
-Request-supplied server-local paths such as `rulePackPath`, `manifestPath`, `bundlePath`, `packagePath`, `institutionProfilePath`, `esapiSnapshotPath`, `docxPath`, `rosterPath`, and `outputDirectory` are constrained by `BeamKit:CiServer:Security:AllowedServerLocalFilePathRoots` when `RestrictServerLocalFilePaths` is `true`. The default roots are `samples` and `artifacts`.
+Request-supplied server-local paths such as `rulePackPath`, `manifestPath`, `bundlePath`, `profilePath`, `dictionaryPath`, `packagePath`, `institutionProfilePath`, `esapiSnapshotPath`, `docxPath`, `rosterPath`, and `outputDirectory` are constrained by `BeamKit:CiServer:Security:AllowedServerLocalFilePathRoots` when `RestrictServerLocalFilePaths` is `true`. The default roots are `samples` and `artifacts`.
 
 ## Rule-Pack Registry
 
@@ -491,6 +515,61 @@ Promotion blocks dictionaries with reviewer errors such as alias collisions, can
 
 Once a version is active, `/api/runs` and `/api/runs/from-plan-snapshot` can include `namingDictionaryId` to override the rule pack's embedded dictionary for that run. The optional `namingDictionaryVersionId` must name the currently active version.
 
+## Machine-Profile Registry
+
+Machine profiles are clinical physics policy. The server can import a `MachineConstraintProfile` JSON document as an immutable managed version, review it for missing machine, beam-model, dose-calculation, and delivery constraints, promote exactly one active version per profile id, and stamp runs with machine-profile id/version/fingerprint provenance.
+
+```bash
+curl -s "$API/api/machine-profiles/import" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "machineProfileId": "institution-linac",
+    "profilePath": "samples/machine-profile-synthetic.json",
+    "importedBy": "physics"
+  }'
+
+curl -s "$API/api/machine-profiles/institution-linac/versions/{versionId}/promote" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{"promotedBy":"physics","note":"Approved machine profile."}'
+```
+
+Once a version is active, `/api/runs` and `/api/runs/from-plan-snapshot` can include `machineProfileId` to override the rule pack's embedded machine profile for that run. The optional `machineProfileVersionId` must name the currently active version.
+
+## Clinical Policy Sets
+
+Clinical policy sets are the production-oriented bundle for plan gates. A policy set pins exact managed artifact versions into one promoted policy fingerprint:
+
+- Managed rule-pack id, version id, and fingerprint.
+- Managed naming-dictionary id, version id, and fingerprint.
+- Managed machine-profile id, version id, and fingerprint.
+- Configured safety-registry fingerprint when present.
+- Disease-site, technique, version, tags, and promotion metadata.
+
+Create and promote a policy set after the component versions are promoted:
+
+```bash
+curl -s "$API/api/policy-sets/import" \
+  -H 'content-type: application/json' \
+  -H "X-BeamKit-Api-Key: $BEAMKIT_API_KEY" \
+  -d '{
+    "policySetId": "head-neck-vmat",
+    "name": "Head and Neck VMAT",
+    "policyVersion": "2026.1",
+    "diseaseSite": "Head and Neck",
+    "technique": "VMAT",
+    "rulePackId": "institution-head-neck",
+    "namingDictionaryId": "institution-tg263",
+    "machineProfileId": "institution-linac",
+    "promote": true,
+    "importedBy": "physics",
+    "note": "Approved clinical policy set."
+  }'
+```
+
+Runs using `policySetId` cannot supply conflicting component overrides. Run summaries, artifacts, baselines, and baseline comparisons include policy-set and component fingerprints so active policy drift is visible during review.
+
 ## Storage
 
 The default SQLite database is:
@@ -509,12 +588,12 @@ Configure it under `BeamKit:CiServer:Storage`:
 }
 ```
 
-SQLite stores managed naming-dictionary JSON, review reports, fingerprints, active-version markers, and promotion metadata in `ci_naming_dictionary_versions`.
+SQLite stores managed naming-dictionary JSON, machine-profile JSON, clinical policy-set bindings, review reports, fingerprints, active-version markers, and promotion metadata in `ci_naming_dictionary_versions`, `ci_machine_profile_versions`, and `ci_clinical_policy_set_versions`. Run and baseline rows also retain nullable naming, machine-profile, and policy-set provenance columns for drift comparisons.
 
 ## Current Boundaries
 
 This server persists local run history, artifacts, internal BeamKit plan snapshots, and audit events, and can run checks from synthetic cases, BeamKit plan JSON, or ESAPI snapshot JSON. It is suitable for local demos, API shape validation, and future dashboard development.
 
-Path-based fields such as `rulePackPath`, `manifestPath`, `bundlePath`, `baseDirectory`, `rosterPath`, `packagePath`, `institutionProfilePath`, `esapiSnapshotPath`, `docxPath`, and `outputDirectory` read from or write to the server filesystem. Keep `RestrictServerLocalFilePaths=true`, configure only approved import/dropbox roots, and prefer inline JSON or base64 uploads for clients that should not address server files.
+Path-based fields such as `rulePackPath`, `manifestPath`, `bundlePath`, `baseDirectory`, `dictionaryPath`, `profilePath`, `rosterPath`, `packagePath`, `institutionProfilePath`, `esapiSnapshotPath`, `docxPath`, and `outputDirectory` read from or write to the server filesystem. Keep `RestrictServerLocalFilePaths=true`, configure only approved import/dropbox roots, and prefer inline JSON or base64 uploads for clients that should not address server files.
 
 Before clinical or production use, BeamKit still needs production database deployment guidance, formal audit retention policy, role-based access control, identity-provider integration, bundled rule-pack dependency snapshots, network hardening, deployment documentation, PHI handling guidance, and clinical validation.

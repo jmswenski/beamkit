@@ -31,7 +31,15 @@ public sealed record HostedCiRunSummary
         string? namingDictionaryId = null,
         string? namingDictionaryVersionId = null,
         string? namingDictionaryFingerprint = null,
-        string? namingDictionaryName = null)
+        string? namingDictionaryName = null,
+        string? machineProfileId = null,
+        string? machineProfileVersionId = null,
+        string? machineProfileFingerprint = null,
+        string? machineProfileName = null,
+        string? policySetId = null,
+        string? policySetVersionId = null,
+        string? policySetFingerprint = null,
+        string? policySetName = null)
     {
         Id = CiServerText.Required(id, nameof(id));
         CreatedAtUtc = createdAtUtc;
@@ -54,6 +62,14 @@ public sealed record HostedCiRunSummary
         NamingDictionaryVersionId = CiServerText.Optional(namingDictionaryVersionId);
         NamingDictionaryFingerprint = CiServerText.Optional(namingDictionaryFingerprint);
         NamingDictionaryName = CiServerText.Optional(namingDictionaryName);
+        MachineProfileId = CiServerText.Optional(machineProfileId);
+        MachineProfileVersionId = CiServerText.Optional(machineProfileVersionId);
+        MachineProfileFingerprint = CiServerText.Optional(machineProfileFingerprint);
+        MachineProfileName = CiServerText.Optional(machineProfileName);
+        PolicySetId = CiServerText.Optional(policySetId);
+        PolicySetVersionId = CiServerText.Optional(policySetVersionId);
+        PolicySetFingerprint = CiServerText.Optional(policySetFingerprint);
+        PolicySetName = CiServerText.Optional(policySetName);
     }
 
     /// <summary>
@@ -162,6 +178,46 @@ public sealed record HostedCiRunSummary
     public string? NamingDictionaryName { get; init; }
 
     /// <summary>
+    /// Managed machine-profile id used for this run, when present.
+    /// </summary>
+    public string? MachineProfileId { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile version id used for this run, when present.
+    /// </summary>
+    public string? MachineProfileVersionId { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile fingerprint used for this run, when present.
+    /// </summary>
+    public string? MachineProfileFingerprint { get; init; }
+
+    /// <summary>
+    /// Managed machine-profile display name used for this run, when present.
+    /// </summary>
+    public string? MachineProfileName { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set id used for this run, when present.
+    /// </summary>
+    public string? PolicySetId { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set version id used for this run, when present.
+    /// </summary>
+    public string? PolicySetVersionId { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set fingerprint used for this run, when present.
+    /// </summary>
+    public string? PolicySetFingerprint { get; init; }
+
+    /// <summary>
+    /// Clinical policy-set display name used for this run, when present.
+    /// </summary>
+    public string? PolicySetName { get; init; }
+
+    /// <summary>
     /// Indicates whether the server retained a vendor-neutral plan snapshot for field-level comparisons.
     /// </summary>
     public bool HasPlanSnapshot { get; init; }
@@ -195,6 +251,14 @@ public sealed record HostedCiRunSummary
             provenance.NamingDictionaryId,
             provenance.NamingDictionaryVersionId,
             provenance.NamingDictionaryFingerprint,
-            provenance.NamingDictionaryName);
+            provenance.NamingDictionaryName,
+            provenance.MachineProfileId,
+            provenance.MachineProfileVersionId,
+            provenance.MachineProfileFingerprint,
+            provenance.MachineProfileName,
+            provenance.PolicySetId,
+            provenance.PolicySetVersionId,
+            provenance.PolicySetFingerprint,
+            provenance.PolicySetName);
     }
 }

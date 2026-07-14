@@ -1,4 +1,5 @@
 using BeamKit.Check;
+using BeamKit.Deliverability;
 using BeamKit.Naming;
 using BeamKit.Sdk;
 using Microsoft.Data.Sqlite;
@@ -292,6 +293,82 @@ public sealed class SqliteCiRunStoreTests
     }
 
     [Fact]
+    public void MachineProfileVersionsSurviveNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        firstStore.SaveMachineProfileVersion(CreateMachineProfileVersion("institution-linac", "v1", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero)));
+        firstStore.SaveMachineProfileVersion(CreateMachineProfileVersion("institution-linac", "v2", new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero)));
+        firstStore.PromoteMachineProfileVersion("institution-linac", "v2", new DateTimeOffset(2026, 7, 9, 12, 2, 0, TimeSpan.Zero), "physics", "Approved.");
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var versions = secondStore.ListMachineProfileVersions("institution-linac");
+        var active = secondStore.FindActiveMachineProfileVersion("institution-linac");
+
+        Assert.Equal(new[] { "v2", "v1" }, versions.Select(version => version.VersionId));
+        Assert.NotNull(active);
+        Assert.Equal("v2", active.VersionId);
+        Assert.Equal("physics", active.ActivatedBy);
+        Assert.Equal("Synthetic linear accelerator constraints", active.Name);
+        Assert.True(active.ReviewReport.IsValid);
+        Assert.Contains("beamModelId", active.ProfileJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClinicalPolicySetVersionsSurviveNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        firstStore.SaveClinicalPolicySetVersion(CreatePolicySetVersion("head-neck-standard", "v1", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero)));
+        firstStore.SaveClinicalPolicySetVersion(CreatePolicySetVersion("head-neck-standard", "v2", new DateTimeOffset(2026, 7, 9, 12, 1, 0, TimeSpan.Zero)));
+        firstStore.PromoteClinicalPolicySetVersion("head-neck-standard", "v2", new DateTimeOffset(2026, 7, 9, 12, 2, 0, TimeSpan.Zero), "physics", "Approved.");
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var versions = secondStore.ListClinicalPolicySetVersions("head-neck-standard");
+        var active = secondStore.FindActiveClinicalPolicySetVersion("head-neck-standard");
+
+        Assert.Equal(new[] { "v2", "v1" }, versions.Select(version => version.VersionId));
+        Assert.NotNull(active);
+        Assert.Equal("v2", active.VersionId);
+        Assert.Equal("physics", active.ActivatedBy);
+        Assert.Equal("institution-head-neck", active.RulePackId);
+        Assert.Equal("institution-tg263", active.NamingDictionaryId);
+        Assert.Equal("institution-linac", active.MachineProfileId);
+        Assert.Equal("sha256:policy-v2", active.Fingerprint);
+    }
+
+    [Fact]
+    public void RunAndBaselinePolicyProvenanceSurviveNewStoreInstance()
+    {
+        using var database = TemporaryDatabase.Create();
+        var firstStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var record = CreateRecordWithPolicyProvenance("run-policy", new DateTimeOffset(2026, 7, 9, 12, 0, 0, TimeSpan.Zero));
+        firstStore.Save(record);
+        var summary = firstStore.Find(record.Id) ?? throw new InvalidOperationException("Run summary was not stored.");
+        firstStore.SaveBaseline(CiRunBaseline.FromRun(
+            summary,
+            new DateTimeOffset(2026, 7, 9, 12, 5, 0, TimeSpan.Zero),
+            promotedBy: "physics",
+            note: "Approved policy-bound baseline."));
+
+        var secondStore = new SqliteCiRunStore(new CiServerStorageOptions { DatabasePath = database.Path, EnableRetention = false });
+        var found = secondStore.Find("run-policy");
+        var baseline = secondStore.FindBaseline(record.CaseId);
+
+        Assert.NotNull(found);
+        Assert.Equal("institution-tg263", found.NamingDictionaryId);
+        Assert.Equal("institution-linac", found.MachineProfileId);
+        Assert.Equal("head-neck-standard", found.PolicySetId);
+        Assert.Equal("sha256:policy", found.PolicySetFingerprint);
+        Assert.NotNull(baseline);
+        Assert.Equal("institution-tg263", baseline.NamingDictionaryId);
+        Assert.Equal("institution-linac", baseline.MachineProfileId);
+        Assert.Equal("head-neck-standard", baseline.PolicySetId);
+        Assert.Equal("sha256:policy", baseline.PolicySetFingerprint);
+        Assert.Equal("Approved policy-bound baseline.", baseline.Note);
+    }
+
+    [Fact]
     public void RtpxAcceptancesSurviveNewStoreInstance()
     {
         using var database = TemporaryDatabase.Create();
@@ -420,6 +497,31 @@ public sealed class SqliteCiRunStoreTests
         return new HostedCiRunRecord(id, createdAtUtc, source.CaseId, artifact, inputKind, planSnapshotJson);
     }
 
+    private static HostedCiRunRecord CreateRecordWithPolicyProvenance(string id, DateTimeOffset createdAtUtc)
+    {
+        var record = CreateRecord(id, createdAtUtc, BeamKitCheckStatus.Pass);
+        var artifact = new BeamKitCiRunRecord(
+            record.Artifact.Provenance with
+            {
+                NamingDictionaryId = "institution-tg263",
+                NamingDictionaryVersionId = "ndv-1",
+                NamingDictionaryFingerprint = "sha256:naming",
+                NamingDictionaryName = "Institution TG-263",
+                MachineProfileId = "institution-linac",
+                MachineProfileVersionId = "mpv-1",
+                MachineProfileFingerprint = "sha256:machine",
+                MachineProfileName = "Synthetic linear accelerator constraints",
+                PolicySetId = "head-neck-standard",
+                PolicySetVersionId = "psv-1",
+                PolicySetFingerprint = "sha256:policy",
+                PolicySetName = "Head and Neck Clinical Policy"
+            },
+            record.Artifact.PolicyValidation,
+            record.Artifact.CheckReport);
+
+        return record with { Artifact = artifact };
+    }
+
     private static CiServerManagedRulePackVersion CreateRulePackVersion(string rulePackId, string versionId, DateTimeOffset importedAtUtc)
     {
         return new CiServerManagedRulePackVersion(
@@ -467,6 +569,60 @@ public sealed class SqliteCiRunStoreTests
             dictionary.Tags,
             $"sha256:{versionId}",
             new StructureNameDictionaryReviewer().Review(dictionary));
+    }
+
+    private static CiServerManagedMachineProfileVersion CreateMachineProfileVersion(string machineProfileId, string versionId, DateTimeOffset importedAtUtc)
+    {
+        var profile = MachineConstraintProfile.CreateSynthetic() with { Version = versionId };
+        var review = new CiServerMachineProfileReviewer().Review(profile, $"sha256:{versionId}");
+        return new CiServerManagedMachineProfileVersion(
+            machineProfileId,
+            versionId,
+            importedAtUtc,
+            "physics",
+            "InlineJson",
+            "test",
+            System.Text.Json.JsonSerializer.Serialize(profile, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
+            profile.Name,
+            profile.Version,
+            profile.MachineId,
+            profile.Energy,
+            profile.BeamModelId,
+            profile.CalculationModel,
+            profile.CalculationModelVersion,
+            new[] { "linac" },
+            $"sha256:{versionId}",
+            review);
+    }
+
+    private static CiServerClinicalPolicySetVersion CreatePolicySetVersion(string policySetId, string versionId, DateTimeOffset importedAtUtc)
+    {
+        return new CiServerClinicalPolicySetVersion(
+            policySetId,
+            versionId,
+            importedAtUtc,
+            "physics",
+            "Head and Neck Clinical Policy",
+            versionId,
+            "Test policy.",
+            "Head and Neck",
+            "VMAT",
+            new[] { "head-neck" },
+            "institution-head-neck",
+            "rpv-1",
+            "sha256:rule-pack",
+            "Head and Neck Rule Pack",
+            "1.0",
+            "institution-tg263",
+            "ndv-1",
+            "sha256:naming",
+            "Institution TG-263",
+            "institution-linac",
+            "mpv-1",
+            "sha256:machine",
+            "Synthetic linear accelerator constraints",
+            "sha256:safety",
+            $"sha256:policy-{versionId}");
     }
 
     private static CiServerRtpxAcceptanceRecord CreateRtpxAcceptance(string id, DateTimeOffset createdAtUtc, bool accepted)

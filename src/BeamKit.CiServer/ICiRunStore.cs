@@ -106,6 +106,66 @@ public interface ICiRunStore
         string? note = null);
 
     /// <summary>
+    /// Adds or replaces a managed machine-profile version.
+    /// </summary>
+    CiServerManagedMachineProfileVersion SaveMachineProfileVersion(CiServerManagedMachineProfileVersion version);
+
+    /// <summary>
+    /// Finds a managed machine-profile version.
+    /// </summary>
+    CiServerManagedMachineProfileVersion? FindMachineProfileVersion(string machineProfileId, string versionId);
+
+    /// <summary>
+    /// Finds the active managed version for a machine-profile id.
+    /// </summary>
+    CiServerManagedMachineProfileVersion? FindActiveMachineProfileVersion(string machineProfileId);
+
+    /// <summary>
+    /// Lists managed machine-profile versions.
+    /// </summary>
+    IReadOnlyList<CiServerManagedMachineProfileVersionSummary> ListMachineProfileVersions(string? machineProfileId = null);
+
+    /// <summary>
+    /// Promotes one managed machine-profile version as active.
+    /// </summary>
+    CiServerManagedMachineProfileVersion PromoteMachineProfileVersion(
+        string machineProfileId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null);
+
+    /// <summary>
+    /// Adds or replaces a clinical policy-set version.
+    /// </summary>
+    CiServerClinicalPolicySetVersion SaveClinicalPolicySetVersion(CiServerClinicalPolicySetVersion version);
+
+    /// <summary>
+    /// Finds a clinical policy-set version.
+    /// </summary>
+    CiServerClinicalPolicySetVersion? FindClinicalPolicySetVersion(string policySetId, string versionId);
+
+    /// <summary>
+    /// Finds the active clinical policy-set version for a policy-set id.
+    /// </summary>
+    CiServerClinicalPolicySetVersion? FindActiveClinicalPolicySetVersion(string policySetId);
+
+    /// <summary>
+    /// Lists clinical policy-set versions.
+    /// </summary>
+    IReadOnlyList<CiServerClinicalPolicySetVersionSummary> ListClinicalPolicySetVersions(string? policySetId = null);
+
+    /// <summary>
+    /// Promotes one clinical policy-set version as active.
+    /// </summary>
+    CiServerClinicalPolicySetVersion PromoteClinicalPolicySetVersion(
+        string policySetId,
+        string versionId,
+        DateTimeOffset activatedAtUtc,
+        string? activatedBy = null,
+        string? note = null);
+
+    /// <summary>
     /// Adds or replaces an RT-PX package acceptance record.
     /// </summary>
     CiServerRtpxAcceptanceRecord SaveRtpxAcceptance(CiServerRtpxAcceptanceRecord record);
